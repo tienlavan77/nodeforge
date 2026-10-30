@@ -2,14 +2,14 @@
  * their saved intent and reject repeated requests without replaying Coder work. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestReviewWithVerification, addReviewVerificationEvidence } from "../../src/modules/supervisor/review-verification-flow.js";
-import { assertReviewVerificationRequests, reviewVerificationRequestSchema } from "../../src/modules/supervisor/review-verification-contract.js";
-import { createRespondToReviewTool, respondToReviewInputSchema } from "../../src/tools/respond-to-review-tool.js";
+import { requestReviewWithVerification, addReviewVerificationEvidence } from "../../src/modules/supervisor/review/review-verification-flow.js";
+import { assertReviewVerificationRequests, reviewVerificationRequestSchema } from "../../src/modules/supervisor/review/review-verification-contract.js";
+import { createRespondToReviewTool, respondToReviewInputSchema } from "../../src/tools/reporting/respond-to-review-tool.js";
 import { createAgentExchange, bindAgentExchangeResponse } from "../../src/modules/governance/agent-exchange.js";
 import { createAgentExchangeOutput } from "../../src/modules/governance/agent-exchange-output.js";
-import { beginAutomaticReview } from "../../src/modules/supervisor/automatic-review-stage.js";
-import { createReviewExchangeEvidence, attachReviewExchangeTools } from "../../src/modules/supervisor/review-exchange-evidence.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
+import { beginAutomaticReview } from "../../src/modules/supervisor/review/automatic-review-stage.js";
+import { createReviewExchangeEvidence, attachReviewExchangeTools } from "../../src/modules/supervisor/review/review-exchange-evidence.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
 
 const artifact = { artifact_id: "ARTIFACT-A", commit_sha: "a".repeat(40), source_revision: "source-1", status: "passed" };
 const request = { finding_ids: ["REV-1"], criterion_ids: ["AC-1"], test_paths: ["backend/tests/unit/security.test.js"], scope: "ticket",
@@ -44,6 +44,25 @@ test("Reviewer verification requests run once and return to Reviewer before fina
   assert.equal(f.saved[0].review_verification.status, "running");
   assert.equal(f.saved[1].review_verification.status, "completed");
   assert.equal(f.input.exchangeEvidence.files.size, 1);
+});
+
+test("test-induced source mutations return a failed receipt to Reviewer for an explicit repair verdict", async () => {
+  const repair = { verdict: "request_changes", adjudications: [], findings: [{ acceptance_criterion: "AC-1",
+    failure: "The test recreates a removed file in its working directory.", evidence_refs: ["CHECK-1"],
+    minimum_change_scope: "Keep fixture writes inside the isolated test directory." }] };
+  const f = fixture([required, repair]);
+  const run = f.input.verificationService.runReviewVerification;
+  f.input.verificationService.runReviewVerification = async (input) => (await run(input)).map((receipt) => ({ ...receipt,
+    status: "failed", integrity_error: { code: "VERIFY_SOURCE_MISMATCH", path: "x", expected_sha256: null,
+      observed_sha256: "sha256:empty", phase: "after_checks", message: "Review verification source differs: x." } }));
+  const result = await requestReviewWithVerification(f.input);
+  assert.equal(result.verdict, "request_changes");
+  assert.equal(f.prompts.length, 2);
+  assert.match(f.prompts[1], /"status":"failed".*"integrity_error"/);
+  assert.match(f.prompts[1], /"path":"x"/);
+  assert.match(f.prompts[1], /not passing evidence even if the command exited zero/);
+  assert.equal(f.saved.at(-1).review_verification.status, "completed");
+  assert.equal(f.checks.length, 1);
 });
 
 test("structured Coder evidence requests run before Reviewer while prose-only requests launch nothing", async () => {

@@ -8,9 +8,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
-import { createTicketReportChecks } from "../../src/modules/supervisor/ticket-report-checks.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
+import { createTicketReportChecks } from "../../src/modules/supervisor/ticket/ticket-report-checks.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 import { buildCodexTicketPrompt, buildToolTicketPrompt } from "../../src/modules/supervisor/nodeforge-task-prompts.js";
 
 // Both provider paths must request real receipt references and retained drafts

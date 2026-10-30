@@ -1,7 +1,7 @@
 // Persists source-bound Architecture questions and owner draft answers across reloads without keeping an agent running.
 import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
-import { acquireTicketFileLock } from "../modules/supervisor/ticket-file-lock.js";
+import { acquireTicketFileLock } from "../modules/supervisor/ticket/ticket-file-lock.js";
 import { architectureSelections, decisionError, validateArchitectureQuestions } from "../modules/governance/architecture-owner-decisions.js";
 const PROCESS_ID = randomUUID();
 

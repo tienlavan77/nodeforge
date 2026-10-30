@@ -6,7 +6,11 @@ if (!Number.isSafeInteger(proxyTimeoutMs) || proxyTimeoutMs <= 0) throw new Erro
 const nextConfig = {
   compress: false,
   logging: { incomingRequests: false },
-  experimental: { proxyTimeout: proxyTimeoutMs },
+  experimental: {
+    proxyTimeout: proxyTimeoutMs,
+    // Compile in the main process to avoid build-worker stalls in the verification environment while retaining type checks and prerendering.
+    webpackBuildWorker: false,
+  },
   allowedDevOrigins: ["192.168.1.181", "192.168.1.0/24", "localhost", "127.0.0.1"],
   async rewrites() {
     return { afterFiles: [

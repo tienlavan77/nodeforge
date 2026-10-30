@@ -5,12 +5,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { withCoderExchange, coderExchangePrompt } from "../../src/modules/supervisor/coder-agent-exchange.js";
-import { prepareRepairExchange } from "../../src/modules/supervisor/review-agent-exchange.js";
+import { withCoderExchange, coderExchangePrompt } from "../../src/modules/supervisor/coder/coder-agent-exchange.js";
+import { prepareRepairExchange } from "../../src/modules/supervisor/review/review-agent-exchange.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createAgentExchangeStorage } from "../../src/modules/governance/agent-exchange-storage.js";
 import { createAgentExchange, bindAgentExchangeResponse } from "../../src/modules/governance/agent-exchange.js";
-import { createResumeState, checkpointPayload } from "../../src/modules/supervisor/ticket-resume.js";
+import { createResumeState, checkpointPayload } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 const selected = { agent_id: "C", role: "coder" };
 const request = { project_id: "P", task_id: "T", request_id: "R", payload: { execution_id: "E" }, ticket: { title: "Repair binding", objective: "Bind the reply", acceptance_criteria: ["Correct binding"] } };

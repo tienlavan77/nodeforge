@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { purposeComments, purposeCommentBefore } from "../../src/modules/index/parser/purpose-comments.js";
-import { extractFileHeaderComment, extractPrecedingCommentBlock, hasPrecedingComment } from "../../src/tools/agent-code-conventions.js";
+import { extractFileHeaderComment, extractPrecedingCommentBlock, hasPrecedingComment } from "../../src/tools/governance/agent-code-conventions.js";
 import { createIndexRecordWriter } from "../../src/modules/index/index-record-writer.js";
 import { extractJavaScript } from "../../src/modules/index/parser/javascript.js";
 

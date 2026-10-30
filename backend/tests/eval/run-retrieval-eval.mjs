@@ -7,6 +7,8 @@ import { createForgeToolRegistry } from "../../src/tools/index.js";
 import { selectEvalCandidates } from "./retrieval-eval-registry.js";
 import { RETRIEVAL_EVAL_CASES } from "./retrieval-cases.js";
 import { REPOSITORY_ROOT } from "../../src/shared/repository-root.js";
+import { mkdir, appendFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const root = REPOSITORY_ROOT;
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, "").split("=")));
@@ -16,7 +18,12 @@ const CASE_ID = args.case ? String(args.case) : null;
 const CASES = CASE_ID ? RETRIEVAL_EVAL_CASES.filter((item) => item.id === CASE_ID) : RETRIEVAL_EVAL_CASES;
 if (CASE_ID && CASES.length === 0) throw new Error(`Unknown retrieval eval case: ${CASE_ID}`);
 
+// Retains per-case execution evidence when a long benchmark is interrupted before its final summary.
+const progressPath = join(root, ".forge/runtime/reports/retrieval-benchmark-progress.jsonl");
+await mkdir(join(root, ".forge/runtime/reports"), { recursive: true });
+await writeFile(progressPath, `${JSON.stringify({ phase: "started", cases: CASES.length, limit: LIMIT, k: K_VALUES, at: new Date().toISOString() })}\n`);
 const indexDb = await openIndexDatabase(root, { runtimeDir: ".forge/runtime/wc" });
+await appendFile(progressPath, `${JSON.stringify({ phase: "index_opened", at: new Date().toISOString() })}\n`);
 const { search, fileGraph, embeddingStore, embeddingProvider } = createRetrievalDependencies({ database: indexDb });
 const selector = createRelevantTreeSelector({ search, fileGraph, embeddingStore, embeddingProvider, maxFiles: 30, defaultDepth: 1 });
 const registry = createForgeToolRegistry({ relevantTreeSelector: selector, protocolStorage: { get: async () => null }, fileService: { readForIndex: async () => null }, projectLogger: () => {} });
@@ -28,6 +35,7 @@ const rows = [];
 
 for (const c of CASES) {
   const startedAt = Date.now();
+  await appendFile(progressPath, `${JSON.stringify({ phase: "case_started", id: c.id, at: new Date().toISOString() })}\n`);
   const result = await selectEvalCandidates({ registry, caseItem: c, limit: LIMIT });
   if (process.env.RETRIEVAL_DEBUG_POOL === "1" && (!process.env.RETRIEVAL_DEBUG_CASE || c.id === process.env.RETRIEVAL_DEBUG_CASE)) {
     console.log(`candidate_pool=${JSON.stringify(result.retrieval_diagnostics ?? [])}`);
@@ -47,6 +55,7 @@ for (const c of CASES) {
   const hubHit = (c.hub_paths ?? []).find((h) => ranked.slice(0, 2).includes(h));
   if (hubHit) { hubTop += 1; row.hub_in_top2 = hubHit; }
   rows.push({ ...row, duration_ms: Date.now() - startedAt, semantic_matches: ranked.filter((path) => result.selected.find((entry) => entry.path === path)?.reason?.includes("tier-semantic:embedding")).length });
+  await appendFile(progressPath, `${JSON.stringify({ phase: "case_completed", ...rows.at(-1) })}\n`);
 }
 
 const n = CASES.length;
@@ -57,4 +66,5 @@ for (const r of rows) {
 }
 for (const k of K_VALUES) console.log(`avg recall@${k}=${(hitsAt[k] / n).toFixed(3)} precision@${k}=${(precAt[k] / n).toFixed(3)}`);
 console.log(`hub_in_top2=${hubTop}/${n}`);
+await appendFile(progressPath, `${JSON.stringify({ phase: "completed", cases: n, averages: Object.fromEntries(K_VALUES.map((k) => [k, { recall: hitsAt[k] / n, precision: precAt[k] / n }])), hub_in_top2: hubTop, at: new Date().toISOString() })}\n`);
 await indexDb.close?.();

@@ -10,8 +10,8 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
 import { createCodeSearch } from "../../src/modules/index/code-search.js";
 import { createFileGraph } from "../../src/modules/index/file-graph.js";
-import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
-import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
+import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket/ticket-workspace-service.js";
+import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
 
 const execFile = promisify(execFileCallback);
 const sourceRoot = resolve(".");

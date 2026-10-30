@@ -5,8 +5,8 @@ import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
 
 // Supplies real scoped source plus observable search and Git services without repository mutations.
 async function fixture(context, provider = "openai") {

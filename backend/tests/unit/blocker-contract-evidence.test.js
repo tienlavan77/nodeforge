@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { retainBlockerContract, readBlockerContracts, blockerContractPrompt } from "../../src/modules/supervisor/blocker-contract-evidence.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { retainBlockerContract, readBlockerContracts, blockerContractPrompt } from "../../src/modules/supervisor/blocker/blocker-contract-evidence.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 
 test("concurrent and repeated AM receipt retention reuses identical bytes without cleanup error logs", async (t) => {

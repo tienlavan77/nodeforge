@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { selectAvailableReviewer } from "../../src/modules/supervisor/reviewer-agent-availability.js";
-import { recoverOperationalReview } from "../../src/modules/supervisor/review-operational-retry.js";
+import { selectAvailableReviewer } from "../../src/modules/supervisor/review/reviewer-agent-availability.js";
+import { recoverOperationalReview } from "../../src/modules/supervisor/review/review-operational-retry.js";
 
 test("busy Reviewer waits through multiple claim checks then reviews the same artifact once", async () => {
   let now = 1000, providerCalls = 0, available = false, checkpoint;

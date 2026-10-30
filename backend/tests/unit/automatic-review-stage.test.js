@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { assertAutomaticReviewResume, setAutomaticReviewStage } from "../../src/modules/supervisor/automatic-review-stage.js";
-import { automaticReviewPolicy } from "../../src/modules/supervisor/automatic-review-identity.js";
+import { assertAutomaticReviewResume, setAutomaticReviewStage } from "../../src/modules/supervisor/review/automatic-review-stage.js";
+import { automaticReviewPolicy } from "../../src/modules/supervisor/review/automatic-review-identity.js";
 
 // Models compare-and-swap status changes without replacing the original execution details.
 function statusFixture() {

@@ -22,7 +22,7 @@ async function recoverPersistentOccupancy(root, agentId, claimId) {
     await runtime.recover();
     const sourceIdentities = {};
     for (const path of ["modules/supervisor/production-runtime.js", "modules/supervisor/ticket-launch-recovery.js", "modules/agent/agent-occupancy-store.js", "modules/supervisor/durable-queue.js"]) {
-      sourceIdentities[path] = createHash("sha256").update(await readFile(new URL(`../../src/${path}`, import.meta.url))).digest("hex");
+      sourceIdentities[path] = createHash("sha256").update(await readFile(new URL(`../../src/${path === "modules/supervisor/ticket-launch-recovery.js" ? "modules/supervisor/ticket/ticket-launch-recovery.js" : path}`, import.meta.url))).digest("hex");
     }
     return { node_version: process.version, pid: process.pid, source_identities: sourceIdentities, active_claim: occupancy.getByTask(TICKET.id), occupancy_row: storage.database.all("SELECT * FROM agent_occupancy WHERE claim_id = ?", [claimId])[0], profile_status: profiles.getById(agentId).status, launch_claim: storage.store.get(TICKET.id)?.details.launch_claim, events, diagnostics, provider_calls: providerCalls, agent_requests: await runtime.queueStore.list("agent.request") };
   } finally {

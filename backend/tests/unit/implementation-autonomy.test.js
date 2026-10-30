@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CODER_AUTONOMY_PROMPT, PLANNING_AUTONOMY_PROMPT, REVIEW_AUTONOMY_PROMPT } from "../../src/shared/implementation-autonomy.js";
 import { buildCodexTicketPrompt, buildToolTicketPrompt, COMPLEXITY_FALLBACK } from "../../src/modules/supervisor/nodeforge-task-prompts.js";
-import { buildResumePrompt, checkpointPayload, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { buildResumePrompt, checkpointPayload, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 import { createSprintPlanLeader } from "../../src/application/sprint-plan-leader.js";
 import { createTicketSprintLeader } from "../../src/application/ticket-sprint-leader.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 
 const ticket = { id: "T-AUTONOMY", title: "Return a correct total", objective: "Sum input values", acceptance_criteria: ["Return the sum, including zero for empty input"], verification_plan: [{ criterion_ids: ["AC-1"], kind: "test", test_path: "backend/tests/total.test.js" }] };
 
@@ -20,7 +20,10 @@ test("Codex and Claude preserve the same autonomy and immutable verification bou
       assert.match(prompt, /AC-1: test \(test_path=backend\/tests\/total\.test\.js\)/);
       assert.match(prompt, /commit_changes/);
       assert.match(prompt, /report_done/);
-      if (immutableScope) assert.match(prompt, /edit only manifest paths/);
+      if (immutableScope) {
+        assert.match(prompt, /discovery hints, not file permissions/);
+        assert.match(prompt, /read, write, delete and move files across this project/);
+      }
     }
   }
   assert.deepEqual(ticket, original);
@@ -31,11 +34,10 @@ test("Codex and Claude preserve the same autonomy and immutable verification bou
 test("both Coder prompts distinguish advisory discovery order from mandatory prerequisites", () => {
   for (const build of [buildCodexTicketPrompt, buildToolTicketPrompt]) {
     const prompt = build(ticket, null, ["src/total.js"], COMPLEXITY_FALLBACK);
-    assert.match(prompt, /position among discovery calls is advisory/);
-    assert.match(prompt, /runtime independently requires a successful rules read before the first edit/);
+    assert.match(prompt, /runtime-required rules read before the first edit/);
     assert.match(prompt, /within (?:it|that budget).*discovery is yours to direct|Discovery within that budget is yours to direct/);
     assert.match(prompt, /bounded total-budget extension/);
-    assert.match(prompt, /Never change permissions or bypass an actual tool denial/);
+    assert.match(prompt, /Git metadata and paths outside the project remain unavailable/);
   }
 });
 
@@ -45,8 +47,8 @@ test("checkpoint roundtrip and review repair retain autonomy without inventing o
   const prompt = buildResumePrompt(buildCodexTicketPrompt(ticket, null, ["src/total.js"], COMPLEXITY_FALLBACK, false, true), resumed);
   assert.ok(prompt.includes(CODER_AUTONOMY_PROMPT));
   assert.ok(prompt.includes(ticket.acceptance_criteria[0]));
-  assert.match(prompt, /REV-1: Empty input must return zero/);
-  assert.match(prompt, /only Reviewer adjudication can close it/);
+  assert.match(prompt, /"finding_id":"REV-1","review_revision":1,"review_history_tool":"query_review"/);
+  assert.match(prompt, /query_review/);
   assert.doesNotMatch(prompt, /Project owner decided blocker option/);
   assert.equal(resumed.threadId, "thread-autonomy");
   assert.equal(resumed.turnCount, 23);

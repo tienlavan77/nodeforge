@@ -5,9 +5,9 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReadFileTool, createWriteDiffTool, createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
-import { createCommittedReviewWindow } from "../../src/modules/supervisor/committed-review-window.js";
+import { createReadFileTool, createWriteDiffTool, createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
+import { createCommittedReviewWindow } from "../../src/modules/supervisor/review/committed-review-window.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 
 // Tracks actual writes and whole-file checksums while simulating existing and absent project files.

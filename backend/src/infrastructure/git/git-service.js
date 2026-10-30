@@ -6,9 +6,10 @@ import { ConfigurationError } from "../../shared/errors.js";
 const execFile = promisify(execFileCallback);
 const SAFE_BRANCH = /^(?!\.)(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$/;
 const PROTECTED_BRANCHES = new Set(["main", "master", "develop"]);
+const MAX_GIT_BUFFER = 64 * 1024 * 1024;
 
 // Creates a Git facade that validates branch/revision/paths and delegates execution to runGit with timeout and event auditing.
-export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutMs = 30_000, onEvent = () => {}, logger = console, mutationLock } = {}) {
+export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutMs = 120_000, onEvent = () => {}, logger = console, mutationLock } = {}) {
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("Git Service requires a project root.");
   if (typeof runGit !== "function") throw new ConfigurationError("Git Service requires a git executor.");
   if (typeof onEvent !== "function") throw new ConfigurationError("Git Service onEvent must be a function.");
@@ -112,8 +113,14 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     const safePaths = validatePaths(paths);
     if (!safePaths.length) throw new ConfigurationError("Git commit requires explicit paths.");
     const pathspecs = safePaths.map((path) => `:(literal)${path}`);
-    const addArgs = safePaths.some((path) => path === ".forge" || path.startsWith(".forge/")) ? ["add", "-f", "--", ...pathspecs] : ["add", "--", ...pathspecs];
-    const add = await execute(addArgs, "GIT_ADD_FAILED");
+    const addArgs = ["add", "-f", "--", ...pathspecs];
+    let add = await execute(addArgs, "GIT_ADD_FAILED");
+    if (add.exitCode !== 0 && /pathspec .* did not match any files/i.test(add.stderr ?? "")) {
+      const removed = await execute(["diff", "--cached", "--no-renames", "--name-only", "--diff-filter=D", "-z", "--", ...pathspecs], "GIT_ADD_FAILED");
+      const removedSet = new Set(removed.exitCode === 0 ? removed.stdout.split("\0").map((path) => path.trim()).filter(Boolean) : []);
+      const remainingSpecs = safePaths.filter((path) => !removedSet.has(path)).map((path) => `:(literal)${path}`);
+      if ( removedSet.size > 0 ) add = remainingSpecs.length ? await execute(["add", "-f", "--", ...remainingSpecs], "GIT_ADD_FAILED") : { exitCode: 0, stdout: "", stderr: "" };
+    }
     if (add.exitCode !== 0) throw gitError("GIT_ADD_FAILED", `Git add failed: ${add.stderr ?? "unknown Git error"}`);
     emit("git.add", { paths: safePaths });
     // NUL-delimited names keep paths with spaces or non-ASCII characters unquoted so they match the requested raw paths.
@@ -238,8 +245,8 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
 
 // Executes a git command via execFile, normalizing success and error results into a uniform exitCode object.
 async function defaultRunGit(args, options) {
-  try { const result = await execFile("git", args, options); return { ...result, exitCode: 0 }; }
-  catch (error) { return { stdout: error.stdout ?? "", stderr: error.stderr ?? "", exitCode: error.code === 1 ? 1 : undefined, error }; }
+  try { const result = await execFile("git", args, { maxBuffer: MAX_GIT_BUFFER, ...options }); return { ...result, exitCode: 0 }; }
+  catch (error) { return { stdout: error.stdout ?? "", stderr: error.stderr || error.message || "", exitCode: error.code === 1 ? 1 : undefined, error }; }
 }
 
 // Validates that a git revision string contains only safe characters and is not path-traversal.

@@ -3,7 +3,7 @@
  * passing tests as permission to bypass an independent denial or missing evidence. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerFailureClassification, requiresBlockerAdmission, requiresEvidenceReconciliation, refreshBlockerFailureFeedback } from "../../src/modules/supervisor/blocker-failure-classification.js";
+import { createBlockerFailureClassification, requiresBlockerAdmission, requiresEvidenceReconciliation, refreshBlockerFailureFeedback } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 /** Reproduces the mixed legacy input-validation and baseline receipts seen in production. */

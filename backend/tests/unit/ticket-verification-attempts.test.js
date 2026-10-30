@@ -4,7 +4,7 @@ import test from "node:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { latestTicketVerificationAttempt } from "../../src/modules/supervisor/ticket-verification-attempts.js";
+import { latestTicketVerificationAttempt } from "../../src/modules/supervisor/ticket/ticket-verification-attempts.js";
 
 // Chooses the actual second attempt when its UUID sorts before the first.
 test("latest verification attempt uses persisted attempt rather than UUID order", async () => {

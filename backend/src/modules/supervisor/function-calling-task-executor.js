@@ -3,18 +3,18 @@
 // Model history stays in memory between phase yields; process recovery rebuilds
 // the prompt from durable tool checkpoints rather than replaying old mutations.
 import { ConfigurationError } from "../../shared/errors.js";
-import { classifyTicketComplexity } from "../../tools/ticket-complexity.js";
+import { classifyTicketComplexity } from "../../tools/governance/ticket-complexity.js";
 import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-tool-catalog.js";
 import { bindEngineeringTools } from "../../tools/engineering-tool-binding.js";
 import { isProtectedPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 import { ticketAllowedPrefixes } from "./nodeforge-task-scope.js";
 import { buildCodexTicketPrompt } from "./nodeforge-task-prompts.js";
-import { buildResumePrompt, checkpointedRegistry, createResumeState, failureDetail } from "./ticket-resume.js";
-import { saveProgressCheckpoint } from "./ticket-checkpoint-writer.js";
-import { runTicketSdkTurns } from "./ticket-sdk-turns.js";
+import { buildResumePrompt, checkpointedRegistry, createResumeState, failureDetail } from "./ticket/ticket-resume.js";
+import { saveProgressCheckpoint } from "./ticket/ticket-checkpoint-writer.js";
+import { runTicketSdkTurns } from "./ticket/ticket-sdk-turns.js";
 import { sdkToolEvent } from "./nodeforge-task-sdk-events.js";
-import { coderFailureTriage } from "./coder-recovery-policy.js";
-import { withCoderExchange, coderExchangePrompt } from "./coder-agent-exchange.js";
+import { coderFailureTriage } from "./coder/coder-recovery-policy.js";
+import { withCoderExchange, coderExchangePrompt } from "./coder/coder-agent-exchange.js";
 
 // Creates a ticket-bound executor without exposing shell tools or selecting a
 // replacement provider. Missing gateways fail before any governed tool call.

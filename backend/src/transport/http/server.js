@@ -18,7 +18,7 @@ export function createHttpApi({ ownerChatService, conversationStream, projectStr
   if (sprintOrchestrationService !== undefined && typeof sprintOrchestrationService?.run !== "function") throw new ConfigurationError("HTTP API Sprint Orchestration Service must provide run().");
   if (dispatchSprint !== undefined && typeof dispatchSprint !== "function") throw new ConfigurationError("HTTP API Sprint Dispatch must be a function.");
 
-  return Object.freeze({ handler, createServer: () => createServer(handler) });
+  return Object.freeze({ handler, createServer: () => { const server = createServer(handler); server.keepAliveTimeout = 65_000; server.headersTimeout = 66_000; return server; } });
   async function handler(request, response) {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");

@@ -2,8 +2,8 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertExecutionFileAccess, issueExecutionFileAccess } from "../../tools/execution-file-access.js";
-import { isAgentPathAllowed } from "../../tools/tool-authorization.js";
-import { assertDiscoveryBudget, createExplorationState, discoveryKind, markEditStarted } from "../../tools/exploration-state.js";
+import { isAgentPathAllowed } from "../../tools/governance/tool-authorization.js";
+import { assertDiscoveryBudget, createExplorationState, discoveryKind, markEditStarted } from "../../tools/discovery/exploration-state.js";
 import { assertReservation, buildToolContext, cloneBudget, cloneContext, contextKey, distinctCalls, ensureTables, governanceError, isId, loadBudget, loadPersistedBudget, normalizeBudget, normalizeScope, nonNegativeInteger, persistBudget, persistBudgetValues, resourceAllowed, resourceList, withLock } from "./runtime-tool-governance-state.js";
 
 const TERMINAL_LIFECYCLES = new Set(["COMPLETED", "CANCELLED", "EXPIRED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
@@ -73,7 +73,8 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
     const operation = EDIT_TOOLS.has(toolName) ? "write" : "read";
     for (const item of resourceList(resource)) if (!(normalized.file_access_version === 2
       ? item === "." && toolName === "search_tree" && operation === "read" || isAgentPathAllowed(item, normalized, { operation })
-      : resourceAllowed(item, normalized.allowed_resources, { operation, role: normalized.agent_identity?.role }))) throw governanceError("TOOL_RESOURCE_FORBIDDEN", `Resource is outside the execution allowlist: ${item}.`);
+      : normalized.agent_identity?.role === "coder" ? item === "." && toolName === "search_tree" || isAgentPathAllowed(item, normalized, { operation })
+        : resourceAllowed(item, normalized.allowed_resources, { operation, role: normalized.agent_identity?.role }))) throw governanceError("TOOL_RESOURCE_FORBIDDEN", `Resource is outside the execution allowlist: ${item}.`);
     return true;
   }
 

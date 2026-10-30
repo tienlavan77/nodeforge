@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createSprintLeaderForgeTools, createSprintLeaderToolOptions } from "../../src/tools/sprint-leader-forge-tools.js";
+import { createSprintLeaderForgeTools, createSprintLeaderToolOptions } from "../../src/tools/roles/sprint-leader-forge-tools.js";
 
 // Creates isolated source evidence so planning tests cannot read or modify the real repository.
 async function fixture(run) {

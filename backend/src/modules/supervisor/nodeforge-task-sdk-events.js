@@ -1,7 +1,7 @@
 // Normalizes Claude and Codex SDK events into governed Forge tool results.
 import { ConfigurationError } from "../../shared/errors.js";
 import { engineeringToolName } from "../../tools/engineering-tool-names.js";
-import { approvalServiceUnavailable } from "./blocker-approval-retry.js";
+import { approvalServiceUnavailable } from "./blocker/blocker-approval-retry.js";
 
 // Converts completed Codex SDK MCP events into Forge tool-event records.
 export function sdkToolEvent(event, forgeToolNames) {

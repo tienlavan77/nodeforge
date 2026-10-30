@@ -3,11 +3,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { issueExecutionFileAccess, assertExecutionFileAccess } from "../../src/tools/execution-file-access.js";
-import { isAgentPathAllowed } from "../../src/tools/tool-authorization.js";
+import { isAgentPathAllowed } from "../../src/tools/governance/tool-authorization.js";
 import { bindEngineeringTools } from "../../src/tools/engineering-tool-binding.js";
 import { createRuntimeToolGovernance } from "../../src/modules/governance/runtime-tool-governance.js";
-import { scopedGraph } from "../../src/tools/agent-file-index-view.js";
-import { createSearchCodeTool } from "../../src/tools/search-code.js";
+import { scopedGraph } from "../../src/tools/discovery/agent-file-index-view.js";
+import { createSearchCodeTool } from "../../src/tools/discovery/search-code.js";
 
 // Identifies synthetic Node authority without borrowing a production policy approval or credential.
 const policyIdentity = { id: "test-policy", revision: "1", sha256: `sha256:${"a".repeat(64)}` };
@@ -26,38 +26,38 @@ function fixture(overrides = {}, policy = {}) {
   return { context, options };
 }
 
-test("read grant permits callers outside the immutable manifest without authorizing writes", async () => {
+test("Coder authority permits reads and writes outside the immutable evidence manifest", async () => {
   const { context } = fixture();
   const calls = [];
   const registry = Object.fromEntries(["read_lines", "write_diff"].map((name) => [name, { execute: async (input) => { calls.push(input.path); return {}; } }]));
   const bound = bindEngineeringTools({ registry, context });
   await bound.registry.read_lines.execute({ path: "backend/caller.js", start_line: 1, end_line: 1 });
-  await assert.rejects(bound.registry.write_diff.execute({ path: "backend/caller.js", before_checksum: null, content: "x" }), { code: "PATH_FORBIDDEN" });
+  await bound.registry.write_diff.execute({ path: "backend/caller.js", before_checksum: null, content: "x" });
   await bound.registry.write_diff.execute({ path: "backend/target.js", before_checksum: null, content: "x" });
-  assert.deepEqual(calls, ["backend/caller.js", "backend/target.js"]);
+  assert.deepEqual(calls, ["backend/caller.js", "backend/caller.js", "backend/target.js"]);
   context.allowed_file_paths.push("backend/escape.js");
-  assert.equal(isAgentPathAllowed("backend/escape.js", context, { operation: "write" }), false);
-  assert.equal(isAgentPathAllowed("backend-extra/caller.js", context), false);
+  assert.equal(isAgentPathAllowed("backend/escape.js", context, { operation: "write" }), true);
+  assert.equal(isAgentPathAllowed("backend-extra/caller.js", context), true);
 });
 
-test("protected paths, aliases, workflow and governance writes override exact grants", () => {
+test("Coder writes include governance and dependencies while aliases and Git metadata remain denied", () => {
   const paths = ["workflows/plan.md", "AGENTS.md", "backend/CLAUDE.md", "ARCHITECTURE.md", "vocabulary/glossary.md", "node_modules/package/index.js"];
   const { context } = fixture({ allowed_file_paths: paths }, { readPrefixes: ["backend", "workflows", "vocabulary", "node_modules"] });
-  for (const path of paths) assert.equal(isAgentPathAllowed(path, context, { operation: "write" }), false, path);
-  for (const path of ["backend/../outside", "backend//file", "/backend/file", "backend\\file", "backend/.env", "backend/secrets/key", ".forge/runtime/a", ".git/config"]) {
+  for (const path of paths) assert.equal(isAgentPathAllowed(path, context, { operation: "write" }), true, path);
+  for (const path of ["backend/../outside", "backend//file", "/backend/file", "backend\\file", ".git/config"]) {
     assert.equal(isAgentPathAllowed(path, context), false, path);
   }
   assert.equal(isAgentPathAllowed("workflows/plan.md", context), true);
 });
 
-test("docs need an exact ticket grant and authoritative Node classification, not a prefix", () => {
+test("Coder documentation writes do not need another role classification", () => {
   const { context } = fixture({ allowed_file_paths: ["docs/guide.md", "docs/governance.md"], allowed_prefixes: ["docs"] },
     { authorizeDocsWrite: ({ path }) => path === "docs/guide.md" });
   assert.equal(isAgentPathAllowed("docs/guide.md", context, { operation: "write" }), true);
-  assert.equal(isAgentPathAllowed("docs/governance.md", context, { operation: "write" }), false);
-  assert.equal(isAgentPathAllowed("docs/other.md", context, { operation: "write" }), false);
+  assert.equal(isAgentPathAllowed("docs/governance.md", context, { operation: "write" }), true);
+  assert.equal(isAgentPathAllowed("docs/other.md", context, { operation: "write" }), true);
   const unclassified = fixture({ allowed_file_paths: ["docs/guide.md"] }).context;
-  assert.equal(isAgentPathAllowed("docs/guide.md", unclassified, { operation: "write" }), false);
+  assert.equal(isAgentPathAllowed("docs/guide.md", unclassified, { operation: "write" }), true);
 });
 
 test("missing, serialized and cross-execution grants fail closed", () => {
@@ -67,8 +67,8 @@ test("missing, serialized and cross-execution grants fail closed", () => {
     { agent_identity: { agent_id: "OTHER", role: "coder" } }]) {
     assert.throws(() => assertExecutionFileAccess({ ...context, ...changed }), { code: "FILE_ACCESS_POLICY_INVALID" });
   }
-  assert.equal(isAgentPathAllowed("backend/a.js", { agent_identity: { role: "coder" } }), false);
-  assert.equal(isAgentPathAllowed("docs/a.md", { agent_identity: { role: "coder" } }), false);
+  assert.equal(isAgentPathAllowed("backend/a.js", { agent_identity: { role: "coder" } }), true);
+  assert.equal(isAgentPathAllowed("docs/a.md", { agent_identity: { role: "coder" } }), true);
 });
 
 test("current-authority callback controls revocation and post-read delivery", async () => {
@@ -93,7 +93,7 @@ test("verification subprocesses stay locked until versioned filesystem enforceme
   await assert.rejects(bound.registry.run_check.execute({ type: "test", command: "node --test backend/test.js" }), { code: "TOOL_LOCKED" });
 });
 
-test("runtime dispatch preserves issued read grants without widening mutation resources", async () => {
+test("runtime dispatch preserves issued identity with project-wide Coder mutation authority", async () => {
   const { context, options } = fixture();
   const governance = createRuntimeToolGovernance({ fileAccessPolicy: options });
   const { file_access_policy, file_access_version, ...input } = context;
@@ -103,7 +103,8 @@ test("runtime dispatch preserves issued read grants without widening mutation re
   await governance.dispatch("read_lines", { path: "backend/caller.js" }, current, async (_input, issuedContext) => { received = issuedContext; return {}; });
   assert.equal(received.file_access_policy, current.file_access_policy);
   assert.equal(isAgentPathAllowed("backend/caller.js", received), true);
-  assert.throws(() => governance.authorize("write_diff", current, "backend/caller.js"), { code: "TOOL_RESOURCE_FORBIDDEN" });
+  assert.doesNotThrow(() => governance.authorize("write_diff", current, "backend/caller.js"));
+  assert.throws(() => governance.authorize("write_diff", current, "../outside.js"), { code: "TOOL_RESOURCE_FORBIDDEN" });
   assert.throws(() => governance.authorize("read_lines", { ...current, file_access_policy: structuredClone(current.file_access_policy) }, "backend/caller.js"), { code: "FILE_ACCESS_POLICY_INVALID" });
   assert.throws(() => createRuntimeToolGovernance().createExecutionContext(context), { code: "FILE_ACCESS_POLICY_INVALID" });
 });
@@ -115,17 +116,18 @@ test("resume cannot manufacture new authority from checkpoint fields", () => {
   assert.throws(() => fixture({}, { authorizeCurrent: async () => true }), { code: "FILE_ACCESS_POLICY_INVALID" });
 });
 
-test("authorized create scope still obeys immutable manifest and mutable file budget", async () => {
+test("Coder writes are independent of create prefixes and mutable file budgets", async () => {
   const baseline = { file_checksums: { "backend/target.js": null }, authorized_create_prefixes: ["backend/new"], mutable_file_budget: 2 };
   const { context } = fixture({ authorized_create_prefixes: ["backend/new"], execution_context: { approved_baseline: baseline } });
   const bound = bindEngineeringTools({ context, registry: { write_diff: { execute: async (input, current) => { current.changed_paths.push(input.path); return {}; } } } });
   await bound.registry.write_diff.execute({ path: "backend/new/first.js", before_checksum: null, content: "x" });
-  await assert.rejects(bound.registry.write_diff.execute({ path: "backend/new/second.js", before_checksum: null, content: "x" }), { code: "PATH_FORBIDDEN" });
-  await assert.rejects(bound.registry.write_diff.execute({ path: "backend/newer/a.js", before_checksum: null, content: "x" }), { code: "PATH_FORBIDDEN" });
+  await bound.registry.write_diff.execute({ path: "backend/new/second.js", before_checksum: null, content: "x" });
+  await bound.registry.write_diff.execute({ path: "backend/newer/a.js", before_checksum: null, content: "x" });
+  assert.equal(bound.context.changed_paths.length, 3);
 });
 
 test("read metadata and index graph edges cannot expose paths denied by the read grant", async () => {
-  const { context } = fixture({ capabilities: ["search_code"] });
+  const { context } = fixture({ capabilities: ["search_code"], agent_identity: { agent_id: "REVIEWER", role: "reviewer" } });
   const graph = { imports: [{ path: "backend/caller.js" }, { path: "backend/secrets/fixture.js" }, { path: "ui/outside.js" }] };
   assert.deepEqual(scopedGraph(graph, context).imports, [{ path: "backend/caller.js" }]);
   const tool = createSearchCodeTool({ codeSearch: { search: async () => ({ matches: [

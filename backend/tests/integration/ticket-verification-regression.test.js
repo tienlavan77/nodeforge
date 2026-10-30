@@ -7,12 +7,12 @@ import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { buildLegacyRegressionPlan } from "../fixtures/legacy-verification-plan.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
-import { coversVerificationPolicy } from "../../src/modules/supervisor/ticket-verification-policy.js";
-import { completeNodeReportEvidence } from "../../src/tools/node-report-evidence.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
+import { coversVerificationPolicy } from "../../src/modules/supervisor/ticket/ticket-verification-policy.js";
+import { completeNodeReportEvidence } from "../../src/tools/reporting/node-report-evidence.js";
 
 const execute = promisify(execFile);
 const source = "backend/src/shared.js";

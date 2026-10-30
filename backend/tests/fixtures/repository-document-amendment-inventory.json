@@ -1,0 +1,10 @@
+{
+  "purpose": "Record the append-only sandbox amendment separately without replacing the original lifecycle inventory, and verify lossless reconstruction of the observed combined document.",
+  "original_path": "docs/architecture/multi-project-lifecycle.md",
+  "original_sha256": "sha256:f21579802db235c424cf5e87adc3a708497913897db1e65f182366117b64ed60",
+  "section_path": "docs/architecture/ordinary-verification-write-sandbox.md",
+  "section_sha256": "sha256:69c638e52dfb1f066cbe0187619d6a7cd5b573b42fdca4a0214bfd6cdddec8f3",
+  "combined_before_sha256": "sha256:22be85563f133e88f070fd8efddb73abfd263f88e385ae68529edbb6eaf482c0",
+  "separator": "\n",
+  "section_header_lines": 1
+}

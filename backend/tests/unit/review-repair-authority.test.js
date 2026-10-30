@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { reconcileReviewRepairAuthority, reviewRepairScopeConflict } from "../../src/modules/supervisor/review-repair-authority.js";
+import { reconcileReviewRepairAuthority, reviewRepairScopeConflict } from "../../src/modules/supervisor/review/review-repair-authority.js";
 
 // Exercises the inline production completion path through Coder repair, fresh verification and independent re-review.
 test("an in-scope blocker returns to Coder and cannot complete until Reviewer approves the repaired revision", async () => {

@@ -1,7 +1,7 @@
 // Prevents review-policy amendments and incomplete recovery checkpoints from crashing Coder resume.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 test("a resolved checkpoint without a disposition does not fabricate guidance or crash", () => {
   const state = createResumeState({ status: "failed", last_completed_turn: 2, blocker_recovery: { status: "resolved" } });

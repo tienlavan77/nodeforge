@@ -2,8 +2,8 @@
  * while passing receipts and accepted baseline regressions stay Node-owned. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ticketVerificationResult, ticketFocusedCheckResult } from "../../src/modules/supervisor/ticket-verification-result.js";
-import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket-verification-regression.js";
+import { ticketVerificationResult, ticketFocusedCheckResult } from "../../src/modules/supervisor/ticket/ticket-verification-result.js";
+import { regressionFailureIdentity } from "../../src/modules/supervisor/ticket/ticket-verification-regression.js";
 import { createHash } from "node:crypto";
 
 // Builds genuine comparable baseline evidence, rather than trusting an agent's

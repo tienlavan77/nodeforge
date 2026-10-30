@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { createTicketCommitFileService } from "../../src/modules/supervisor/ticket-commit-file-service.js";
+import { createTicketCommitFileService } from "../../src/modules/supervisor/ticket/ticket-commit-file-service.js";
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
 
 // Models production root-only source separation without substituting a writable fake for Reviewer files.

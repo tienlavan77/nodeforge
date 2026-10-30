@@ -1,9 +1,9 @@
 // Verifies denial review uses authenticated exact evidence and never authorizes a silent retry.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerFailureClassification } from "../../src/modules/supervisor/blocker-failure-classification.js";
-import { createBlockerAdmission } from "../../src/modules/supervisor/blocker-execution-admission.js";
-import { scheduleTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
+import { createBlockerFailureClassification } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
+import { createBlockerAdmission } from "../../src/modules/supervisor/blocker/blocker-execution-admission.js";
+import { scheduleTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
 import { routeTicketReview } from "../../src/transport/http/forge-v1-ticket-review-routes.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";

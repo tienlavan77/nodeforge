@@ -1,9 +1,9 @@
 // Exercises independent Reviewer format correction, durable diagnostics and source-bound recovery across providers.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestReviewVerdict, redactReviewVerdictText } from "../../src/modules/supervisor/review-verdict-request.js";
-import { parseReviewVerdict } from "../../src/modules/supervisor/review-verdict-contract.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { requestReviewVerdict, redactReviewVerdictText } from "../../src/modules/supervisor/review/review-verdict-request.js";
+import { parseReviewVerdict } from "../../src/modules/supervisor/review/review-verdict-contract.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 
 const finding = { finding_id: "REV-1", failure: "Missing routing witness", acceptance_criterion: "Project isolation",
   evidence_refs: ["src/router.js:12"], minimum_change_scope: "Verify routed session creation" };

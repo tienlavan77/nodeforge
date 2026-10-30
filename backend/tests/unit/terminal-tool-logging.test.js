@@ -8,10 +8,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
-import { createSprintLeaderForgeTools } from "../../src/tools/sprint-leader-forge-tools.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
+import { createSprintLeaderForgeTools } from "../../src/tools/roles/sprint-leader-forge-tools.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 
 /** Builds real project readers and captures each audit/display stream while

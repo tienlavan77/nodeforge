@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
-import { createRgSearchTool } from "../../src/tools/rg-search.js";
-import { runProjectRipgrep } from "../../src/tools/project-ripgrep-runner.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
+import { createRgSearchTool } from "../../src/tools/discovery/rg-search.js";
+import { runProjectRipgrep } from "../../src/tools/discovery/project-ripgrep-runner.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
 
@@ -40,7 +40,7 @@ test("rg_search accepts real nested files without expanding search authority", a
     for (const role of ["architecture_manager", "reviewer", "coder", "system_engineer"]) {
       const owner = { ...context, agent_identity: { role }, allowed_prefixes: [".forge"] };
       for (const path of [".forge", ".forge/runtime", ".forge/runtime/one.txt"]) {
-        if (role === "system_engineer") assert.match((await tool.execute({ pattern: "needle", paths: [path] }, owner)).stdout, /\.forge\/runtime\/one.txt/);
+        if (["system_engineer", "coder"].includes(role)) assert.match((await tool.execute({ pattern: "needle", paths: [path] }, owner)).stdout, /\.forge\/runtime\/one.txt/);
         else await assert.rejects(() => tool.execute({ pattern: "needle", paths: [path] }, owner));
       }
     }
@@ -155,7 +155,7 @@ test("rg_search reads shared source cache and leaves it available for sed_lines"
   try {
     await mkdir(join(root, "backend"));
     await writeFile(join(root, "backend", "one.js"), "const symbol = 1;\n");
-    const base = createFileService({ projectRoot: root });
+    const base = createFileService({ projectRoot: root, role: "coder" });
     let reads = 0;
     const fileService = { ...base, readForIndex: async (input) => { reads += 1; return base.readForIndex(input); } };
     const codeCache = createCodeCacheService({ projectId: "P", fileService });

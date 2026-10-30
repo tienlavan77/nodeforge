@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketPipelineInventory } from "../../src/modules/supervisor/ticket-pipeline-inventory.js";
+import { createTicketPipelineInventory } from "../../src/modules/supervisor/ticket/ticket-pipeline-inventory.js";
 
 const execFile = promisify(execFileCallback);
 const hash = (value) => createHash("sha256").update(value).digest("hex");

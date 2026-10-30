@@ -8,9 +8,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { assertRoleFileAccess } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { retainBlockerContract, readBlockerContracts } from "../../src/modules/supervisor/blocker-contract-evidence.js";
-import { createBlockerContractFiles } from "../../src/modules/supervisor/blocker-contract-files.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { retainBlockerContract, readBlockerContracts } from "../../src/modules/supervisor/blocker/blocker-contract-evidence.js";
+import { createBlockerContractFiles } from "../../src/modules/supervisor/blocker/blocker-contract-files.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 
 /** Persists and authenticates a real receipt, keeping the Node state reader
  * observable and deliberately rejecting all runtime reads in the source reader. */

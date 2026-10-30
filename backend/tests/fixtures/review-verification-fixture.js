@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
-import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
-import { createReviewVerificationService } from "../../src/modules/supervisor/review-verification-service.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
+import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
+import { createReviewVerificationService } from "../../src/modules/supervisor/review/review-verification-service.js";
 
 const execute = promisify(execFile);
 

@@ -39,16 +39,16 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     }
     void refresh();
     return () => { mounted = false; };
-  }, [client, projectId, conversationId, interruptionSignal]);
+  }, [client, projectId, conversationId, executionId, agentTyping, interruptionSignal]);
 
   const awaitingStop = awaitingOwnerExecutionRecovery(current);
   useEffect(() => {
-    if (!conversationId || !awaitingStop) return undefined;
+    if (!conversationId || !awaitingStop || busy) return undefined;
     const requestRevision = revision.current;
     return watchOwnerExecutionRecovery({ client, projectId, conversationId, executionId: current?.execution_id,
       onUpdate: (items) => { if (requestRevision === revision.current) { setExecutions(items); setError(""); } },
       onError: (message) => { if (requestRevision === revision.current) setError(message); } });
-  }, [client, projectId, conversationId, current?.execution_id, awaitingStop]);
+  }, [client, projectId, conversationId, current?.execution_id, awaitingStop, busy]);
 
   // Sends pause and recovery actions for the selected Architecture execution.
   async function decide(action) {
@@ -68,7 +68,15 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
         return items.some((entry) => entry.execution_id === record.execution_id) ? items.map((entry) => entry.execution_id === record.execution_id ? { ...entry, ...result, status } : entry) : [...items, { ...record, ...result, status }];
       });
       onDecision?.({ action, executionId: record.execution_id, nextExecutionId: result?.execution_id });
-    } catch (reason) { setError(reason.message ?? "Architecture recovery was blocked."); }
+    } catch (reason) {
+      const message = reason.message ?? "Architecture recovery was blocked.";
+      setError(message);
+      const requestRevision = revision.current;
+      try {
+        const response = await client.listOwnerExecutions(projectId, conversationId);
+        if (requestRevision === revision.current) setExecutions(response.items ?? []);
+      } catch (refreshError) { setError(`${message} ${refreshError.message ?? "Unable to refresh execution status."}`); }
+    }
     finally { inFlight.current = false; setBusy(false); }
   }
 
@@ -91,10 +99,11 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     return () => { window.removeEventListener("keydown", onKeyDown); lastEscape.current = 0; setHint(""); };
   }, [current?.execution_id, current?.status, agentTyping, conversationId, busy]);
 
-  return <div className="claude-chat-status architecture-execution-controls" role="status" aria-live="polite">
+  return <div className="claude-chat-status architecture-execution-controls" role="status" aria-live="polite" aria-busy={busy}>
+    {busy && <span>Updating execution…</span>}
     {current?.status === "pausing" && <span>Stopping current action…</span>}
     {["pausing", "interrupted"].includes(current?.status) && <>{current?.status === "interrupted" && <span>One action interrupted</span>}{["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy || current?.status === "pausing" || !current?.[`can_${action}`]} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}</>}
     {current?.status === "manual_required" && <><span>Execution needs owner review.</span>{current.can_reconcile && <><input className="architecture-owner-token" type="password" aria-label="Owner token" autoComplete="off" value={ownerToken} onChange={(event) => setOwnerToken(event.target.value)} /><button type="button" className="claude-retry" disabled={busy || !ownerToken} onClick={() => void decide("reconcile")}>Verify document</button></>}{current.can_discard && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("discard")}>Discard</button>}</>}
-    {error && <span>{error}</span>}
+    {error && <span role="alert">{error}</span>}
   </div>;
 }

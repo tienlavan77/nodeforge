@@ -1,7 +1,7 @@
 // Verifies SDK failures keep Coder progress resumable without requesting a human review verdict.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
+import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket/ticket-execution-failure.js";
 
 // Runs the terminal failure handler against an existing Coder checkpoint.
 async function runFailure(code, message, status = "blocked") {

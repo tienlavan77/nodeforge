@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { dependencyRepairFixture, waitForDependency } from "../fixtures/dependency-repair-fixture.js";
-import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/dependency-repair-coordinator.js";
+import { createDependencyRepairCoordinator } from "../../src/modules/supervisor/coder/dependency-repair-coordinator.js";
 import { createFileQueueStore } from "../../src/modules/supervisor/file-queue-store.js";
-import { inspectDependencyRequest, assertDependencyRepairDispatch } from "../../src/modules/supervisor/dependency-repair-contract.js";
-import { reserveDependencyRepair, saveDependencyRepair } from "../../src/modules/supervisor/dependency-repair-queue.js";
-import { createResumeState, buildResumePrompt } from "../../src/modules/supervisor/ticket-resume.js";
+import { inspectDependencyRequest, assertDependencyRepairDispatch } from "../../src/modules/supervisor/coder/dependency-repair-contract.js";
+import { reserveDependencyRepair, saveDependencyRepair } from "../../src/modules/supervisor/coder/dependency-repair-queue.js";
+import { createResumeState, buildResumePrompt } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 const QUEUE = "ticket.dependency-repair";
 

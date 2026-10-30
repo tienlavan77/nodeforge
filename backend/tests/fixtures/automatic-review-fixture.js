@@ -1,6 +1,6 @@
 // Models durable review delivery and verified Coder revisions without starting real provider sessions.
-import { createAutomaticTicketReview } from "../../src/modules/supervisor/automatic-ticket-review.js";
-import { completeCoderTicket } from "../../src/modules/supervisor/ticket-coder-completion.js";
+import { createAutomaticTicketReview } from "../../src/modules/supervisor/review/automatic-ticket-review.js";
+import { completeCoderTicket } from "../../src/modules/supervisor/ticket/ticket-coder-completion.js";
 
 // Builds an isolated ticket pipeline with restartable stores and explicit integration witnesses.
 export function automaticReviewFixture({ gate = "on", limit = 2, review, publicationFailure, ticketStatusStore, checkpoints, projectLogger, operationalRetry = false, retryClock, retryWait } = {}) {

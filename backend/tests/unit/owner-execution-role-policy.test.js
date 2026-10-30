@@ -112,8 +112,8 @@ test("restart cannot seed lineage from the other root", async (context) => {
 
 // Preserves Architecture's mutation restrictions and prevents System Engineer run-check settlement from leaking across roles.
 test("Architecture policy denies SE mutations and never settles legacy run_check boundaries, while Reviewer, Sprint Leader, and planning_input_only stay read-only", async (context) => {
-  const { createOwnerConversationTools } = await import("../../src/tools/owner-conversation-tools.js");
-  const { authorizeOwnerTool } = await import("../../src/tools/owner-role-tool-policy.js");
+  const { createOwnerConversationTools } = await import("../../src/tools/roles/owner-conversation-tools.js");
+  const { authorizeOwnerTool } = await import("../../src/tools/roles/owner-role-tool-policy.js");
   const { files, stores, root } = await fixture(context);
   const architecture = stores.architecture_manager;
   await start(architecture);

@@ -3,15 +3,15 @@
  * typed ownership and factual capabilities, never question keyword matching. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assignAuthorityConsultation } from "../../src/modules/supervisor/blocker-authority-consultation.js";
-import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker-architecture-response.js";
-import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker-reconciliation-refresh.js";
-import { assignWaitingWork, waitingAssignments } from "../../src/modules/supervisor/blocker-waiting-work.js";
-import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker-exchange-prompt.js";
-import { blockerExchangeRequest } from "../../src/modules/supervisor/blocker-agent-exchange.js";
+import { assignAuthorityConsultation } from "../../src/modules/supervisor/blocker/blocker-authority-consultation.js";
+import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker/blocker-architecture-response.js";
+import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker/blocker-reconciliation-refresh.js";
+import { assignWaitingWork, waitingAssignments } from "../../src/modules/supervisor/blocker/blocker-waiting-work.js";
+import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { blockerExchangePrompt } from "../../src/modules/supervisor/blocker/blocker-exchange-prompt.js";
+import { blockerExchangeRequest } from "../../src/modules/supervisor/blocker/blocker-agent-exchange.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { currentBlockerCoordination } from "../../src/modules/supervisor/blocker-coordination-evidence.js";
+import { currentBlockerCoordination } from "../../src/modules/supervisor/blocker/blocker-coordination-evidence.js";
 
 const wait = { action: "reconciliation_required", summary: "Independent report is unavailable.", guidance: "Preserve the committed behavior and existing diagnostic denial.",
   reconciliation: { kind: "source_revision", prerequisite: "Independent attribution evidence.", completed_checks: ["Coder cannot author an independent report."],

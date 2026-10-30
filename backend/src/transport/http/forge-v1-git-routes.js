@@ -44,7 +44,10 @@ function parseChangedPaths(porcelain) {
     const record = records[index];
     const path = record.slice(3);
     if (path) paths.push(path);
-    if (/[RC]/.test(record.slice(0, 2))) index += 1;
+    if (/[RC]/.test(record.slice(0, 2))) {
+      index += 1;
+      if (records[index]) paths.push(records[index]);
+    }
   }
   return [...new Set(paths)];
 }

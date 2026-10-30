@@ -1,7 +1,7 @@
 // Validates criterion-to-check mappings so Forge can verify ticket completion deterministically.
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
-import { assertCodingBrowserStep } from "../supervisor/browser-coding-contract.js";
+import { assertCodingBrowserStep } from "../supervisor/browser/browser-coding-contract.js";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const require = createRequire(import.meta.url);

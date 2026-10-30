@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { createReadFileTool, createWriteDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
+import { createReadFileTool, createWriteDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
-import { createOwnerSearchTreeTool } from "../../src/tools/owner-search-tree.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
+import { createOwnerSearchTreeTool } from "../../src/tools/roles/owner-search-tree.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
 
 // Models pnpm links to a shared in-project package store and one forbidden external package.
 async function fixture(t) {

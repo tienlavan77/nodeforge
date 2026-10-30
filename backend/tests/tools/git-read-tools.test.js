@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createRuntimeLogger } from "../../src/core/runtime-logger.js";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
-import { createGitReadTools } from "../../src/tools/git-read-tools.js";
+import { createGitReadTools } from "../../src/tools/discovery/git-read-tools.js";
 import { createForgeToolRegistry, gitDiffDefinition, gitStatusDefinition } from "../../src/tools/index.js";
 
 const context = { task_id: "GIT-READ-1", capabilities: ["git_status", "git_diff"], correlation_id: "C-GIT" };

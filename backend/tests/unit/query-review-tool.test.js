@@ -1,13 +1,13 @@
 // Exercises exact review lookup, lossless pagination and shared provider authorization.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createQueryReviewTool, queryReviewDefinition } from "../../src/tools/query-review-tool.js";
+import { createQueryReviewTool, queryReviewDefinition } from "../../src/tools/reporting/query-review-tool.js";
 import { coderToolDefinitions } from "../../src/tools/engineering-tool-catalog.js";
-import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../src/tools/claude-sdk-forge-tools.js";
-import { createOwnerClaudeMcpTools } from "../../src/tools/owner-claude-mcp-tools.js";
-import { createReviewExchangeEvidence, attachReviewExchangeTools } from "../../src/modules/supervisor/review-exchange-evidence.js";
-import { currentReviewFindings, reviewQueryPrompt } from "../../src/modules/supervisor/review-query-records.js";
-import { checkpointPayload, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../src/tools/roles/claude-sdk-forge-tools.js";
+import { createOwnerClaudeMcpTools } from "../../src/tools/roles/owner-claude-mcp-tools.js";
+import { createReviewExchangeEvidence, attachReviewExchangeTools } from "../../src/modules/supervisor/review/review-exchange-evidence.js";
+import { currentReviewFindings, reviewQueryPrompt } from "../../src/modules/supervisor/review/review-query-records.js";
+import { checkpointPayload, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 const context = { task_id: "T", project_id: "P", capabilities: ["query_review"], agent_identity: { role: "reviewer", agent_id: "REVIEWER" } };
 

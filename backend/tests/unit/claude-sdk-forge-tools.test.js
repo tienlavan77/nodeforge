@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../src/tools/claude-sdk-forge-tools.js";
+import { createForgeSdkMcpServer, forgeSdkToolNames } from "../../src/tools/roles/claude-sdk-forge-tools.js";
 
 async function callTool(server, name, args) {
   const handler = server.instance.server._requestHandlers.get("tools/call");

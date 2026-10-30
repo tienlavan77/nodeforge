@@ -4,9 +4,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture } from "../fixtures/ticket-contract-source-fixture.js";
-import { preflightBlockerContract } from "../../src/modules/supervisor/blocker-contract-preflight.js";
-import { createBlockerSourceResume } from "../../src/modules/supervisor/blocker-source-resume.js";
-import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker-ticket-progress.js";
+import { preflightBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-preflight.js";
+import { createBlockerSourceResume } from "../../src/modules/supervisor/blocker/blocker-source-resume.js";
+import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker/blocker-ticket-progress.js";
 
 test("unrelated shared-root changes do not invalidate the approved contract or restart Coder", async (t) => {
   const f = await fixture(t);

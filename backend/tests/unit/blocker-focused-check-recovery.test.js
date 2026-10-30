@@ -6,8 +6,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { readBlockerVerificationEvidence } from "../../src/modules/supervisor/blocker-verification-evidence.js";
-import { createBlockerFailureClassification, requiresBlockerAdmission, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker-failure-classification.js";
+import { readBlockerVerificationEvidence } from "../../src/modules/supervisor/blocker/blocker-verification-evidence.js";
+import { createBlockerFailureClassification, requiresBlockerAdmission, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
 
 // Models an original server-recorded blocked report and independently persisted
 // failed check. Mutations let tests prove each identity boundary is enforced.

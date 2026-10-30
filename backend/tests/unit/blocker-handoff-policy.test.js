@@ -4,11 +4,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { retainBlockerContract } from "../../src/modules/supervisor/blocker-contract-evidence.js";
-import { blockerHandoffPrompt, completeBlockerAdmissionWait, blockerHandoffCorrection, createBlockerHandoffRefresh } from "../../src/modules/supervisor/blocker-handoff-policy.js";
-import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker-architecture-response.js";
-import { admissionPrompt } from "../../src/modules/supervisor/blocker-execution-admission.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { retainBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-evidence.js";
+import { blockerHandoffPrompt, completeBlockerAdmissionWait, blockerHandoffCorrection, createBlockerHandoffRefresh } from "../../src/modules/supervisor/blocker/blocker-handoff-policy.js";
+import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker/blocker-architecture-response.js";
+import { admissionPrompt } from "../../src/modules/supervisor/blocker/blocker-execution-admission.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 const basis = { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) };
 const quote = "Preserve existing security restrictions and complete the approved source implementation.";

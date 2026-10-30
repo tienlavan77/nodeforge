@@ -1,5 +1,5 @@
 // Records an explicit project-owner decision on an AM blocker escalation proposal.
-import { blockerOwnerDecisions } from "../modules/supervisor/blocker-owner-decisions.js";
+import { blockerOwnerDecisions } from "../modules/supervisor/blocker/blocker-owner-decisions.js";
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
 

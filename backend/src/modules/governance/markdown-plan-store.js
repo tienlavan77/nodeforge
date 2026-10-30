@@ -2,7 +2,7 @@
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { ConfigurationError } from "../../shared/errors.js";
-import { acquireTicketFileLock } from "../supervisor/ticket-file-lock.js";
+import { acquireTicketFileLock } from "../supervisor/ticket/ticket-file-lock.js";
 import { createMarkdownPlanSource } from "./markdown-plan-source.js";
 import { verifyArchitectureDecisionSource } from "./sprint-architecture-decisions.js";
 

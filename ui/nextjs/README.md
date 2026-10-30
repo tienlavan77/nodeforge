@@ -11,7 +11,7 @@ pnpm --filter @nodeforge/ui-nextjs dev
 pnpm --filter @nodeforge/ui-nextjs build
 ```
 
-The active `/` route is a Client Component. Its direct imports are the components and `lib` modules shown below; the route also imports architecture-manager selection persistence from `ui/src`. Keep this graph aligned with actual imports in `app/page.jsx`.
+The active `/` route is a Client Component. Its direct imports are the components and `lib` modules shown below; the route imports architecture-manager selection persistence from `lib/architecture-manager-selection.js`. Keep this graph aligned with actual imports in `app/page.jsx`.
 
 ## Canonical route and import graph
 
@@ -24,7 +24,7 @@ The active `/` route is a Client Component. Its direct imports are the component
 ├── components/NodeForgePanels.jsx              dashboard/process/upload UI
 ├── components/ConversationsAccordion.jsx        conversation list and selection UI
 ├── lib/node-client.js                           API client and message intents
-├── ../../src/architecture-manager-selection.js architecture-manager selection persistence
+├── lib/architecture-manager-selection.js       architecture-manager selection persistence
 ├── lib/home-page-constants.js                  project and storage identifiers
 ├── lib/home-page-dashboard.js                  dashboard projection/cache
 ├── lib/home-page-conversation-state.js         persisted conversation selection/chat state

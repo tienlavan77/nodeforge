@@ -4,12 +4,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerReviewerEvidenceFixture } from "../fixtures/blocker-reviewer-evidence-fixture.js";
-import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { validateBlockerReviewerEvidence } from "../../src/modules/supervisor/blocker-reviewer-source.js";
-import { validateReviewerEvidenceResult } from "../../src/modules/supervisor/blocker-reviewer-evidence.js";
-import { assignAuthorityConsultation } from "../../src/modules/supervisor/blocker-authority-consultation.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
+import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { validateBlockerReviewerEvidence } from "../../src/modules/supervisor/blocker/blocker-reviewer-source.js";
+import { validateReviewerEvidenceResult } from "../../src/modules/supervisor/blocker/blocker-reviewer-evidence.js";
+import { assignAuthorityConsultation } from "../../src/modules/supervisor/blocker/blocker-authority-consultation.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
 
 test("AM obtains independent evidence, decides, returns to SL and resumes Coder without formal review or checkpoint reset", async () => {
   const f = await blockerReviewerEvidenceFixture();

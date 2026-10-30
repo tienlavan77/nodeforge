@@ -1,0 +1,29 @@
+{
+  "purpose": "Preserve original PNG byte hashes and source-to-target mappings before documentation asset relocation.",
+  "documents": [
+    {
+      "source": "docs/bo-nen-chu.png",
+      "target": "docs/assets/bo-nen-chu.png",
+      "sha256": "sha256:78bac4083cb7f41e918045fda149a3272273312100add5ac6e6f50d95786a0e2",
+      "size_bytes": 143568
+    },
+    {
+      "source": "docs/prompt-satus-bar.png",
+      "target": "docs/assets/prompt-satus-bar.png",
+      "sha256": "sha256:2a5cfd43dc6452124e0af7f6e0aebb54cf5ef2035caa520b4bae26c0376edd90",
+      "size_bytes": 17068
+    },
+    {
+      "source": "docs/giai-doan-2/so-do-a.png",
+      "target": "docs/assets/so-do-a.png",
+      "sha256": "sha256:1fa31203cdbd801aee13467938fa3bc78ad81179cc4adf37f1886717c87cf95e",
+      "size_bytes": 67165
+    },
+    {
+      "source": "docs/giai-doan-2/so-do-b.png",
+      "target": "docs/assets/so-do-b.png",
+      "sha256": "sha256:0db9948c85af796d8e2fa640a9b35dc4765d92c0e66752d32ced12926a8fb0f4",
+      "size_bytes": 56315
+    }
+  ]
+}

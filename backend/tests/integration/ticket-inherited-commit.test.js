@@ -4,11 +4,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ticketRestoredCommitFixture } from "../fixtures/ticket-restored-commit-fixture.js";
-import { createTicketReportCommit } from "../../src/tools/ticket-report-commit.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
+import { createTicketReportCommit } from "../../src/tools/reporting/ticket-report-commit.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
 import { createProtocolStorage } from "../../src/infrastructure/storage/protocol-storage.js";
 import { createCompletionReportService } from "../../src/modules/supervisor/completion-report-service.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 import { assertTicketExecutionCompleted, collectToolCalls, sdkToolEvent } from "../../src/modules/supervisor/nodeforge-task-sdk-events.js";
 
 // Models an existing ticket repair whose exact bytes have already reached shared Git history.

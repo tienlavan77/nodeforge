@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fixture } from "../fixtures/ticket-contract-source-fixture.js";
-import { findIntegratedTicketSource } from "../../src/modules/supervisor/ticket-integrated-source.js";
-import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker-ticket-progress.js";
-import { createBlockerSourceResume } from "../../src/modules/supervisor/blocker-source-resume.js";
-import { preflightBlockerContract } from "../../src/modules/supervisor/blocker-contract-preflight.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { findIntegratedTicketSource } from "../../src/modules/supervisor/ticket/ticket-integrated-source.js";
+import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker/blocker-ticket-progress.js";
+import { createBlockerSourceResume } from "../../src/modules/supervisor/blocker/blocker-source-resume.js";
+import { preflightBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-preflight.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 
 // Advances the downstream workspace to reviewed predecessor bytes, retaining the old approval checksum.
 async function inheritedFixture(t) {

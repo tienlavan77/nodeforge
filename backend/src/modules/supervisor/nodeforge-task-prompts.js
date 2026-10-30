@@ -13,7 +13,7 @@ const VERIFICATION_SCOPE_INSTRUCTIONS = "Verification scope: the ticket verifica
  * missing evidence does not trigger repeated tests or a rewritten explanation. */
 const REPORT_EVIDENCE_INSTRUCTIONS = `After CODER_EVIDENCE_PENDING, run only the named missing checks with run_check. Include the returned passing receipt in report_done({evidence:[{type:"run_check",reference:"CHECK-...",result:"passed"}]}). Node restores saved draft fields and criterion test bindings before calculating coverage; partial retries need not resubmit unchanged fields. After final verification exists, supplemental checks use its recorded dependency snapshot. Do not repeat passed checks or edit/recommit unchanged source to submit a report. Node still validates receipt identity and actual pass status; pending or failed checks are not completion.`;
 
-const BROWSER_SCENARIO_INSTRUCTIONS = "Browser verification: implement each approved scenario_path module in your commit. Export createBrowserFixture({sourceRoot,build}) => {html,assets} with real bundled project components, and browserAssertions as an object mapping EVERY exact approved assertion string to async ({page,viewport,origin}) functions that assert behavior or throw. assets maps local URL paths to text content. Node owns Chromium, approved viewport execution, network isolation and receipts; do not return fabricated receipts or replace browser checks with unit tests. See backend/src/modules/supervisor/browser-verification.md for the contract.";
+const BROWSER_SCENARIO_INSTRUCTIONS = "Browser verification: implement each approved scenario_path module in your commit. Export createBrowserFixture({sourceRoot,build}) => {html,assets} with real bundled project components, and browserAssertions as an object mapping EVERY exact approved assertion string to async ({page,viewport,origin}) functions that assert behavior or throw. assets maps local URL paths to text content. Node owns Chromium, approved viewport execution, network isolation and receipts; do not return fabricated receipts or replace browser checks with unit tests. See docs/architecture/browser-verification.md for the contract.";
 
 export const COMPLEXITY_FALLBACK = Object.freeze({ effort: "medium", discovery_budget: 8, thinking: { type: "enabled", budgetTokens: 4096 } });
 
@@ -24,18 +24,18 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
-    `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code within ${allowedJson}; choose the files yourself. No file is a mandatory target merely because it was found first.`,
+    `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code across the current project; choose the files yourself. No file is a mandatory target merely because it was found first.`,
     "Use the canonical Forge tools search_tree, list_files, search_text, read_file and read_lines to discover files and inspect current source; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
-  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text within the Node-issued read scope; use read_file/read_lines for source. Safe docs and workflows may be read when authorized. Workflows are always read-only for Coder. Write scope remains limited to approved ticket paths ${allowedJson}; a read grant never authorizes edits.`);
-  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Write only these exact paths ${allowedJson} or a Node-authorized create scope within the ticket budget; do not use prepass or candidate retrieval and do not infer a target_path. Read relevant callers, consumers, contracts and tests within the Node-issued read scope, including outside the write manifest when authorized.`);
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text within the Node-issued read scope; use read_file/read_lines for source. Coder may read, write, delete and move files throughout this project. Ticket paths ${allowedJson} are discovery hints, not a file allowlist.`);
+  if (immutableScope) instructions.splice(0, 2, `This ticket retains an immutable evidence baseline. Its paths ${allowedJson} are discovery hints, not file permissions or a mutable-file budget. Coder may read, write, delete and move files across this project. Do not use prepass or candidate retrieval; inspect relevant callers, consumers, contracts and tests.`);
   return [
     `Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.`,
     agentRoleGuidance("coder").prompt,
     schemaLookupInstructions("coder", "completion_report"),
     REVIEW_QUERY_INSTRUCTIONS,
-    "Mandatory preparation: read workflows/agents/coder/README.md before work. Its current contents are supplied above; also complete the runtime-required rules read before the first edit. Workflows remain read-only for Coder; this preparation never changes file permissions or clears a tool denial.",
+    "Mandatory preparation: read workflows/agents/coder/README.md before work. Its current contents are supplied above; also complete the runtime-required rules read before the first edit. Coder has project-wide file access; Git metadata and paths outside the project remain unavailable.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -48,12 +48,12 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
     ...ticketVocabularyHints(ticket),
     "",
     ...instructions,
-    "Hardening boundary: you may implement only hardening or fixes in the ticket's persisted scope and approved manifest. Do not rewrite boundaries already marked PASS in the acceptance report, weaken fail-closed gates, alias retired routes, or change governance authority.",
+    "Hardening boundary: you may implement only hardening or fixes needed to satisfy the ticket's persisted acceptance criteria. Do not rewrite boundaries already marked PASS in the acceptance report, weaken fail-closed gates, alias retired routes, or change governance authority.",
     "Production gate: the Coder cannot mark production accepted, release-ready, or done solely from implementation evidence. Preserve BLOCKED/NOT ACCEPTED FOR PRODUCTION until the required canary, terminal receipt, and release authority evidence exist.",
     ...coderProjectConventions("read_file"),
     "Use English for code identifiers and implementation prose; purpose comments may be entirely English or entirely Vietnamese under the project conventions below.",
     `Budget discipline: you have a hard wall-clock deadline and a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Discovery within that budget is yours to direct: you may read, search, or revisit a candidate until you have enough context, so long as you stay within the total budget. A productive agent may receive one bounded total-budget extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files.`,
-    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read within the Node-issued read scope; write only within manifest/create authority." : directCode ? "Direct-code search discipline: use search_tree, list_files and search_text within the Node-issued read scope." : "Search discipline: use search_tree/list_files for paths and search_text for live code; confirm relevant source with read_file/read_lines. Do not repeat a search that returned no matches without new evidence.",
+    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and mutate files across the project as needed for the ticket; baseline paths are evidence, not permissions." : directCode ? "Direct-code search discipline: use search_tree, list_files and search_text within the Node-issued read scope." : "Search discipline: use search_tree/list_files for paths and search_text for live code; confirm relevant source with read_file/read_lines. Do not repeat a search that returned no matches without new evidence.",
     "Use read_file({path,offset,limit}) for bounded source windows and metadata; use read_lines({path,start_line,end_line}) for precise line windows, at most 250 lines. Both return the current whole-file sha256.",
     "Symbol check: if the expected symbol is missing or no longer matches the ticket, rediscover with search_text instead of editing blind.",
     "Stay within the ticket scope for every tool. read_lines requires path, start_line and end_line; read no more than 250 lines per call.",
@@ -93,9 +93,9 @@ function coderProjectConventions(readTool = "read_file") {
   return [
     "Project conventions (AGENTS.md):",
     PURPOSE_COMMENT_GUIDANCE,
-    "- Installed backend/UI node_modules are read-only context. Locate package guidance with search_tree at its exact directory, then read_file/read_lines using the returned filename; do not guess .md versus .mdx or request Architecture approval merely to read it.",
+    "- Installed backend/UI node_modules are available as project files; modify them only when the assigned ticket requires it. Locate package guidance with search_tree at its exact directory, then read_file/read_lines using the returned filename; do not guess .md versus .mdx or request Architecture approval merely to read it.",
     "- New files/new symbols only: add detailed purpose comments describing the business purpose and technical description at the top of new files and before new function/symbol definitions, without secrets. Write each comment entirely in English or entirely in Vietnamese; do not mix sentence structure between languages. Technical identifiers, tags and paths may remain unchanged. Do not add summaries to existing files/symbols or rewrite historical comments.",
-    `- Before naming a new file/function/module/variable, call ${readTool} on vocabulary/glossary.md and use the standardized term; prefer ticket vocabulary_hints when present. Never edit vocabulary/glossary.md.`,
+    `- Before naming a new file/function/module/variable, call ${readTool} on vocabulary/glossary.md and use the standardized term; prefer ticket vocabulary_hints when present. Change the glossary only when explicitly required by the assigned task.`,
     `- Every file, across all file types, must stay at or under 250 code_lines (check ${readTool} code_lines), excluding comment-only and blank lines; split the file instead of growing past the limit. Physical total_lines remains the coordinate system for source reads, not the code budget; keep source windows at most 250 physical lines.`,
     "- For tests, verify executable behavior and state transitions whenever possible. If a source assertion is necessary, use whitespace and attribute-order independent patterns; never require HTML/JSX attributes to appear in one exact order.",
     "- Stay inside ticket scope; no unrelated refactors or while-I'm-here changes.",
@@ -125,18 +125,18 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
   const allowedJson = JSON.stringify(allowedPrefixes);
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
-    `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code within ${allowedJson}; choose the files yourself. No file is a mandatory target merely because it was found first.`,
+    `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code across the current project; choose the files yourself. No file is a mandatory target merely because it was found first.`,
     "Use the canonical Forge tools search_tree, list_files, search_text, read_file and read_lines to discover files and inspect current source; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
-  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text within the Node-issued read scope; use read_file/read_lines for source. Safe docs and workflows may be read when authorized. Workflows are always read-only for Coder. Write scope remains limited to approved ticket paths ${allowedJson}; a read grant never authorizes edits.`);
-  if (immutableScope) instructions.splice(0, 2, `This ticket has a signed immutable manifest. Write only these exact paths ${allowedJson} or a Node-authorized create scope within the ticket budget; do not use prepass or candidate retrieval and do not infer a target_path. Read relevant callers, consumers, contracts and tests within the Node-issued read scope, including outside the write manifest when authorized.`);
+  if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text within the Node-issued read scope; use read_file/read_lines for source. Coder may read, write, delete and move files throughout this project. Ticket paths ${allowedJson} are discovery hints, not a file allowlist.`);
+  if (immutableScope) instructions.splice(0, 2, `This ticket retains an immutable evidence baseline. Its paths ${allowedJson} are discovery hints, not file permissions or a mutable-file budget. Coder may read, write, delete and move files across this project. Do not use prepass or candidate retrieval; inspect relevant callers, consumers, contracts and tests.`);
   return [
     "Complete the following ticket using Forge tools only; do not use built-in shell, file, patch, or search tools.",
     agentRoleGuidance("coder").prompt,
     schemaLookupInstructions("coder", "completion_report"),
     REVIEW_QUERY_INSTRUCTIONS,
-    "Mandatory preparation: read workflows/agents/coder/README.md before work. Its current contents are supplied above; also complete the runtime-required rules read before the first edit. Workflows remain read-only for Coder; this preparation never changes file permissions or clears a tool denial.",
+    "Mandatory preparation: read workflows/agents/coder/README.md before work. Its current contents are supplied above; also complete the runtime-required rules read before the first edit. Coder has project-wide file access; Git metadata and paths outside the project remain unavailable.",
     "",
     `Ticket ${ticket?.id ?? ""}: ${ticket?.title ?? ""}`,
     `Objective: ${ticket?.objective ?? ""}`,
@@ -150,10 +150,10 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
     "",
     ...instructions,
     ...coderProjectConventions("read_file"),
-    "Hardening boundary: implement only hardening or fixes in the ticket's persisted scope and approved manifest. Do not rewrite boundaries already marked PASS in the acceptance report, weaken fail-closed gates, alias retired routes, or change governance authority.",
+    "Hardening boundary: implement only hardening or fixes needed to satisfy the ticket's persisted acceptance criteria. Do not rewrite boundaries already marked PASS in the acceptance report, weaken fail-closed gates, alias retired routes, or change governance authority.",
     "Production gate: the Coder cannot mark production accepted, release-ready, or done solely from implementation evidence. Preserve BLOCKED/NOT ACCEPTED FOR PRODUCTION until the required canary, terminal receipt, and release authority evidence exist.",
     `Budget discipline: you have a discovery budget of ${complexity.discovery_budget} exploration calls. The next action after identifying the target and relevant context is edit_diff or write_diff; do not spend the full budget by default. Every discovery result includes discovery_budget.remaining — the total budget is a hard ceiling, but within it discovery is yours to direct: you may read, search, or revisit a candidate until you have enough context. A productive agent may receive one bounded total-budget extension. Re-read nothing you already read; prefer edit_diff with an exact anchor over re-reading whole files.`,
-    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read within the Node-issued read scope; write only within manifest/create authority." : "Search discipline: use search_tree/list_files for paths and search_text for source discovery within the Node-issued read scope. Search from title, objective and acceptance criteria; avoid repeating queries that returned no matches without new evidence.",
+    immutableScope ? "Immutable-manifest search discipline: candidate retrieval is unavailable. Read and mutate files across the project as needed for the ticket; baseline paths are evidence, not permissions." : "Search discipline: use search_tree/list_files for paths and search_text for source discovery within the Node-issued read scope. Search from title, objective and acceptance criteria; avoid repeating queries that returned no matches without new evidence.",
     "Symbol check: if the expected symbol is missing or changed, rediscover with search_text instead of editing blind.",
     "Use read_file({path,offset,limit}) or read_lines({path,start_line,end_line}) for source windows of at most 250 lines. Both return current source and the whole-file sha256.",
     "Claude's built-in tools are disabled. Codex native command, file-change and web tools are blocked for Coder; use only canonical Forge tools. Use the returned checksum as before_checksum for write_diff/edit_diff.",

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createEditDiffTool, createReadFileTool, createWriteDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createEditDiffTool, createReadFileTool, createWriteDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 
 // Allows schema edits and refuses documentation reads and writes for a coder.
 test("coder can edit schemas and read docs but cannot write docs through a prefix grant", async () => {

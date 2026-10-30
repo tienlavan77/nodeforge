@@ -6,9 +6,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { blockerReviewerEvidenceFixture } from "../fixtures/blocker-reviewer-evidence-fixture.js";
-import { validateBlockerReviewerEvidence, refreshBlockerReviewerEvidence } from "../../src/modules/supervisor/blocker-reviewer-source.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
-import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
+import { validateBlockerReviewerEvidence, refreshBlockerReviewerEvidence } from "../../src/modules/supervisor/blocker/blocker-reviewer-source.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
+import { captureVerificationEnvironment, persistVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
 
 /** Models a provider's completed, source-cited evidence report with coordinates
  * preserved for AM's inspection rather than treated as filesystem characters. */

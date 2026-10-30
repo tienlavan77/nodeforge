@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createNodeforgeTaskIntegration } from "../../src/modules/supervisor/nodeforge-task-integration.js";
-import { ensureReviewStatusReady } from "../../src/modules/supervisor/review-only-status.js";
+import { ensureReviewStatusReady } from "../../src/modules/supervisor/review/review-only-status.js";
 
 test("review-only saves an approved checkpoint before publishing the terminal outcome", async () => {
   const events = [];

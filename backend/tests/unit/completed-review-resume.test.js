@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDatabaseService } from "../../src/infrastructure/sqlite/database-service.js";
 import { createTicketStatusStore } from "../../src/modules/projects/ticket-status-store.js";
-import { createCompletedReviewResume, isCompletedReviewReopened } from "../../src/modules/supervisor/completed-review-resume.js";
+import { createCompletedReviewResume, isCompletedReviewReopened } from "../../src/modules/supervisor/review/completed-review-resume.js";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 
 // Models a retained completed review without running providers or modifying integrated Coder files.

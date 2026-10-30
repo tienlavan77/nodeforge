@@ -6,10 +6,10 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { issueExecutionFileAccess } from "../../src/tools/execution-file-access.js";
-import { createRgFilesTool } from "../../src/tools/rg-files.js";
-import { createRgSearchTool } from "../../src/tools/rg-search.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
-import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createRgFilesTool } from "../../src/tools/discovery/rg-files.js";
+import { createRgSearchTool } from "../../src/tools/discovery/rg-search.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
+import { createReadFileTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { engineeringToolImplementations } from "../../src/tools/engineering-tool-implementations.js";
 import { buildToolTicketPrompt, buildCodexTicketPrompt } from "../../src/modules/supervisor/nodeforge-task-prompts.js";
@@ -24,7 +24,7 @@ test("tree/list/search/read share safe discovery scope without using write prefi
     await mkdir(dirname(join(root, path)), { recursive: true });
     await writeFile(join(root, path), content);
   }
-  const issued = { task_id: "TASK", execution_id: "EXEC", project_root: root, agent_identity: { agent_id: "CODER", role: "coder" },
+  const issued = { task_id: "TASK", execution_id: "EXEC", project_root: root, agent_identity: { agent_id: "REVIEWER", role: "reviewer" },
     capabilities: ["list_files", "search_text", "read_lines", "read_file"], allowed_file_paths: ["backend/target.js"], allowed_prefixes: [] };
   let active = true;
   issued.file_access_policy = issueExecutionFileAccess({ context: issued, readPrefixes: ["backend", "docs"],
@@ -59,12 +59,13 @@ test("tree/list/search/read share safe discovery scope without using write prefi
   assert.equal(reads.length, before);
 });
 
-test("both SDK prompts distinguish discovery from mutation and never permit workflow writes", () => {
+test("both SDK prompts explain project-wide Coder file access independently of baseline hints", () => {
   for (const buildPrompt of [buildToolTicketPrompt, buildCodexTicketPrompt]) {
     for (const [direct, immutable] of [[true, false], [false, true]]) {
       const prompt = buildPrompt({ id: "TASK", title: "Read caller" }, null, ["backend/target.js"], {}, direct, immutable);
-      assert.match(prompt, /Node-issued read scope/);
-      assert.match(prompt, /All workflows are read-only/);
+      assert.match(prompt, /project-wide file access/);
+      assert.match(prompt, /Coder may read, write, delete and move files/);
+      assert.doesNotMatch(prompt, /[Ww]orkflows (?:remain|are always) read-only|Write only these exact paths|within manifest\/create authority/);
       assert.doesNotMatch(prompt, /must not access docs|Read and edit only approved manifest|unless its exact document edit/);
     }
   }

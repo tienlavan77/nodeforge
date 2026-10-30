@@ -1,18 +1,18 @@
 // Dispatches individual and Sprint tickets through the same approval, resume, and status lifecycle.
-import { assertAutomaticReviewResume } from "../modules/supervisor/automatic-review-stage.js";
+import { assertAutomaticReviewResume } from "../modules/supervisor/review/automatic-review-stage.js";
 import { randomUUID } from "node:crypto";
 import { assertApprovedTicket } from "../modules/governance/sprint-plan-draft.js";
 import { matchesTicketExecution, sameExecutionPlan } from "../modules/projects/ticket-execution-identity.js";
 import { assertA5ExecutionContract } from "../modules/governance/sprint-plan-execution-gates.js";
-import { reviewPhaseResume, reviewRevisionResume } from "../modules/supervisor/review-revision-resume.js";
-import { assertDependencyExpectations, captureDependencyExpectations } from "../modules/supervisor/ticket-dependency-expectations.js";
-import { coderEvidenceResume } from "../modules/supervisor/coder-evidence-resume.js";
+import { reviewPhaseResume, reviewRevisionResume } from "../modules/supervisor/review/review-revision-resume.js";
+import { assertDependencyExpectations, captureDependencyExpectations } from "../modules/supervisor/ticket/ticket-dependency-expectations.js";
+import { coderEvidenceResume } from "../modules/supervisor/coder/coder-evidence-resume.js";
 import { approvedTicketDecisions } from "../modules/governance/plan-decision-requests.js";
-import { BLOCKER_RESUME_STATUSES } from "../modules/supervisor/blocker-resume-checkpoint.js";
-import { assertTicketCoderAvailable } from "../modules/supervisor/ticket-agent-availability.js";
-import { assertDependencyRepairDispatch } from "../modules/supervisor/dependency-repair-contract.js";
+import { BLOCKER_RESUME_STATUSES } from "../modules/supervisor/blocker/blocker-resume-checkpoint.js";
+import { assertTicketCoderAvailable } from "../modules/supervisor/ticket/ticket-agent-availability.js";
+import { assertDependencyRepairDispatch } from "../modules/supervisor/coder/dependency-repair-contract.js";
 import { createTicketRunAgentWait } from "./ticket-run-agent-wait.js";
-import { classifyCoderFailure } from "../modules/supervisor/coder-failure-routing.js";
+import { classifyCoderFailure } from "../modules/supervisor/coder/coder-failure-routing.js";
 
 // Creates one shared ticket RUN entry point so Sprint execution preserves all ticket gates.
 export function createTicketRunDispatch({ disposition, intake, sprintRegistry, ticketStatusStore, checkpoints, queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery, blockerRecovery, resumeCompletedReview, reconcileReviewDependencies, agentResolver, agentOccupancy, projectId, projectLogger, clock }) {

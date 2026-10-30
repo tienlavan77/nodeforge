@@ -1,11 +1,11 @@
 // Verifies transport outages retain verified review evidence and resume without Coder repair or human approval.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reviewOperationalFailure, createReviewTransportObserver } from "../../src/modules/supervisor/review-operational-failure.js";
+import { reviewOperationalFailure, createReviewTransportObserver } from "../../src/modules/supervisor/review/review-operational-failure.js";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
-import { reviewPhaseResume } from "../../src/modules/supervisor/review-revision-resume.js";
+import { reviewPhaseResume } from "../../src/modules/supervisor/review/review-revision-resume.js";
 import { createSupervisorLoop } from "../../src/modules/supervisor/supervisor-loop.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 
 for (const status of [429, 502, 503, 504]) {
   test(`HTTP ${status} parks a hard review as resumable failed, preserving artifact and findings`, async () => {

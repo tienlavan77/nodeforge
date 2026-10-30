@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { createReadFileTool, createWriteDiffTool, createEditDiffTool, createCommitChangesTool, createReportDoneTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createReadFileTool, createWriteDiffTool, createEditDiffTool, createCommitChangesTool, createReportDoneTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,7 +14,6 @@ async function harness() {
 }
 test("read_file returns a bounded line window with whole-file checksum", async () => {
   const { fileService } = await harness();
-  await writeFile(join(fileService.projectRoot ?? process.cwd(), "x"), "", () => {});
   const tool = createReadFileTool({ fileService });
   const big = Array.from({ length: 30 }, (_, i) => `line-${i + 1}`).join("\n");
   await fileService.atomicWrite({ path: "big.txt", content: big, replace: true });
@@ -27,7 +26,9 @@ test("read_file returns a bounded line window with whole-file checksum", async (
   assert.equal(window.truncated, false);
   assert.equal(window.sha256, full.sha256, "checksum must be the whole-file hash");
   await assert.rejects(() => tool.execute({ path: "big.txt", offset: 31 }, {}), /OFFSET_OUT_OF_RANGE|beyond the last line/);
-  await assert.rejects(() => tool.execute({ path: "big.txt", offset: 1, limit: 81 }, {}), /limit must be an integer/);
+  assert.equal((await tool.execute({ path: "big.txt", offset: 1, limit: 81 }, {})).content, big);
+  assert.equal((await tool.execute({ path: "big.txt", offset: 1, limit: 250 }, {})).content, big);
+  await assert.rejects(() => tool.execute({ path: "big.txt", offset: 1, limit: 251 }, {}), /limit must be an integer/);
 });
 test("read_file returns metadata for large files and requires a source window", async () => {
   const { fileService } = await harness();
@@ -59,7 +60,7 @@ test("read_file returns metadata for an 81-line project file", async () => {
   assert.equal(window.content.split("\n").length, 41);
   assert.equal(window.sha256, metadata.sha256);
 });
-test("coder can read workflow rules but cannot edit workflow files", async () => {
+test("coder can read and edit project workflows under current project-access policy", async () => {
   const { fileService } = await harness();
   await fileService.atomicWrite({ path: "workflows/agents/coder/README.md", content: "Coder rules\n", replace: true });
   const context = { agent_identity: { role: "coder" }, allowed_prefixes: ["workflows/"] };
@@ -71,8 +72,14 @@ test("coder can read workflow rules but cannot edit workflow files", async () =>
   assert.equal(window.code_lines, 1);
   assert.equal(window.sha256, read.sha256);
   await assert.rejects(() => createReadFileTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", offset: 1, limit: 251 }, context), (error) => error.code === "INPUT_INVALID");
-  await assert.rejects(() => createEditDiffTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", before_checksum: read.sha256, anchor: "Coder", replacement: "Other" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
-  await assert.rejects(() => createWriteDiffTool({ fileService }).execute({ path: "workflows/new.md", before_checksum: null, content: "Rules\n" }, context), (error) => error.code === "FILE_ROLE_FORBIDDEN");
+  await createEditDiffTool({ fileService }).execute({ path: "workflows/agents/coder/README.md", before_checksum: read.sha256, anchor: "Coder", replacement: "Other" }, context);
+  assert.equal(await fileService.readFile({ path: "workflows/agents/coder/README.md" }), "Other rules\n");
+  const content = "<!-- Defines workflow guidance for this isolated Coder permission fixture. -->\nRules\n";
+  await createWriteDiffTool({ fileService }).execute({ path: "workflows/new.md", before_checksum: null, content }, context);
+  assert.equal(await fileService.readFile({ path: "workflows/new.md" }), content);
+  for (const path of ["../outside.md", ".git/config"]) {
+    await assert.rejects(() => createWriteDiffTool({ fileService }).execute({ path, before_checksum: null, content }, context), (error) => error.code === "PATH_FORBIDDEN");
+  }
 });
 test("repeated windowed reads hit EXPLORATION_STAGNANT and a successful edit resets the streak", async () => {
   const { fileService } = await harness();

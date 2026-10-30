@@ -9,11 +9,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createSprintLeaderForgeTools } from "../../src/tools/sprint-leader-forge-tools.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
-import { createCommittedReviewSource } from "../../src/modules/supervisor/reviewer-committed-source.js";
-import { createReviewerCodeCache } from "../../src/modules/supervisor/reviewer-code-cache.js";
+import { createSprintLeaderForgeTools } from "../../src/tools/roles/sprint-leader-forge-tools.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
+import { createCommittedReviewSource } from "../../src/modules/supervisor/review/reviewer-committed-source.js";
+import { createReviewerCodeCache } from "../../src/modules/supervisor/review/reviewer-code-cache.js";
 
 // Counts actual source reads in an isolated project while leaving all role and path checks real.
 async function fixture(run) {

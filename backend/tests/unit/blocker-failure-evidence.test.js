@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createBlockerFailureEvidence } from "../../src/modules/supervisor/blocker-failure-evidence.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
+import { createBlockerFailureEvidence } from "../../src/modules/supervisor/blocker/blocker-failure-evidence.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const job = { stage: "architecture_manager", failure_at: "2026-10-18T16:15:25.044Z",

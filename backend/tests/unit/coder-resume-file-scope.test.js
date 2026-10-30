@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { createNodeforgeTaskExecutors } from "../../src/modules/supervisor/nodeforge-task-executors.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
+import { createReadFileTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
 import { bindEngineeringTools } from "../../src/tools/engineering-tool-binding.js";
 
 for (const provider of ["codex", "claude"]) {
-  test(`${provider} Resume restores safe Node manifest paths and keeps role guidance read-only`, async (t) => {
+  test(`${provider} Resume restores safe Node manifest paths and allows project-wide document mutations`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), "coder-resume-scope-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const paths = ["CLAUDE.md", "AGENTS.md", "workflows/agents/coder/README.md", "workflows/agents/reviewer/README.md", "workflows/approved-guidance.md", "docs/accepted-guidance.md"];
@@ -23,7 +23,7 @@ for (const provider of ["codex", "claude"]) {
     const registry = {
       read_file: createReadFileTool({ fileService, projectRoot: root }),
       read_lines: createSedLinesTool({ projectRoot: root, toolName: "read_lines", logger: { emit() {} } }),
-      write_diff: { execute: async () => assert.fail("workflow write must never reach File Service") }
+      write_diff: { execute: async () => ({ written: true }) }
     };
     const executionContext = { task_id: "T-RESUME", manifest_paths: [...paths, "../outside.md", ".forge/runtime/private.json", "backend/.env", "backend/node_modules/package/index.js"] };
     let issued;
@@ -36,9 +36,9 @@ for (const provider of ["codex", "claude"]) {
         await binding.registry.read_lines.execute({ path, start_line: 1, end_line: 2 });
       }
       for (const path of executionContext.manifest_paths.slice(paths.length)) assert.ok(!issued.allowed_file_paths.includes(path), path);
-      await assert.rejects(binding.registry.read_file.execute({ path: "workflows/unapproved.md" }), { code: "PATH_FORBIDDEN" });
+      await assert.rejects(binding.registry.read_file.execute({ path: "workflows/unapproved.md" }), { code: "ENOENT" });
       for (const path of paths.filter((path) => path.startsWith("workflows/"))) {
-        await assert.rejects(binding.registry.write_diff.execute({ path, content: "overwrite", before_checksum: null }), { code: "FILE_ROLE_FORBIDDEN" });
+        assert.deepEqual(await binding.registry.write_diff.execute({ path, content: "overwrite", before_checksum: null }), { written: true });
       }
       throw Object.assign(new Error("Scope probe complete"), { code: "SCOPE_PROBE_COMPLETE" });
     };

@@ -4,13 +4,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import Ajv2020 from "ajv/dist/2020.js";
-import { createLookupSchemaTool } from "../../src/tools/lookup-schema-tool.js";
+import { createLookupSchemaTool } from "../../src/tools/discovery/lookup-schema-tool.js";
 import { AGENT_DECISION_ACTIONS, agentDecisionEvidenceError } from "../../src/modules/governance/agent-decision-schema.js";
 import { createAgentExchangeOutput } from "../../src/modules/governance/agent-exchange-output.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { blockerCorrectionPrompt, salvagePersistedDisposition } from "../../src/modules/supervisor/blocker-disposition-correction.js";
-import { discoveryAssignment } from "../../src/modules/supervisor/blocker-discovery-checkpoint.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { blockerCorrectionPrompt, salvagePersistedDisposition } from "../../src/modules/supervisor/blocker/blocker-disposition-correction.js";
+import { discoveryAssignment } from "../../src/modules/supervisor/blocker/blocker-discovery-checkpoint.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const evidence = { path: "backend/src/handler.js", sha256: "a".repeat(64) };

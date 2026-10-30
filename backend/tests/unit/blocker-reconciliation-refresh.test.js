@@ -1,7 +1,7 @@
 // Verifies deployment recovers false admission waits for every eligible ticket while preserving Stop and true denial boundaries.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker-reconciliation-refresh.js";
+import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker/blocker-reconciliation-refresh.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const technical = { event_id: "INVALID-SEARCH", tool: "search_text", error: { code: "TOOL_INPUT_INVALID", message: "Invalid input" } };

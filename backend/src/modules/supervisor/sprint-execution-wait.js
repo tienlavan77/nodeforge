@@ -1,6 +1,6 @@
 // Opens Sprint dependencies only from durable, attempt-scoped completion evidence for the approved immutable plan.
 import { matchesTicketExecution, sameExecutionPlan, validExecutionBasis } from "../projects/ticket-execution-identity.js";
-import { executionBasisSnapshot } from "./ticket-dependency-expectations.js";
+import { executionBasisSnapshot } from "./ticket/ticket-dependency-expectations.js";
 
 // Rejects stale completion evidence instead of reusing a done status from another approved revision.
 function executionError(ticketId) { return Object.assign(new Error(`Ticket ${ticketId} requires execution reconciliation for the current immutable plan.`), { code: "TICKET_EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409, retryable: false, scope: "scoped", identifiers: [ticketId] }); }

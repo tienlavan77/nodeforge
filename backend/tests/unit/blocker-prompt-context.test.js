@@ -4,9 +4,9 @@ import test from "node:test";
 import { rm, symlink, readFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { createBlockerPromptContext, createBlockerPromptRefresh } from "../../src/modules/supervisor/blocker-prompt-context.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
+import { createBlockerPromptContext, createBlockerPromptRefresh } from "../../src/modules/supervisor/blocker/blocker-prompt-context.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
 
 // Creates trusted assignment identities and long diagnostic text whose exact tail must remain available to both provider adapters.
 async function fixture(t) {

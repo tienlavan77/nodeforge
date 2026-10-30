@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/automatic-review-source.js";
-import { createCommittedReviewSource } from "../../src/modules/supervisor/reviewer-committed-source.js";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
+import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/review/automatic-review-source.js";
+import { createCommittedReviewSource } from "../../src/modules/supervisor/review/reviewer-committed-source.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 

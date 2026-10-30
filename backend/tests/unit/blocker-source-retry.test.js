@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { isBlockerSourceRetry } from "../../src/modules/supervisor/blocker-source-retry.js";
+import { isBlockerSourceRetry } from "../../src/modules/supervisor/blocker/blocker-source-retry.js";
 
 /** Builds a resolved SL/AM handoff at turn 82 using production recovery stores
  * so tests exercise dispatch fencing and checkpoint rollback, not just helpers. */

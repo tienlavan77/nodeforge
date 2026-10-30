@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { approvedBlockerArchitecture, assertArchitectureDisposition, assertOwnerEscalation } from "../../src/modules/supervisor/blocker-decision-authority.js";
+import { assertOwnerEscalation } from "../../src/modules/supervisor/blocker/blocker-decision-authority.js";
 
 const boundaryQuote = "Reuse the existing in-process worker topology and public interfaces without changing system structure.";
 const basis = { plan_id: "ARCH-PLAN", revision: 1, sha256: "a".repeat(64) };
@@ -238,25 +238,6 @@ test("boundary inflation is judged from the rejection reason, not from any rejec
     (error) => error.validation_errors[0].reason === "boundary_inflation_forbidden");
 });
 
-test("Architecture authority rejects cross-project, source-path and parent-checksum mismatches", async () => {
-  const plan = { proposal_id: `${basis.plan_id}-R1-${basis.sha256}`, source_path: "architecture.md", source_sha256: basis.sha256 };
-  const parent = { ...basis, project_id: "P", file_path: plan.source_path, markdown: boundaryQuote };
-  for (const changes of [{ project_id: "OTHER" }, { file_path: "other.md" }, { sha256: "b".repeat(64) }, { revision: 2 }]) {
-    await assert.rejects(approvedBlockerArchitecture(plan, "P", { assertApproved: async () => ({ ...parent, ...changes }) }),
-      { code: "BLOCKER_DISPOSITION_INVALID" });
-  }
-});
-
-test("SL cannot claim AM authority and AM cannot resolve without the approved parent and impact assessment", () => {
-  const value = { authority_quote: boundaryQuote, architecture_basis: basis, boundary_assessment: assessment };
-  const architecture = { basis, markdown: boundaryQuote };
-  for (const context of [{ job: { stage: "sprint_leader" }, architecture }, { job: { stage: "architecture_manager" }, architecture: null }]) {
-    assert.throws(() => assertArchitectureDisposition(value, context), { code: "BLOCKER_DISPOSITION_INVALID" });
-  }
-  assert.throws(() => assertArchitectureDisposition({ ...value, boundary_assessment: null },
-    { job: { stage: "architecture_manager" }, architecture }), { code: "BLOCKER_DISPOSITION_INVALID" });
-});
-
 test("AM corrects its identity using field feedback and resumes with a grounded paraphrase after restart", async () => {
   let attempts = 0;
   const fixture = await architectureFixture(async (job, resolution) => {
@@ -285,14 +266,3 @@ test("AM corrects its identity using field feedback and resumes with a grounded 
   } finally { await fixture.close(); }
 });
 
-test("Architecture identity failures report each precise field instead of one combined error", () => {
-  for (const field of ["plan_id", "revision", "sha256"]) {
-    assert.throws(() => assertArchitectureDisposition({ authority_scope: "architecture", authority_quote: boundaryQuote, boundary_assessment: assessment,
-      architecture_basis: { ...basis, [field]: field === "revision" ? 2 : "wrong" } },
-    { job: { stage: "architecture_manager" }, architecture: { basis, markdown: boundaryQuote } }),
-    (error) => error.validation_errors[0].path === `/architecture_basis/${field}` && error.retryable_disposition === true);
-  }
-  assert.throws(() => assertArchitectureDisposition({ authority_scope: "architecture", authority_quote: boundaryQuote, boundary_assessment: assessment, architecture_basis: {} },
-    { job: { stage: "architecture_manager" }, architecture: { basis, markdown: boundaryQuote } }),
-  (error) => { assert.deepEqual(error.validation_errors.map((entry) => entry.path), ["/architecture_basis/plan_id", "/architecture_basis/revision", "/architecture_basis/sha256"]); return true; });
-});

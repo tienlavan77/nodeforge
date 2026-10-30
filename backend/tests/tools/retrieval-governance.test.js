@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createReadCodeTool } from "../../src/tools/read-code.js";
-import { createSearchCodeTool } from "../../src/tools/search-code.js";
-import { createReadTranscriptBlocksTool } from "../../src/tools/read-transcript-blocks.js";
-import { createSelectCodeGraphCandidatesTool } from "../../src/tools/select-code-graph-candidates.js";
+import { createReadCodeTool } from "../../src/tools/discovery/read-code.js";
+import { createSearchCodeTool } from "../../src/tools/discovery/search-code.js";
+import { createReadTranscriptBlocksTool } from "../../src/tools/discovery/read-transcript-blocks.js";
+import { createSelectCodeGraphCandidatesTool } from "../../src/tools/discovery/select-code-graph-candidates.js";
 
 test("read_code enforces the Node-owned cumulative retrieval budget and emits audit", async () => {
   const content = "const value = 1;";

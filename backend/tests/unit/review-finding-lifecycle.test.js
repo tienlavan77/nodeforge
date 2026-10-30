@@ -5,9 +5,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
-import { parseReviewVerdict } from "../../src/modules/supervisor/review-verdict-contract.js";
-import { requestReviewVerdict } from "../../src/modules/supervisor/review-verdict-request.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
+import { parseReviewVerdict } from "../../src/modules/supervisor/review/review-verdict-contract.js";
+import { requestReviewVerdict } from "../../src/modules/supervisor/review/review-verdict-request.js";
 
 const finding = { acceptance_criterion: "AC-1 isolation", failure: "A linked directory redirects storage", minimum_change_scope: "Reject redirected runtime roots", evidence_refs: ["backend/storage.js:10"] };
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
-import { preflightBlockerContract } from "../../src/modules/supervisor/blocker-contract-preflight.js";
+import { preflightBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-preflight.js";
 import { BASIS } from "../fixtures/coder-production-recovery-fixture.js";
 
 test("a rejected transactional resume restores the parked checkpoint without invoking Coder", async () => {

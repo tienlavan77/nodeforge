@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createAgentExchange, bindAgentExchangeResponse } from "../../src/modules/governance/agent-exchange.js";
 import { createAgentExchangeStorage } from "../../src/modules/governance/agent-exchange-storage.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { parseTicketWorkProgress, TICKET_WORK_PROGRESS_PROMPT } from "../../src/modules/supervisor/ticket-work-progress.js";
+import { parseTicketWorkProgress, TICKET_WORK_PROGRESS_PROMPT } from "../../src/modules/supervisor/ticket/ticket-work-progress.js";
 
 /** Creates the same four model-authored fields used by both provider prompts. */
 function content() {

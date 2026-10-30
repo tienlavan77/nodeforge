@@ -1,7 +1,7 @@
 // Verifies manual ticket review receives existing discovery tools without changing commit checkout safeguards.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveReviewOnlyWorkspace } from "../../src/modules/supervisor/review-only-workspace.js";
+import { resolveReviewOnlyWorkspace } from "../../src/modules/supervisor/review/review-only-workspace.js";
 
 // Provides an in-memory review workspace with independent Code Search and read-only Git services.
 function fixture() {

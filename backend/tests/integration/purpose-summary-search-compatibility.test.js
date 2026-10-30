@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createReadFileTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 import { runIndexMigrations } from "../../src/infrastructure/sqlite/index-migrations.js";
 import { createIndexRecordWriter } from "../../src/modules/index/index-record-writer.js";
 import { createCodeSearch } from "../../src/modules/index/code-search.js";

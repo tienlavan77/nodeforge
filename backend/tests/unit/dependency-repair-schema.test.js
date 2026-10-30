@@ -5,8 +5,8 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { createRequire } from "node:module";
 import { agentDecisionSchema } from "../../src/modules/governance/agent-decision-schema.js";
 import { createAgentExchangeOutput } from "../../src/modules/governance/agent-exchange-output.js";
-import { validateDependencyRequest } from "../../src/modules/supervisor/dependency-repair-contract.js";
-import { blockerExchangeResponse } from "../../src/modules/supervisor/blocker-agent-exchange.js";
+import { validateDependencyRequest } from "../../src/modules/supervisor/coder/dependency-repair-contract.js";
+import { blockerExchangeResponse } from "../../src/modules/supervisor/blocker/blocker-agent-exchange.js";
 import { createAgentExchange } from "../../src/modules/governance/agent-exchange.js";
 
 const require = createRequire(import.meta.url);

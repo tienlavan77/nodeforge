@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker-authority-passages.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
-import { repeatedDispositionCorrection, blockerCorrectionPrompt } from "../../src/modules/supervisor/blocker-disposition-correction.js";
+import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker/blocker-authority-passages.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
+import { repeatedDispositionCorrection, blockerCorrectionPrompt } from "../../src/modules/supervisor/blocker/blocker-disposition-correction.js";
 
 test("SL receives actionable correction feedback and cannot resume until the full disposition validates", async () => {
   let attempts = 0;

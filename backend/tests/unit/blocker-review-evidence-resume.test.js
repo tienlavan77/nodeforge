@@ -1,9 +1,9 @@
 // Ensures newly available retained review source wakes SL once without polling unchanged evidence forever.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker-reconciliation-refresh.js";
-import { inspectReviewResponseReadiness } from "../../src/modules/supervisor/review-response-readiness.js";
-import { requiresBlockerAdmission } from "../../src/modules/supervisor/blocker-failure-classification.js";
+import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker/blocker-reconciliation-refresh.js";
+import { inspectReviewResponseReadiness } from "../../src/modules/supervisor/review/review-response-readiness.js";
+import { requiresBlockerAdmission } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
 
 // Reopens a parked correction only when current complete receipts prove its old access classification obsolete.
 test("report conflict classification wakes a parked invalid disposition once and preserves real denials", async () => {

@@ -1,0 +1,170 @@
+{
+  "purpose": "Retains pre-mutation document hashes and exact source-to-target architecture line mapping so direct engineering verification proves byte preservation independently of the modified tree.",
+  "documents": [
+    {
+      "source": "backend/multi-project-lifecycle.md",
+      "target": "docs/architecture/multi-project-lifecycle.md",
+      "sha256": "sha256:f21579802db235c424cf5e87adc3a708497913897db1e65f182366117b64ed60"
+    },
+    {
+      "source": "backend/multi-project-agent-attribution.md",
+      "target": "docs/architecture/multi-project-agent-attribution.md",
+      "sha256": "sha256:9697baac3a4d7366c31c553e5dec2236b1c759108e8a4525aaeeb19d19007d0f"
+    },
+    {
+      "source": "backend/reviewer-evidence.md",
+      "target": "docs/architecture/reviewer-evidence.md",
+      "sha256": "sha256:9b22d85d48606629d4f544aa54db0435171967c76895e2752dfaa32f62e2a516"
+    },
+    {
+      "source": "backend/src/application/owner-execution-checkpoint.md",
+      "target": "docs/architecture/owner-execution-checkpoint.md",
+      "sha256": "sha256:aaa300add7b5bdacfd12ee8e98d6bc66181f575872ee7bd2684bd7a4ef097209"
+    },
+    {
+      "source": "backend/error-routing-recovery.md",
+      "target": "docs/architecture/error-routing-recovery.md",
+      "sha256": "sha256:104303c4880c3102ad55740850005ba54010abef967253a601d4bcf9eef68fff"
+    },
+    {
+      "source": "backend/reviewer-coder-collaboration.md",
+      "target": "docs/architecture/reviewer-coder-collaboration.md",
+      "sha256": "sha256:ae95a4fd3ce26264a8f7b668ffe74e15fd3e51360ca2f6c6e43b6f32e6695335"
+    },
+    {
+      "source": "backend/implementation-autonomy.md",
+      "target": "docs/architecture/implementation-autonomy.md",
+      "sha256": "sha256:246991023a9d2dbb65578165efff26a87e7c335f4cf41b679233203b7bee11ba"
+    },
+    {
+      "source": "backend/blocker-technical-reconciliation.md",
+      "target": "docs/architecture/blocker-technical-reconciliation.md",
+      "sha256": "sha256:bf4aab010de78e44bb2d4deb1847defbc89ede3559e28c147a98512e465dd9f0"
+    },
+    {
+      "source": "backend/blocker-recovery.md",
+      "target": "docs/architecture/blocker-recovery.md",
+      "sha256": "sha256:e9faac847ff2c7f13d0ea44114ee9e333b619b62c1b6650d67c04964e9296863"
+    },
+    {
+      "source": "backend/automatic-blocker-recovery.md",
+      "target": "docs/architecture/automatic-blocker-recovery.md",
+      "sha256": "sha256:0e77f9b7164f2adbd31ad62f6a1a7a3307ad5c01fbb83bf7e44c5bf79e0b5ecd"
+    },
+    {
+      "source": "backend/src/modules/governance/architecture-clarifications.md",
+      "target": "docs/architecture/architecture-clarifications.md",
+      "sha256": "sha256:4dd9800302eac0de3183f970e5191f1e49bb3acc6a9ad0bce3d0196efb7885eb"
+    },
+    {
+      "source": "backend/src/modules/governance/plan-decision-requests.md",
+      "target": "docs/architecture/plan-decision-requests.md",
+      "sha256": "sha256:908dbc79f057e4fb6758d9b4d79e8ed47b5a277d24434f6c6828d5a9ba201cb7"
+    },
+    {
+      "source": "backend/src/modules/supervisor/ticket-attempt-release.md",
+      "target": "docs/architecture/ticket-attempt-release.md",
+      "sha256": "sha256:7700c24e2d9ff08da0d58fb3e76b755f3151fa3d7dfeaac2e9aaab847f86bffb"
+    },
+    {
+      "source": "backend/src/modules/supervisor/review-records.md",
+      "target": "docs/architecture/review-records.md",
+      "sha256": "sha256:2b7c874ff8d344baa1148f709187bc58561ee7039eb77c019a62e16e5e757007"
+    },
+    {
+      "source": "backend/src/modules/supervisor/browser-verification.md",
+      "target": "docs/architecture/browser-verification.md",
+      "sha256": "sha256:c06552f4953ffad9ec73e4d68c1a68a1063f20809ecb713ca62b5c44dda65207"
+    }
+  ],
+  "architecture": {
+    "sha256": "sha256:21b0dd4f054fe2e8c4862593fb32f25730c94fa98f879d7dd780450b625e3b79",
+    "parts": [
+      {
+        "path": "docs/architecture/reference-01.md",
+        "start": 1,
+        "end": 200
+      },
+      {
+        "path": "docs/architecture/reference-02.md",
+        "start": 201,
+        "end": 386
+      },
+      {
+        "path": "docs/architecture/reference-03.md",
+        "start": 387,
+        "end": 562
+      },
+      {
+        "path": "docs/architecture/reference-04.md",
+        "start": 563,
+        "end": 717
+      },
+      {
+        "path": "docs/architecture/reference-05.md",
+        "start": 718,
+        "end": 910
+      },
+      {
+        "path": "docs/architecture/reference-06.md",
+        "start": 911,
+        "end": 1098
+      },
+      {
+        "path": "docs/architecture/reference-07.md",
+        "start": 1099,
+        "end": 1293
+      },
+      {
+        "path": "docs/architecture/reference-08.md",
+        "start": 1294,
+        "end": 1465
+      },
+      {
+        "path": "docs/architecture/reference-09.md",
+        "start": 1466,
+        "end": 1641
+      },
+      {
+        "path": "docs/architecture/reference-10.md",
+        "start": 1642,
+        "end": 1825
+      },
+      {
+        "path": "docs/architecture/reference-11.md",
+        "start": 1826,
+        "end": 2016
+      },
+      {
+        "path": "docs/architecture/reference-12.md",
+        "start": 2017,
+        "end": 2174
+      },
+      {
+        "path": "docs/architecture/reference-13.md",
+        "start": 2175,
+        "end": 2360
+      },
+      {
+        "path": "docs/architecture/reference-14.md",
+        "start": 2361,
+        "end": 2557
+      },
+      {
+        "path": "docs/architecture/reference-15.md",
+        "start": 2558,
+        "end": 2738
+      },
+      {
+        "path": "docs/architecture/reference-16.md",
+        "start": 2739,
+        "end": 2911
+      },
+      {
+        "path": "docs/architecture/reference-17.md",
+        "start": 2912,
+        "end": 3098
+      }
+    ]
+  }
+}

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket-review-evidence.js";
+import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket/ticket-review-evidence.js";
 
 // Detects mismatched commit, manifest, content, and dirty worktree before review.
 test("review evidence requires the verified committed source", async () => {

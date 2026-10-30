@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { reviewDependencyFixture } from "../fixtures/review-dependency-fixture.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
-import { assertDependencySubmission } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
+import { assertDependencySubmission } from "../../src/modules/supervisor/ticket/ticket-dependency-expectations.js";
 
 // Exercises real SQLite status updates and the production shared RUN boundary without invoking an SDK.
 test("RUN reconciles dependency replacement then resumes the exact repair checkpoint and execution", async () => {

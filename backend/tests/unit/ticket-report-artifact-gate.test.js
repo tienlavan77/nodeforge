@@ -4,11 +4,11 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
-import { createRespondToReviewTool } from "../../src/tools/respond-to-review-tool.js";
-import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket-verification-recovery.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
+import { createRespondToReviewTool } from "../../src/tools/reporting/respond-to-review-tool.js";
+import { createTicketVerificationRecovery } from "../../src/modules/supervisor/ticket/ticket-verification-recovery.js";
 
 // Blocks report persistence if the ticket artifact is absent or mismatched.
 test("report_done requires a passed artifact before saving a ticket report", async () => {

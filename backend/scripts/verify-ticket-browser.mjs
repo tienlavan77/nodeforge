@@ -1,6 +1,6 @@
 // Executes one approved browser step against the current ticket source directory and emits its Node-owned receipt.
 import { fileURLToPath } from "node:url";
-import { runBrowserVerification } from "../src/modules/supervisor/browser-verification-runner.js";
+import { runBrowserVerification } from "../src/modules/supervisor/browser/browser-verification-runner.js";
 
 try {
   const step = JSON.parse(Buffer.from(process.argv[2] ?? "", "base64url").toString("utf8"));

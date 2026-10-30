@@ -9,9 +9,9 @@ import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketRootCommitService } from "../../src/modules/supervisor/ticket-root-commit-service.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketRootCommitService } from "../../src/modules/supervisor/ticket/ticket-root-commit-service.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
 
 // Converts scoped identities to the same runtime filenames used by production services.
 const key = (value) => createHash("sha256").update(value).digest("hex");

@@ -8,9 +8,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketRootGit } from "../../src/modules/supervisor/ticket-root-git.js";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
 import { buildLegacyRegressionPlan } from "../fixtures/legacy-verification-plan.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
 
 /** Creates an isolated verification service whose source and environment outlive a simulated runner restart. */
 export async function baselineFixture({ introduced = false } = {}) {

@@ -1,9 +1,9 @@
 // Covers immutable report replay and the separate finding-response route on unchanged verified source.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readCompletedCoderReport } from "../../src/tools/completed-coder-report.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
-import { createRespondToReviewTool } from "../../src/tools/respond-to-review-tool.js";
+import { readCompletedCoderReport } from "../../src/tools/reporting/completed-coder-report.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
+import { createRespondToReviewTool } from "../../src/tools/reporting/respond-to-review-tool.js";
 
 // Seeds an exact completed report whose custom scope and evidence must survive default generation.
 function fixture() {
