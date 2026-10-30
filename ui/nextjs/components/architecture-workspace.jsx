@@ -11,6 +11,10 @@ import { ConversationsAccordion } from "../components/ConversationsAccordion.jsx
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationResponseReveal } from "../components/conversation-response-reveal.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { SystemEngineerReply } from "../components/system-engineer-reply.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { SystemEngineerEvent } from "../components/system-engineer-event.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { HomeChatComposer } from "../components/home-chat-composer.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ArchitectureExecutionControls } from "../components/architecture-execution-controls.jsx";
@@ -67,7 +71,6 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
   const [openSidebar, setOpenSidebar] = useState(false);
   const [conversationRevision, setConversationRevision] = useState(0);
   const [markdownPreviewPath, setMarkdownPreviewPath] = useState("");
-  const projects = [{ id: PROJECT_ID, name: PROJECT_ID }];
   const [watcherEvents, setWatcherEvents] = useState([]);
   const [watcherState, setWatcherState] = useState("connecting");
   const [, setWatcherPulseId] = useState(0);
@@ -229,7 +232,7 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
   const activeConversationTitle = activeConversation?.title ?? activeConversation?.name ?? "New conversation";
 
   return <div className={`claude-home-shell${markdownPreviewPath ? " has-markdown-preview" : ""}`} data-project-id={PROJECT_ID}>
-    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} architectureLabel={selectedArchitectureManager?.label} projects={projects} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} onNewConversation={handleNewConversation} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="Architecture Manager agents">
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} architectureLabel={selectedArchitectureManager?.label} selectedProjectId={PROJECT_ID} onNewConversation={handleNewConversation} architectureControl={<div className="claude-architecture-list" role="listbox" aria-label="Architecture Manager agents">
       {architectureManagers.map((agent) => <button type="button" role="option" aria-selected={agent.id === selectedArchitectureManagerId} key={agent.id} onClick={() => { setSelectedArchitectureManagerId(agent.id); writeArchitectureManagerAgent(PROJECT_ID, agent.id); }}><span className="claude-agent-option-avatar" aria-hidden="true">{agent.label.trim().slice(0, 1).toUpperCase()}</span><span>{agent.label}</span>{agent.id === selectedArchitectureManagerId && <span className="claude-agent-option-check" aria-label="Selected architecture">✓</span>}</button>)}
     </div>}>
       <ConversationsAccordion conversations={conversations} projectId={PROJECT_ID} agentId={selectedArchitectureManager?.id} activeConversationId={activeConversationId} onSelectConversation={handleSelectConversation} showNewConversationButton={false} />
@@ -242,11 +245,13 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
           {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}
           {historyError && <InlineError error={historyError} onRetry={() => void (hasOlder ? loadEarlierMessages() : loadConversationMessages(activeConversationId))} />}
           {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">N</span><h1>How can NodeForge help?</h1><p>Start a conversation with your project agent.</p></div>}
-          {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
-            <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
-            {message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID}><ConversationResponseReveal text={message.text} contentType={message.from === "agent" ? "text/markdown" : "text/plain"} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
-            {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
-          </article>)}
+          {messages.map((message) => message.se_event?.type === "conversation_turn"
+            ? <SystemEngineerReply key={message.stream_key ?? message.id} message={message} displayMessageTime={displayMessageTime} onMarkdownOpen={setMarkdownPreviewPath} />
+            : <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
+              <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
+              {message.se_event ? <SystemEngineerEvent value={message.se_event} /> : message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID}><ConversationResponseReveal text={message.text} contentType={message.from === "agent" ? "text/markdown" : "text/plain"} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
+              {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
+            </article>)}
           {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
         </div>
         <div className="claude-composer-wrap">

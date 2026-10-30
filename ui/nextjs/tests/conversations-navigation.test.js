@@ -70,9 +70,10 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(monitorStyles.includes(".workspace-monitor-light::after") && monitorStyles.includes(".workspace-monitor-dock button { display: inline-flex; align-items: center; gap: 9px"));
   assert.ok(monitorStyles.includes("grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr)"));
   assert.doesNotMatch(monitorStyles.match(/\.workspace-monitor-light \{[^}]+\}/)?.[0] ?? "", /border:/);
+  const monitorLayout = await readFile("ui/nextjs/lib/workspace-monitor-layout.js", "utf8");
   assert.ok(monitors.indexOf('role="img" /><strong>Watcher</strong>') > 0);
   assert.ok(monitors.indexOf('role="img" /><strong>Agent activity</strong>') > 0);
-  assert.ok(monitors.includes("nodeforge:workspace-monitor-layout"));
+  assert.ok(monitorLayout.includes("nodeforge:workspace-monitor-layout"));
   assert.ok(monitors.includes("${MONITOR_LAYOUT_KEY}:${layoutScope}"));
   assert.ok(monitors.includes("window.localStorage.getItem"));
   assert.ok(monitors.includes("window.localStorage.setItem"));
@@ -81,12 +82,21 @@ test("home route composes the conversation workspace from existing components", 
   assert.equal(page.includes("<NodeForgeHeader"), false);
   assert.ok(sidebar.includes('onClick={reopen} aria-label="Open conversations sidebar"'));
   assert.ok(sidebar.includes('onClick={newConversation} aria-label="New chat"'));
+  assert.equal(sidebar.includes("claude-sidebar-projects"), false);
+  assert.equal(sidebar.includes("claude-sidebar-project-list"), false);
+  assert.equal(sidebar.includes("claude-sidebar-project-link"), false);
   const routeProject = sidebar.match(/const activeRouteProjectId = ([^;]+);/)[1];
-  assert.equal(runInNewContext(routeProject, { selectedProjectId: "ROUTE", selection: { projectId: "OTHER" } }), "ROUTE");
-  assert.equal(runInNewContext(routeProject, { selectedProjectId: undefined, selection: { projectId: "SELECTED" } }), "SELECTED");
+  assert.equal(runInNewContext(routeProject, { selectedProjectId: "ROUTE", selection: { projectId: "OTHER" }, resolveSidebarProjectId: () => "FALLBACK", pathname: "/ROUTE" }), "ROUTE");
+  assert.equal(runInNewContext(routeProject, { selectedProjectId: undefined, selection: { projectId: "SELECTED" }, resolveSidebarProjectId: () => "FALLBACK", pathname: "/agents" }), "SELECTED");
+  assert.equal(runInNewContext(routeProject, { selectedProjectId: undefined, selection: { projectId: null }, resolveSidebarProjectId: () => "REMEMBERED", pathname: "/agents" }), "REMEMBERED");
+  const agentsCheck = sidebar.match(/const isAgentsSection = ([^;]+);/)[1];
+  assert.equal(runInNewContext(agentsCheck, { agentSectionTitle: "Agents", pathname: "/" }), true);
+  assert.equal(runInNewContext(agentsCheck, { agentSectionTitle: "Architecture", pathname: "/agents" }), true);
+  assert.equal(runInNewContext(agentsCheck, { agentSectionTitle: "Architecture", pathname: "/PROJECT-A" }), false);
   assert.ok(sidebar.includes('<Link href={projectArchitecturePath(activeRouteProjectId)} title="Architecture"'));
   assert.ok(sidebar.includes('<span>Architecture</span></Link>'));
   assert.ok(sidebar.indexOf('title="Architecture"') < sidebar.indexOf('title="Agents"'));
+  assert.ok(sidebar.includes('<Link href="/agents" title="Agents" aria-current={isAgentsSection ? "page" : undefined}>'));
   assert.ok(sidebar.includes('<Link href={projectCodingPath(activeRouteProjectId)} title="Code"'));
   assert.ok(sidebar.includes('<Link href={projectSystemPath(activeRouteProjectId)} title="System"'));
   assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
@@ -98,7 +108,7 @@ test("home route composes the conversation workspace from existing components", 
   assert.equal(legacyCodePage.includes("../system/page.jsx"), false);
   assert.equal(legacyCodePage.includes("System chat"), false);
   assert.ok(codePage.includes('redirect("/coding")'));
-  assert.ok(sidebar.includes("{children}"));
+  assert.ok(sidebar.includes("{showConversationControls && children}"));
   assert.ok(component.includes('aria-label="New conversation"'));
   assert.ok(component.indexOf('aria-label="New conversation"') <
     component.indexOf('aria-label="Conversations list"'));
