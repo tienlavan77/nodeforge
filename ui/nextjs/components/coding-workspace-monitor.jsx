@@ -1,7 +1,5 @@
 // Present the legacy Sprint Plan controls beside active Coder and Reviewer work in Coding.
 "use client";
-// eslint-disable-next-line no-unused-vars -- The notebook control is rendered through JSX.
-import { IdeasDock } from "./ideas-dock.jsx";
 
 import { useState } from "react";
 import { codingAgentPanelKey, codingAgentProfile, codingAgentPanelActions, codingAgentPanelStatus } from "../lib/coding-agent-panel-registry.js";
@@ -55,7 +53,6 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
       </div>
     </section>
     <div className="workspace-monitor-dock" role="group" aria-label="Coding agent monitors">
-      <IdeasDock projectId={projectId} />
       {workingAgents.map(({ agentId }) => {
         const profile = codingAgentProfile(agentDirectory, agentId, projectId);
         const key = codingAgentPanelKey(projectId, agentId);
