@@ -80,6 +80,10 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(monitors.includes("new ResizeObserver"));
   assert.equal(page.includes("<SprintPlanDashboard"), false);
   assert.equal(page.includes("<NodeForgeHeader"), false);
+  assert.equal(page.includes("SystemEngineerReply"), false);
+  assert.equal(page.includes("SystemEngineerEvent"), false);
+  assert.equal(page.includes("message.se_event"), false);
+  assert.ok(sidebar.includes("// eslint-disable-next-line no-silent-catch -- usePathname is a best-effort probe"));
   assert.ok(sidebar.includes('onClick={reopen} aria-label="Open conversations sidebar"'));
   assert.ok(sidebar.includes('onClick={newConversation} aria-label="New chat"'));
   assert.equal(sidebar.includes("claude-sidebar-projects"), false);

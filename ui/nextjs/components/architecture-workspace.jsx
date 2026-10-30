@@ -11,10 +11,6 @@ import { ConversationsAccordion } from "../components/ConversationsAccordion.jsx
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationResponseReveal } from "../components/conversation-response-reveal.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { SystemEngineerReply } from "../components/system-engineer-reply.jsx";
-// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { SystemEngineerEvent } from "../components/system-engineer-event.jsx";
-// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { HomeChatComposer } from "../components/home-chat-composer.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ArchitectureExecutionControls } from "../components/architecture-execution-controls.jsx";
@@ -245,13 +241,11 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
           {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}
           {historyError && <InlineError error={historyError} onRetry={() => void (hasOlder ? loadEarlierMessages() : loadConversationMessages(activeConversationId))} />}
           {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">N</span><h1>How can NodeForge help?</h1><p>Start a conversation with your project agent.</p></div>}
-          {messages.map((message) => message.se_event?.type === "conversation_turn"
-            ? <SystemEngineerReply key={message.stream_key ?? message.id} message={message} displayMessageTime={displayMessageTime} onMarkdownOpen={setMarkdownPreviewPath} />
-            : <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
-              <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
-              {message.se_event ? <SystemEngineerEvent value={message.se_event} /> : message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID}><ConversationResponseReveal text={message.text} contentType={message.from === "agent" ? "text/markdown" : "text/plain"} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
-              {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
-            </article>)}
+          {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
+            <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
+            {message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID}><ConversationResponseReveal text={message.text} contentType={message.from === "agent" ? "text/markdown" : "text/plain"} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
+            {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
+          </article>)}
           {agentTyping && <div className="claude-typing" role="status" aria-label="Waiting for agent response"><i /><i /><i /></div>}
         </div>
         <div className="claude-composer-wrap">
