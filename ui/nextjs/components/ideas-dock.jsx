@@ -13,21 +13,98 @@ import { IdeasPanel } from "./ideas-panel.jsx";
 /** Keep server rendering deterministic until the admitted client project snapshot becomes available. */
 const initialSelection = { projectId: null, generation: 0 };
 
+import {
+  INITIAL_PANELS,
+  clampDraggedMonitorPosition,
+  clampMonitorPanel,
+} from "../lib/workspace-monitor-layout.js";
+
 /** Toggle the project notebook from the existing dock and restore keyboard focus when closing it. */
-export function IdeasDock({ projectId: propProjectId } = {}) {
+export function IdeasDock({ projectId: propProjectId, panelState, onUpdatePanel, onStartDrag, panelRef, renderPanel } = {}) {
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, () => initialSelection);
   const explicitProjectId = propProjectId && propProjectId !== selection.projectId ? propProjectId : undefined;
   const activeProjectId = explicitProjectId || selection.projectId;
   const client = useMemo(() => createNodeClient(explicitProjectId), [explicitProjectId, selection.projectId, selection.generation]);
-  const [open, setOpen] = useState(false);
+  const [localPanel, setLocalPanel] = useState(() => clampMonitorPanel(INITIAL_PANELS.ideas, INITIAL_PANELS.ideas,
+    typeof window !== "undefined" ? window.innerWidth : 1440,
+    typeof window !== "undefined" ? window.innerHeight : 900));
+  const draggingRef = useRef(null);
   const button = useRef(null);
   const panelId = useId();
+  const controlled = Boolean(panelState && onUpdatePanel);
+  const panel = controlled ? panelState : localPanel;
+  const open = Boolean(panel.visible);
+  const minimized = Boolean(panel.minimized);
+  /**
+   * Apply partial geometry or visibility updates to either the shared workspace monitor layout
+   * state or the standalone local fallback state when IdeasDock is mounted outside AM monitors.
+   */
+  function update(changes) {
+    if (controlled) onUpdatePanel(changes);
+    else setLocalPanel((current) => ({ ...current, ...changes }));
+  }
   /** Close only the notebook; do not affect conversation navigation or stream subscriptions. */
-  function close() { setOpen(false); button.current?.focus(); }
+  function close() { update({ visible: false }); button.current?.focus(); }
+  /**
+   * Toggle the floating Ideas monitor visibility from the dock control button while keeping
+   * the button's aria-pressed state synchronized with whether the Ideas panel is open.
+   */
+  function toggleDock() { update({ visible: !open }); }
+  /**
+   * Toggle the minimized state of the Ideas floating monitor so the user can collapse or expand
+   * the notebook body without losing in-memory drafts or closing the panel.
+   */
+  function toggleMinimize() { update({ minimized: !minimized }); }
+  /**
+   * Begin a pointer drag interaction from the Ideas monitor header unless the user clicked one
+   * of the header's minimize or close control buttons, delegating to WorkspaceMonitorPanels when bound.
+   */
+  function handleHeaderPointerDown(event) {
+    if (event.target.closest("button")) return;
+    event.preventDefault();
+    if (onStartDrag) { onStartDrag(event); return; }
+    draggingRef.current = { startX: event.clientX, startY: event.clientY, x: panel.x, y: panel.y };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+  /**
+   * Update the standalone Ideas floating monitor coordinates during an active pointer drag while
+   * clamping the panel position so the window remains inside the active browser viewport.
+   */
+  function handlePointerMove(event) {
+    const activeDrag = draggingRef.current;
+    if (!activeDrag || onStartDrag) return;
+    const next = clampDraggedMonitorPosition(
+      panel,
+      activeDrag.x + event.clientX - activeDrag.startX,
+      activeDrag.y + event.clientY - activeDrag.startY,
+      window.innerWidth,
+      window.innerHeight
+    );
+    update(next);
+  }
   if (!activeProjectId) return null;
+  const style = {
+    left: panel.x,
+    top: panel.y,
+    width: panel.width,
+    height: minimized ? "auto" : panel.height,
+  };
+  const panelElement = <IdeasPanel
+    key={activeProjectId}
+    panelRef={panelRef}
+    client={client}
+    projectId={activeProjectId}
+    open={open}
+    minimized={minimized}
+    onToggleMinimize={toggleMinimize}
+    onClose={close}
+    onHeaderPointerDown={handleHeaderPointerDown}
+    style={style}
+    panelId={panelId}
+  />;
   return <>
-    <button ref={button} type="button" aria-label="Ý tưởng" aria-pressed={open} aria-expanded={open}
-      aria-controls={panelId} onClick={() => setOpen((previous) => !previous)}>Ý tưởng</button>
-    <IdeasPanel key={activeProjectId} client={client} projectId={activeProjectId} open={open} onClose={close} panelId={panelId} />
+    <button ref={button} type="button" aria-label="Ý tưởng" aria-pressed={open} aria-expanded={open && !minimized}
+      aria-controls={panelId} onClick={toggleDock}>Ý tưởng</button>
+    {renderPanel ? renderPanel(panelElement) : <div onPointerMove={handlePointerMove} onPointerUp={() => { draggingRef.current = null; }} onPointerCancel={() => { draggingRef.current = null; }}>{panelElement}</div>}
   </>;
 }
