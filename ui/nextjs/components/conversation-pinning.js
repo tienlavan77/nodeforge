@@ -17,14 +17,16 @@ export function sortPinnedFirst(list) {
   });
 }
 
-export async function apiPinConversation(id) {
-  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/pin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
-  if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p.error ?? p.message ?? "Pin failed"); }
+export async function apiPinConversation(id, projectId) {
+  const qs = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/pin${qs}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+  if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p?.error?.message ?? p?.error ?? p?.message ?? "Pin failed"); }
   return res.json().catch(() => ({}));
 }
 
-export async function apiUnpinConversation(id) {
-  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/unpin`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
-  if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p.error ?? p.message ?? "Unpin failed"); }
+export async function apiUnpinConversation(id, projectId) {
+  const qs = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/unpin${qs}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+  if (!res.ok) { const p = await res.json().catch(() => ({})); throw new Error(p?.error?.message ?? p?.error ?? p?.message ?? "Unpin failed"); }
   return res.json().catch(() => ({}));
 }

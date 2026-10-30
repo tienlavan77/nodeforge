@@ -12,6 +12,7 @@ import { buildCodexTicketPrompt } from "./nodeforge-task-prompts.js";
 import { buildResumePrompt, checkpointedRegistry, createResumeState, failureDetail } from "./ticket/ticket-resume.js";
 import { saveProgressCheckpoint } from "./ticket/ticket-checkpoint-writer.js";
 import { runTicketSdkTurns } from "./ticket/ticket-sdk-turns.js";
+import { compactFunctionCallingHistory } from "./ticket/ticket-context-compaction.js";
 import { sdkToolEvent } from "./nodeforge-task-sdk-events.js";
 import { coderFailureTriage } from "./coder/coder-recovery-policy.js";
 import { withCoderExchange, coderExchangePrompt } from "./coder/coder-agent-exchange.js";
@@ -77,6 +78,15 @@ export function createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkG
           request.payload?.direct_code === true, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`,
         readToolEvents: () => events.splice(0), executeTurn: async prompt => {
           request.abortSignal?.throwIfAborted();
+          if (history) {
+            const compacted = compactFunctionCallingHistory(history, { readCache: resumeState.readCache, changedPaths: resumeState.changedPaths });
+            if (compacted.compacted) {
+              history = compacted.history;
+              projectLogger({ event_name: "supervisor.sdk_context_compacted", level: "info", status: "success", task_id: request.task_id, correlation_id: request.correlation_id,
+                message: "Compacted in-memory function-calling history between phases.",
+                payload: { agent_id: selected.agent_id, provider: selected.provider, mode: "in_memory_history", before_bytes: compacted.beforeBytes, after_bytes: compacted.afterBytes, compacted_items: compacted.compactedItems } });
+            }
+          }
           const result = await gateway.execute({ agent: selected, agentId: selected.agent_id, correlationId: request.correlation_id,
             cwd: projectRoot, abortSignal: request.abortSignal, prompt,
             options: { retainHistory: true, ...(history ? { history } : {}), forgeTools: { ...binding, registry: observed, definitions } } });
@@ -85,6 +95,7 @@ export function createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkG
         } });
       return { summary: completed.result.text || "<empty response>", tool_events: completed.toolEvents };
     } catch (error) {
+      if (error?.code === "DIRECTIVE_PAUSE_REQUESTED") throw error;
       await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id,
         agent_id: selected.agent_id, provider: selected.provider, allowed_prefixes: allowedPrefixes,
         changed_paths: [...resumeState.changedPaths], status: "blocked", failure: failureDetail(error),
