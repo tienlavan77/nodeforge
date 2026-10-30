@@ -124,6 +124,42 @@ test("quiet initial load suppression does not hide uncertain writes, 409 conflic
   assert.equal(session.getSnapshot().draft.edit.version, 1);
 });
 
+test("concurrent create acknowledged while initial read is pending remains preserved when initial read rejects quietly", async () => {
+  const session = createSession("quiet-concurrent-create");
+  let rejectRead;
+  const createdItem = {
+    id: "idea-created-1",
+    project_id: "quiet-concurrent-create",
+    content: "Created while initial list was still pending",
+    version: 1,
+    status: "open",
+  };
+
+  const client = {
+    listIdeas: () => new Promise((_, reject) => {
+      rejectRead = reject;
+    }),
+    createIdea: async ({ content }) => ({ ...createdItem, content }),
+  };
+
+  const loadPromise = session.load(client);
+  session.changeDraft({ content: createdItem.content, edit: null });
+  assert.equal(await session.mutate(client, "create"), true);
+  assert.deepEqual(session.getSnapshot().items, [createdItem]);
+  assert.equal(session.getSnapshot().saved, true);
+
+  rejectRead(Object.assign(new Error("Ideas project permission port is not configured"), { status: 503 }));
+  assert.equal(await loadPromise, false);
+
+  const snap = session.getSnapshot();
+  assert.deepEqual(snap.items, [createdItem]);
+  assert.equal(snap.loaded, true);
+  assert.equal(snap.loading, false);
+  assert.equal(snap.error, "");
+  assert.equal(snap.saved, true);
+  assert.equal(snap.draft.content, "");
+});
+
 test("IdeasPanel removes the error retry button and aligns the quick-entry submit button to the bottom right with fit-content width", () => {
   assert.doesNotMatch(ideasPanelSource, />\s*Thử lại\s*</);
   assert.match(ideasPanelSource, /Tải bản server để đối chiếu/);
