@@ -2,8 +2,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { getProjectSelection, selectProject, subscribeProjectSelection } from "../lib/project-selection.js";
-import { projectArchitecturePath, projectSystemPath, projectCodingPath } from "../lib/project-navigation.js";
+import { usePathname } from "next/navigation";
+import { getProjectSelection, subscribeProjectSelection } from "../lib/project-selection.js";
+import { projectArchitecturePath, projectSystemPath, projectCodingPath, resolveSidebarProjectId } from "../lib/project-navigation.js";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import Link from "next/link";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -17,7 +18,6 @@ import { readSidebarPreference, writeSidebarPreference } from "../lib/sidebar-pr
 function SidebarNavigationIcon({ name }) {
   const paths = {
     conversation: <path d="M5 5.5h14v9H9l-4 4v-13Z" />,
-    projects: <path d="M3.5 6.5h6l1.7 2H20.5v9.7a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8V6.5Z" />,
     agents: <><circle cx="12" cy="8" r="3" /><path d="M5.5 20c.5-3.3 2.7-5 6.5-5s6 1.7 6.5 5" /></>,
     architecture: <><circle cx="12" cy="12" r="7" /><path d="M12 5v14M5 12h14" /></>,
     coding: <path d="m9 7-5 5 5 5M15 7l5 5-5 5M13.5 5 10.5 19" />,
@@ -26,14 +26,17 @@ function SidebarNavigationIcon({ name }) {
 }
 
 // Present a persistent desktop sidebar and a keyboard-accessible mobile navigation rail.
-export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle = "Architecture", architectureLabel, architectureControl, projects = [], selectedProjectId, onProjectChange, onNewConversation, showConversationControls = true, children }) {
-  const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, getProjectSelection);
-  const activeRouteProjectId = selectedProjectId || selection.projectId;
-  if (selection.loaded) {
-    projects = selection.projects.map((project) => ({ id: project.project_id, name: project.name || project.root || project.project_id }));
-    selectedProjectId = activeRouteProjectId;
-    onProjectChange = selectProject;
+export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle = "Architecture", architectureLabel, architectureControl, selectedProjectId, onNewConversation, showConversationControls = true, children }) {
+  let pathname = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- Safe in Next App Router and guarded for standalone browser bundles.
+    pathname = usePathname();
+  } catch (error) {
+    pathname = null;
   }
+  const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, getProjectSelection);
+  const activeRouteProjectId = selectedProjectId || selection.projectId || resolveSidebarProjectId({ pathname });
+  const isAgentsSection = agentSectionTitle === "Agents" || pathname === "/agents" || String(pathname ?? "").startsWith("/agents/");
   const [collapsed, setCollapsed] = useState(false);
   const panelRef = useRef(null);
 
@@ -48,7 +51,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
   // Reopen conversation navigation without changing the active conversation.
   function reopen() {
     changeCollapsed(false);
-    onOpen();
+    onOpen?.();
   }
 
   // Reuse the existing new-conversation workflow while keeping its state mounted.
@@ -68,7 +71,7 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
           <Link className="home-sidebar-wordmark" href="/" title="All projects" aria-label="All projects" style={{ color: "inherit", textDecoration: "none" }}><span className="home-sidebar-logo" aria-hidden="true">N</span><span className="home-sidebar-name">NodeForge</span></Link>
           <div className="home-sidebar-controls">
             <ThemeToggle />
-            <button type="button" className="home-sidebar-collapse" onClick={() => { changeCollapsed(!collapsed); if (!collapsed) onClose(); }} aria-label={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"} aria-expanded={!collapsed} title={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"}>
+            <button type="button" className="home-sidebar-collapse" onClick={() => { changeCollapsed(!collapsed); if (!collapsed) onClose?.(); }} aria-label={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"} aria-expanded={!collapsed} title={collapsed ? "Open conversations sidebar" : "Collapse conversations sidebar"}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
                 <path d="M9 5v14" />
@@ -88,18 +91,12 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
             </details>
             <button type="button" onClick={newConversation} title="New conversation"><SidebarNavigationIcon name="conversation" /><span>New conversation</span></button>
           </>}
-          <details className="claude-sidebar-projects" open>
-            <summary title="Projects"><SidebarNavigationIcon name="projects" /><span>Projects</span></summary>
-            <div className="claude-sidebar-project-list">
-              {projects.map((project) => <Link href={projectArchitecturePath(project.id)} className={`claude-sidebar-project-link${project.id === selectedProjectId ? " is-selected" : ""}`} key={project.id} onClick={() => onProjectChange?.(project.id)} aria-current={project.id === selectedProjectId ? "page" : undefined}><span>{project.name}</span>{project.id === selectedProjectId && <i aria-label="Selected project">✓</i>}</Link>)}
-            </div>
-          </details>
-          <Link href={projectArchitecturePath(activeRouteProjectId)} title="Architecture" aria-current={!['System', 'Code'].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
-          <Link href="/agents" title="Agents"><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
+          <Link href={projectArchitecturePath(activeRouteProjectId)} title="Architecture" aria-current={!isAgentsSection && !["System", "Code"].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
+          <Link href="/agents" title="Agents" aria-current={isAgentsSection ? "page" : undefined}><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
           <Link href={projectSystemPath(activeRouteProjectId)} title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
           <Link href={projectCodingPath(activeRouteProjectId)} title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
         </nav>
-        {children}
+        {showConversationControls && children}
       </section>
     </ResponsiveWorkspaceRegion>
     <style jsx global>{`

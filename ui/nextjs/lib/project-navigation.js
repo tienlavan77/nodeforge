@@ -41,6 +41,18 @@ export function readSelectedProject() {
   catch (error) { console.warn("Could not restore selected project", error); return null; }
 }
 
+// Business purpose: preserves the active project identity across global pages like `/agents`
+// while letting an explicit route project override any previously remembered tab selection.
+// Technical description: returns the first non-empty trimmed string among `explicitProjectId`,
+// `projectIdFromPath(pathname)`, `selectedProjectId`, and `readSelectedProject()`, or `null` when none exists.
+export function resolveSidebarProjectId({ explicitProjectId, pathname, selectedProjectId } = {}) {
+  const fromPath = typeof pathname === "string" ? projectIdFromPath(pathname) : null;
+  for (const candidate of [explicitProjectId, fromPath, selectedProjectId, readSelectedProject()]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
 // Remember an admitted selection without leaking it into another open browser tab.
 export function rememberSelectedProject(projectId) {
   if (typeof window === "undefined") return;

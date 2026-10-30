@@ -129,7 +129,7 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
   }, [client, dashboardLoader, loadWorkspaceMonitor]);
 
   return <div className="claude-home-shell coding-workspace-shell" data-project-id={PROJECT_ID}>
-    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" projects={[{ id: PROJECT_ID, name: PROJECT_ID }]} selectedProjectId={PROJECT_ID} onProjectChange={() => {}} showConversationControls={false} />
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" selectedProjectId={PROJECT_ID} showConversationControls={false} />
     <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} agentPanelRegistry={agentPanelRegistry} onAgentPanelClose={onAgentPanelClose} onAgentPanelOpen={onAgentPanelOpen} />
   </div>;
 }
