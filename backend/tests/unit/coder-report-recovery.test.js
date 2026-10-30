@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompletionReportService } from "../../src/modules/supervisor/completion-report-service.js";
-import { createCoderReportRecovery } from "../../src/modules/supervisor/coder-report-recovery.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createCoderReportRecovery } from "../../src/modules/supervisor/coder/coder-report-recovery.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 
 // Retains independent immutable and presentation stores while reconstructing the production report services.
 function fixture() {

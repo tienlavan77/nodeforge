@@ -1,10 +1,10 @@
 // Verifies registered presence assertions execute the committed Coding page in Chromium and emit complete evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CODING_BROWSER_ASSERTIONS, assertCodingBrowserStep } from "../../src/modules/supervisor/browser-coding-contract.js";
-import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket-verification-plan.js";
-import { runBrowserVerification } from "../../src/modules/supervisor/browser-verification-runner.js";
-import { matchesBrowserEvidence } from "../../src/modules/supervisor/browser-verification-evidence.js";
+import { CODING_BROWSER_ASSERTIONS, assertCodingBrowserStep } from "../../src/modules/supervisor/browser/browser-coding-contract.js";
+import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket/ticket-verification-plan.js";
+import { runBrowserVerification } from "../../src/modules/supervisor/browser/browser-verification-runner.js";
+import { matchesBrowserEvidence } from "../../src/modules/supervisor/browser/browser-verification-evidence.js";
 
 const step = { kind: "browser", criterion_ids: ["AC-1", "AC-2", "AC-3", "AC-4", "AC-6", "AC-7", "AC-8"], viewports: [375, 768, 1440], assertions: CODING_BROWSER_ASSERTIONS.slice(13, 17) };
 

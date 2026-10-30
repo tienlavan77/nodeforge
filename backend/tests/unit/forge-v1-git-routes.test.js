@@ -16,9 +16,9 @@ test("commit-push commits every changed path and pushes its exact SHA", async ()
   const result = await router.route("POST", new URL("http://localhost/forge/v1/git/commit-push?project=PROJECT-1"), Readable.from([JSON.stringify({ project_id: "PROJECT-1", message: "Save workspace" })]));
   assert.equal(result.status, 200);
   assert.equal(result.body.status, "pushed");
-  assert.equal(result.body.changed_files, 3);
+  assert.equal(result.body.changed_files, 4);
   assert.deepEqual(calls, [
-    { message: "Save workspace", options: { paths: ["tracked.js", "new file.js", "renamed.js"] } },
+    { message: "Save workspace", options: { paths: ["tracked.js", "new file.js", "renamed.js", "old.js"] } },
     { sha: "a".repeat(40) }
   ]);
 });

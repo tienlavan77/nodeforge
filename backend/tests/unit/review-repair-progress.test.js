@@ -1,10 +1,10 @@
 // Prevents accepted implementation findings from cycling through unchanged Coder responses and independent review.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inspectReviewRepairProgress } from "../../src/modules/supervisor/review-repair-progress.js";
-import { reviewRepairRecovery } from "../../src/modules/supervisor/review-repair-handoff.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
-import { completeCoderTicket } from "../../src/modules/supervisor/ticket-coder-completion.js";
+import { inspectReviewRepairProgress } from "../../src/modules/supervisor/review/review-repair-progress.js";
+import { reviewRepairRecovery } from "../../src/modules/supervisor/review/review-repair-handoff.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
+import { completeCoderTicket } from "../../src/modules/supervisor/ticket/ticket-coder-completion.js";
 
 // Models a verified implementation finding and its unchanged accepted response without accepting agent claims as progress.
 function fixture() {

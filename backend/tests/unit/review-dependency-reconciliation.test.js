@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { reviewDependencyFixture } from "../fixtures/review-dependency-fixture.js";
-import { assertDependencySubmission } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
-import { createReviewDependencyReconciliation } from "../../src/modules/supervisor/review-dependency-reconciliation.js";
+import { assertDependencySubmission } from "../../src/modules/supervisor/ticket/ticket-dependency-expectations.js";
+import { createReviewDependencyReconciliation } from "../../src/modules/supervisor/review/review-dependency-reconciliation.js";
 
 // Reconciles exactly once while retaining Coder progress and the downstream execution/plan identity.
 test("review repair adopts a verified same-plan completion and persists previous dependency identity", async () => {

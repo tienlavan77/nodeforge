@@ -4,8 +4,8 @@ import test from "node:test";
 import { automaticReviewFixture } from "../fixtures/automatic-review-fixture.js";
 import { createSupervisorLoop } from "../../src/modules/supervisor/supervisor-loop.js";
 import { createSupervisorRuntime } from "../../src/modules/supervisor/supervisor-runtime.js";
-import { finalizeCoderWorkspace } from "../../src/modules/supervisor/ticket-coder-completion.js";
-import { createTicketReviewRepair } from "../../src/modules/supervisor/ticket-review-repair.js";
+import { finalizeCoderWorkspace } from "../../src/modules/supervisor/ticket/ticket-coder-completion.js";
+import { createTicketReviewRepair } from "../../src/modules/supervisor/ticket/ticket-review-repair.js";
 
 // Connects a verified ticket fixture to the real Supervisor finite-state runtime without real provider calls.
 function loopFixture(options) {

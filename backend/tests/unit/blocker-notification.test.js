@@ -1,9 +1,9 @@
 // Verifies blocked execution notifications explain the actual denial and retain resumable evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerNotification } from "../../src/modules/supervisor/blocker-notification.js";
+import { createBlockerNotification } from "../../src/modules/supervisor/blocker/blocker-notification.js";
 import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";
-import { blockerOwnerRequest } from "../../src/modules/supervisor/blocker-owner-request.js";
+import { blockerOwnerRequest } from "../../src/modules/supervisor/blocker/blocker-owner-request.js";
 
 // Captures terminal, event and checkpoint output without launching or authorizing an agent.
 async function notify(job, checkpointOverrides = {}) {

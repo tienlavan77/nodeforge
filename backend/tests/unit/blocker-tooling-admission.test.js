@@ -1,8 +1,8 @@
 // Verifies malformed tools and historic read failures do not invent approval denials across ticket recovery.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerFailureClassification, requiresBlockerAdmission, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker-failure-classification.js";
-import { createBlockerAdmission } from "../../src/modules/supervisor/blocker-execution-admission.js";
+import { createBlockerFailureClassification, requiresBlockerAdmission, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
+import { createBlockerAdmission } from "../../src/modules/supervisor/blocker/blocker-execution-admission.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const technical = { tool: "search_text", error: { code: "TOOL_INPUT_INVALID", message: "Invalid search_text arguments." } };

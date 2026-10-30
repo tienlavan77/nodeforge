@@ -2,11 +2,11 @@
  * correction retains completed work without manufacturing authority or source. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blockerRolePrompt } from "../../src/modules/supervisor/blocker-role-prompt.js";
-import { blockerCorrectionPrompt } from "../../src/modules/supervisor/blocker-disposition-correction.js";
-import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
-import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker-prompt-context.js";
+import { blockerRolePrompt } from "../../src/modules/supervisor/blocker/blocker-role-prompt.js";
+import { blockerCorrectionPrompt } from "../../src/modules/supervisor/blocker/blocker-disposition-correction.js";
+import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
+import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker/blocker-prompt-context.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const technicalResult = { findings: ["Owner answered the retained question."], implementation_steps: ["Continue only the missing handler step."],

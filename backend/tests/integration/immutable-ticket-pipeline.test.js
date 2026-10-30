@@ -12,11 +12,11 @@ import { createAgentProfileStore } from "../../src/modules/agent/agent-profile-s
 import { createAgentOccupancyStore } from "../../src/modules/agent/agent-occupancy-store.js";
 import { createCodeSearch } from "../../src/modules/index/code-search.js";
 import { createFileGraph } from "../../src/modules/index/file-graph.js";
-import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
-import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket-review-evidence.js";
-import { completeApprovedTicket } from "../../src/modules/supervisor/ticket-approved-integration.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
+import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket/ticket-workspace-service.js";
+import { prepareTicketExecutionContext } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket/ticket-review-evidence.js";
+import { completeApprovedTicket } from "../../src/modules/supervisor/ticket/ticket-approved-integration.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
 import { inspectTicketProcess } from "./immutable-ticket-process-helper.js";
 
 const execFile = promisify(execFileCallback);

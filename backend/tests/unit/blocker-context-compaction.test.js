@@ -4,9 +4,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { createBlockerPromptContext, createBlockerPromptRefresh } from "../../src/modules/supervisor/blocker-prompt-context.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
+import { createBlockerPromptContext, createBlockerPromptRefresh } from "../../src/modules/supervisor/blocker/blocker-prompt-context.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
 
 /** Supplies a bounded consultation alongside large historical data, so growing
  * evidence cannot silently turn one repair-routing question into a full audit. */

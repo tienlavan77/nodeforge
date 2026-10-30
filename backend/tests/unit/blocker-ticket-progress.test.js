@@ -1,10 +1,10 @@
 // Verifies source-bound criterion progress and gap-focused recovery without replaying completed Coder work.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildBlockerTicketProgress, validateCriterionUpdates, recordCriterionUpdates } from "../../src/modules/supervisor/blocker-ticket-progress.js";
-import { transitionCoderCandidate } from "../../src/modules/supervisor/blocker-coder-candidate.js";
+import { buildBlockerTicketProgress, validateCriterionUpdates, recordCriterionUpdates } from "../../src/modules/supervisor/blocker/blocker-ticket-progress.js";
+import { transitionCoderCandidate } from "../../src/modules/supervisor/blocker/blocker-coder-candidate.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 // Supplies independent Node-owned writes and check receipts, with no attribution inferred from file names.
 function progressFixture() {

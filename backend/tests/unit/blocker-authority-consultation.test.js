@@ -1,10 +1,10 @@
 // Verifies authority questions reach AM through Node without granting tools, replaying Coder or looping the same denial.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assignAuthorityConsultation } from "../../src/modules/supervisor/blocker-authority-consultation.js";
-import { scheduleTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker-architecture-response.js";
-import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker-reconciliation-refresh.js";
+import { assignAuthorityConsultation } from "../../src/modules/supervisor/blocker/blocker-authority-consultation.js";
+import { scheduleTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { returnArchitectureResponse } from "../../src/modules/supervisor/blocker/blocker-architecture-response.js";
+import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker/blocker-reconciliation-refresh.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const recoveryOptions = { readFailureEvidence: async () => ({ status: "captured", receipts: [

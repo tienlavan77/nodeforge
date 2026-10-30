@@ -2,9 +2,9 @@
  * and unable to replace immutable project evidence or approval authority. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sprintLeaderWebSearchOptions } from "../../src/tools/sprint-leader-web-search.js";
+import { sprintLeaderWebSearchOptions } from "../../src/tools/roles/sprint-leader-web-search.js";
 import { createOpenAiSdkGateway } from "../../src/modules/agent/openai-sdk-gateway.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 test("native search honors SL role, provider support and Responses opt-out", () => {

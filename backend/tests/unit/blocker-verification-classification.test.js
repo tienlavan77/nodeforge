@@ -1,8 +1,8 @@
 // Keeps evidence-backed verification recovery at Sprint scope without letting narrative labels override contract authority.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerFailureClassification, requiresBlockerContract } from "../../src/modules/supervisor/blocker-failure-classification.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { createBlockerFailureClassification, requiresBlockerContract } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 // Builds an execution-bound failed verification receipt independently of any agent-authored explanation.

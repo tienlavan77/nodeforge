@@ -84,4 +84,5 @@
 .coding-agent-monitor .workspace-monitor-header strong { display: inline; flex: 1; }
 .coding-agent-monitor.is-minimized .workspace-monitor-header { border-bottom: 0; }
 .coding-workspace-list > .coding-workspace-empty { grid-column: 1 / -1; }
-@media (max-width: 760px) { .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .coding-workspace-column { padding: 0 20px 20px; } .coding-workspace-column-header { padding-top: 20px; } }
+/* Stacked workspace columns each receive half the viewport; reserve space for their sticky headers so an activity panel remains readable within its own column. */
+@media (max-width: 760px) { .coding-agent-monitor { max-height: min(50vh, calc(50dvh - 140px)); } .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .coding-workspace-column { padding: 0 20px 20px; } .coding-workspace-column-header { padding-top: 20px; } }

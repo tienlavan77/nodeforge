@@ -1,7 +1,7 @@
 // Verifies technical receipt classification removes stale access escalation while real denials and missing evidence stay protected.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerFailureClassification, requiresBlockerAdmission } from "../../src/modules/supervisor/blocker-failure-classification.js";
+import { createBlockerFailureClassification, requiresBlockerAdmission } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 const receipt = { event_id: "TECHNICAL", tool: "commit_changes", error: { code: "TICKET_BASELINE_CONFLICT", message: "Parent differs from before-state." } };

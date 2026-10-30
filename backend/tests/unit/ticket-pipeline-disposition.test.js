@@ -5,8 +5,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createTicketPipelineDisposition } from "../../src/modules/supervisor/ticket-pipeline-disposition.js";
-import { createTicketPipelineRollout } from "../../src/modules/supervisor/ticket-pipeline-rollout.js";
+import { createTicketPipelineDisposition } from "../../src/modules/supervisor/ticket/ticket-pipeline-disposition.js";
+import { createTicketPipelineRollout } from "../../src/modules/supervisor/ticket/ticket-pipeline-rollout.js";
 
 test("legacy disposition requires an owner and current evidence before enforce", async () => {
   const root = await mkdtemp(join(tmpdir(), "nodeforge-disposition-"));

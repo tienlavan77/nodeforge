@@ -14,9 +14,9 @@ for (const [path, executionRole] of [["../components/architecture-workspace.jsx"
     const state = { id: persistedId, messages: ["old reply"], revision: 0, rows: [] };
     const activeConversationIdRef = { current: persistedId };
     const lastSentRef = { current: { conversationId: persistedId } };
-    const selectionSource = source.match(/  function handleSelectConversation\(conversation\) \{[\s\S]*?\n  \}/)[0];
-    const draftSource = source.match(/  function handleNewConversation\(\) \{[\s\S]*?\n  \}/)[0];
-    const createdSource = source.match(/  function handleConversationCreated\(conversation\) \{[\s\S]*?\n  \}/)[0];
+    const selectionSource = source.match(/ {2}function handleSelectConversation\(conversation\) \{[\s\S]*?\n {2}\}/)[0];
+    const draftSource = source.match(/ {2}function handleNewConversation\(\) \{[\s\S]*?\n {2}\}/)[0];
+    const createdSource = source.match(/ {2}function handleConversationCreated\(conversation\) \{[\s\S]*?\n {2}\}/)[0];
     const callbacks = runInNewContext(`${draftSource}\n${selectionSource}\n${createdSource}\n({ handleNewConversation, handleSelectConversation, handleConversationCreated })`, {
       activeConversationIdRef, lastSentRef, sendingRef: { current: false },
       CHAT_STATE_KEY: "home", CODING_CHAT_STATE_KEY: "system",
@@ -50,8 +50,14 @@ for (const [path, executionRole] of [["../components/architecture-workspace.jsx"
     assert.equal(state.rows[0].id, persistedId);
     assert.match(source, /onNewConversation=\{handleNewConversation\}/);
     assert.doesNotMatch(source, /createRequest=|newConversationRequest/);
-    assert.match(source, /<HomeChatComposer key=\{conversationRevision\}/);
-    assert.match(source, /scopeKey: conversationRevision/);
+    const composerKey = source.match(/<HomeChatComposer key=\{([^\n]+?)\} projectId=/)[1];
+    const queueScope = source.match(/scopeKey: ([^,\n]+), isWorking:/)[1];
+    for (const revision of [0, 1]) {
+      assert.equal(runInNewContext(queueScope, { PROJECT_ID: "PROJECT-A", conversationRevision: revision }), `PROJECT-A:${revision}`);
+      assert.notEqual(runInNewContext(queueScope, { PROJECT_ID: "PROJECT-B", conversationRevision: revision }), `PROJECT-A:${revision}`);
+      const value = runInNewContext(composerKey, { PROJECT_ID: "PROJECT-A", conversationRevision: revision });
+      assert.equal(value, executionRole === "architecture-manager" ? `PROJECT-A:${revision}` : revision);
+    }
     assert.match(source, /onConversationCreated: handleConversationCreated/);
   });
 

@@ -2,8 +2,8 @@
  * provider, without treating prose as completion or replaying real failures. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createResumeState, recordTurn } from "../../src/modules/supervisor/ticket-resume.js";
-import { runTicketSdkTurns } from "../../src/modules/supervisor/ticket-sdk-turns.js";
+import { createResumeState, recordTurn } from "../../src/modules/supervisor/ticket/ticket-resume.js";
+import { runTicketSdkTurns } from "../../src/modules/supervisor/ticket/ticket-sdk-turns.js";
 
 /** Supplies compact governed tool receipts rather than provider-specific prose. */
 function events(...tools) { return tools.map((tool) => ({ tool, status: "success" })); }

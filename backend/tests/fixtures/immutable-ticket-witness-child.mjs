@@ -4,7 +4,7 @@ import { createFileService } from "../../src/infrastructure/filesystem/file-serv
 import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
 import { createCodeSearch } from "../../src/modules/index/code-search.js";
 import { createFileGraph } from "../../src/modules/index/file-graph.js";
-import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
+import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket/ticket-workspace-service.js";
 import { createAgentProfileStore } from "../../src/modules/agent/agent-profile-store.js";
 import { createAgentOccupancyStore } from "../../src/modules/agent/agent-occupancy-store.js";
 

@@ -5,12 +5,12 @@ import test from "node:test";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { baselineFixture, failedBaseline } from "./ticket-baseline-recovery-fixture.js";
-import { createTicketVerificationService } from "../../src/modules/supervisor/ticket-verification-service.js";
-import { baselineRecoveryRequest } from "../../src/modules/supervisor/ticket-baseline-recovery.js";
+import { createTicketVerificationService } from "../../src/modules/supervisor/ticket/ticket-verification-service.js";
+import { baselineRecoveryRequest } from "../../src/modules/supervisor/ticket/ticket-baseline-recovery.js";
 import { resolveRuntimePath } from "../../src/infrastructure/filesystem/forge-paths.js";
-import { readBlockerVerificationHistory } from "../../src/modules/supervisor/blocker-verification-history.js";
-import { createBlockerEvidenceFiles } from "../../src/modules/supervisor/blocker-evidence-files.js";
-import { createBlockerFailureClassification, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker-failure-classification.js";
+import { readBlockerVerificationHistory } from "../../src/modules/supervisor/blocker/blocker-verification-history.js";
+import { createBlockerEvidenceFiles } from "../../src/modules/supervisor/blocker/blocker-evidence-files.js";
+import { createBlockerFailureClassification, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
 
 test("Node restores baseline evidence, keeps passing checks and completes the remaining original plan", async () => {
   const f = await baselineFixture();

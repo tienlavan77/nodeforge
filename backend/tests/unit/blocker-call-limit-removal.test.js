@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { blockerRecoveryPolicy } from "../../src/modules/supervisor/blocker-recovery-policy.js";
+import { blockerRecoveryPolicy } from "../../src/modules/supervisor/blocker/blocker-recovery-policy.js";
 
 // Recreates a retained legacy call-limit failure without resetting its audit history or execution identity.
 async function parkLegacyCallLimit(fixture, reason, status = "reconciliation_required") {

@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { engineeringToolDefinitions } from "../../src/tools/engineering-tool-catalog.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
 
 const exec = promisify(execFile);
 const digest = (text) => createHash("sha256").update(text).digest("hex");

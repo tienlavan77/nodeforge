@@ -2,8 +2,8 @@
  * wait once while preserving AM decisions, Coder checkpoints and actual denials. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker-reconciliation-refresh.js";
-import { blockerRuntimeCapabilities, refreshBlockerRuntimeCapabilities } from "../../src/modules/supervisor/blocker-runtime-capabilities.js";
+import { createBlockerReconciliationRefresh } from "../../src/modules/supervisor/blocker/blocker-reconciliation-refresh.js";
+import { blockerRuntimeCapabilities, refreshBlockerRuntimeCapabilities } from "../../src/modules/supervisor/blocker/blocker-runtime-capabilities.js";
 
 /** Models a typed external tooling question after AM has already answered;
  * arbitrary narrative is deliberately irrelevant to the recovery decision. */

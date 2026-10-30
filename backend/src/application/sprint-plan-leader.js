@@ -1,5 +1,5 @@
 // Drafts a governance sprint plan through the configured Sprint Leader SDK.
-import { SPRINT_LEADER_WEB_SEARCH_PROMPT } from "../tools/sprint-leader-web-search.js";
+import { SPRINT_LEADER_WEB_SEARCH_PROMPT } from "../tools/roles/sprint-leader-web-search.js";
 import { extractTicketJson } from "./ticket-draft-parser.js";
 import { PLANNING_AUTONOMY_PROMPT } from "../shared/implementation-autonomy.js";
 import { startSprintLeaderProgress } from "./sprint-leader-progress.js";

@@ -25,7 +25,8 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
     const abort = () => controller.abort(abortSignal.reason);
     abortSignal?.addEventListener("abort", abort, { once: true });
     if (abortSignal?.aborted) abort();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // The normalized profile grants System Engineer unlimited session time while retaining explicit Stop.
+    const timer = normalized.role === "system_engineer" ? null : setTimeout(() => controller.abort(), timeoutMs);
     let terminalFailure;
     const terminal = createSdkTerminalLog({ profile: normalized, correlationId, context: options.forgeTools?.context, output: terminalOutput });
     try {

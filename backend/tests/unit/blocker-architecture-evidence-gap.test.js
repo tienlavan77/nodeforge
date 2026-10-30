@@ -5,9 +5,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { createBlockerFailureClassification, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker-failure-classification.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { createBlockerFailureClassification, requiresEvidenceReconciliation } from "../../src/modules/supervisor/blocker/blocker-failure-classification.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
 
 const quote = "Use an internal adapter within the approved structure and preserve all runtime tool permissions.";
 const basis = { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) };

@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker-authority-passages.js";
-import { assertArchitectureDisposition } from "../../src/modules/supervisor/blocker-decision-authority.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
+import { blockerAuthorityPassages, resolveBlockerAuthority } from "../../src/modules/supervisor/blocker/blocker-authority-passages.js";
+import { assertArchitectureDisposition } from "../../src/modules/supervisor/blocker/blocker-decision-authority.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
 
 const context = { plan: { content: {} }, ticket: { objective: "Reuse the existing approved handler without changing the public contract." },
   architecture: { basis: { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) }, markdown: "Keep the existing in-process topology and all public interfaces unchanged." } };

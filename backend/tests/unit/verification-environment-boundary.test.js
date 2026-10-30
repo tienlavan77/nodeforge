@@ -6,10 +6,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { assertVerificationEnvironment, loadVerificationEnvironment, persistVerificationEnvironment, restoreVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
-import { materializeTicketVerification } from "../../src/modules/supervisor/ticket-verification-materialization.js";
-import { createVerificationReviewSource } from "../../src/modules/supervisor/ticket-verification-review-source.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
+import { assertVerificationEnvironment, loadVerificationEnvironment, persistVerificationEnvironment, restoreVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
+import { materializeTicketVerification } from "../../src/modules/supervisor/ticket/ticket-verification-materialization.js";
+import { createVerificationReviewSource } from "../../src/modules/supervisor/ticket/ticket-verification-review-source.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
 
 // Produces fixture digests with exactly the same byte contract as persisted evidence.
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");

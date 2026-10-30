@@ -7,8 +7,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { assertRoleFileAccess, createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { authorizeOwnerTool, ownerRoleTools } from "../../src/tools/owner-role-tool-policy.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
+import { authorizeOwnerTool, ownerRoleTools } from "../../src/tools/roles/owner-role-tool-policy.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
 import { bindEngineeringTools } from "../../src/tools/engineering-tool-binding.js";
 import { ENGINEERING_TOOL_NAMES, CODER_TOOL_NAMES } from "../../src/tools/engineering-tool-catalog.js";
 import { issueExecutionFileAccess } from "../../src/tools/execution-file-access.js";
@@ -88,7 +88,7 @@ test("system_engineer can delete_file and move_file across permitted project and
   }
 });
 
-test("negative guardrails reject secrets, hidden paths outside .forge, symlinks, node_modules, governance files, Coder workflow mutations, directory tools, and ledgerless Coder mutations", async () => {
+test("other roles retain protected paths while Coder mutations require a ledger and reject escapes", async () => {
   for (const name of [...ENGINEERING_TOOL_NAMES, ...CODER_TOOL_NAMES]) {
     assert.doesNotMatch(name, /directory|mkdir|rmdir/i);
   }
@@ -111,8 +111,11 @@ test("negative guardrails reject secrets, hidden paths outside .forge, symlinks,
     await assert.rejects(() => seScoped.deleteFile({ path: "src/linked/file.js" }), { code: "FILE_ROLE_FORBIDDEN" });
     await assert.rejects(() => seScoped.moveFile({ from_path: "src/linked/file.js", to_path: "src/safe.js" }), { code: "FILE_ROLE_FORBIDDEN" });
 
-    await assert.rejects(() => coderScoped.deleteFile({ path: "src/allowed.js" }), { code: "FILE_ROLE_FORBIDDEN" });
-    await assert.rejects(() => coderScoped.moveFile({ from_path: "src/allowed.js", to_path: "src/other.js" }), { code: "FILE_ROLE_FORBIDDEN" });
+    await writeFile(join(projectRoot, "src/allowed.js"), "allowed");
+    await coderScoped.deleteFile({ path: "src/allowed.js" });
+    await writeFile(join(projectRoot, "src/allowed.js"), "allowed");
+    await coderScoped.moveFile({ from_path: "src/allowed.js", to_path: "src/other.js" });
+    assert.equal(await readFile(join(projectRoot, "src/other.js"), "utf8"), "allowed");
 
     const policyIdentity = { id: "policy-1", revision: "1", sha256: `sha256:${"b".repeat(64)}` };
     const baseContext = {
@@ -151,9 +154,10 @@ test("negative guardrails reject secrets, hidden paths outside .forge, symlinks,
       move_file: { execute: async (input, ctx) => { ctx.changed_paths.push(input.from_path, input.to_path); return { moved: true }; } }
     };
     const bound = bindEngineeringTools({ registry: mockRegistry, context: baseContext });
-    await assert.rejects(() => bound.registry.delete_file.execute({ path: "workflows/agents/coder/README.md", before_checksum: sha256("a") }), { code: "FILE_ROLE_FORBIDDEN" });
-    await assert.rejects(() => bound.registry.delete_file.execute({ path: "AGENTS.md", before_checksum: sha256("a") }), { code: "PATH_FORBIDDEN" });
-    await assert.rejects(() => bound.registry.move_file.execute({ from_path: "src/a.js", to_path: "src/created/c.js", before_checksum: sha256("a") }), { code: "PATH_FORBIDDEN" });
+    await bound.registry.delete_file.execute({ path: "workflows/agents/coder/README.md", before_checksum: sha256("a") });
+    await bound.registry.delete_file.execute({ path: "AGENTS.md", before_checksum: sha256("a") });
+    await bound.registry.move_file.execute({ from_path: "src/a.js", to_path: "src/created/c.js", before_checksum: sha256("a") });
+    assert.equal(bound.context.changed_paths.length, 4);
   } finally {
     await rm(projectRoot, { recursive: true, force: true });
     await rm(outsideRoot, { recursive: true, force: true });

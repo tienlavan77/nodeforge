@@ -24,7 +24,7 @@ test("returns a normalized result shape", async () => {
 });
 
 test("serves ticket candidate metadata with PATCH first, no file content", async () => {
-  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/select-code-graph-candidates.js");
+  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/discovery/select-code-graph-candidates.js");
   const probe = createSelectCodeGraphCandidatesTool({ relevantTreeSelector: { select: () => { throw new Error("must not retrieve when ticket candidates exist"); } } });
   const candidateFiles = [
     { path: "ui/nextjs/components/Panel.jsx", role: "REUSE", symbol: "ConversationList", reason: "reuse ConversationList" },
@@ -39,7 +39,7 @@ test("serves ticket candidate metadata with PATCH first, no file content", async
 });
 
 test("serves ticket symbol as the stable address", async () => {
-  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/select-code-graph-candidates.js");
+  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/discovery/select-code-graph-candidates.js");
   const probe = createSelectCodeGraphCandidatesTool({ relevantTreeSelector: { select: () => { throw new Error("must not retrieve when ticket candidates exist"); } } });
   const candidateFiles = [{ path: "backend/src/application/service.js", role: "PATCH", symbol: "persistPin", reason: "edit persistPin" }];
   const result = await probe.execute({ query: "pin" }, { task_id: "TASK-SYMBOL", capabilities: ["select_code_graph_candidates"], task_context: { title: "Pin", objective: "Pin", acceptance_criteria: ["works"], candidate_files: candidateFiles } });
@@ -48,7 +48,7 @@ test("serves ticket symbol as the stable address", async () => {
 });
 
 test("serves up to eight ticket candidates in one call", async () => {
-  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/select-code-graph-candidates.js");
+  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/discovery/select-code-graph-candidates.js");
   const probe = createSelectCodeGraphCandidatesTool({ relevantTreeSelector: { select: () => { throw new Error("must not retrieve when ticket candidates exist"); } } });
   const candidateFiles = Array.from({ length: 8 }, (_, i) => ({ path: `backend/src/application/service-${i}.js`, role: i < 5 ? "PATCH" : "REUSE", symbol: `handleService${i}`, reason: `entry ${i}` }));
   const result = await probe.execute({ query: "mixed backend frontend ticket" }, { task_id: "TASK-SL-8", capabilities: ["select_code_graph_candidates"], task_context: { title: "Mixed", objective: "Mixed", acceptance_criteria: ["both sides"], candidate_files: candidateFiles } });
@@ -57,7 +57,7 @@ test("serves up to eight ticket candidates in one call", async () => {
 });
 
 test("flags stale cached candidates with freshness instead of removing them", async () => {
-  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/select-code-graph-candidates.js");
+  const { createSelectCodeGraphCandidatesTool } = await import("../../src/tools/discovery/select-code-graph-candidates.js");
   const probe = createSelectCodeGraphCandidatesTool({
     relevantTreeSelector: { select: () => { throw new Error("must not retrieve when ticket candidates exist"); } },
     freshnessChecker: { checkPaths: async (paths) => paths.map((path) => ({ path, status: path.endsWith("stale.js") ? "stale" : "fresh" })) }

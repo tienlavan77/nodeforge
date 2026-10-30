@@ -4,8 +4,8 @@ import test from "node:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createBlockerVerificationResume } from "../../src/modules/supervisor/blocker-verification-resume.js";
-import { createBlockerRecovery } from "../../src/modules/supervisor/blocker-recovery.js";
+import { createBlockerVerificationResume } from "../../src/modules/supervisor/blocker/blocker-verification-resume.js";
+import { createBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery.js";
 
 // Persists one source-bound verification job and recovery ledger in disposable runtime storage.
 async function fixture() {

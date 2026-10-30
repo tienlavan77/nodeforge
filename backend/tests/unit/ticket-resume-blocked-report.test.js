@@ -1,8 +1,8 @@
 // Ensures blocked tickets can request owner action without committing unfinished work.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 
 // Builds a resumed ticket with uncommitted edits and the real governed report tool.
 function blockedReportFixture() {

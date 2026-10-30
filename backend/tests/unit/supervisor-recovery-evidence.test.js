@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createProductionSupervisorRuntime } from "../../src/modules/supervisor/production-runtime.js";
-import { createReviewRequestHandler } from "../../src/modules/supervisor/review-request-handler.js";
+import { createReviewRequestHandler } from "../../src/modules/supervisor/review/review-request-handler.js";
 import { assertCachedReviewResult, reviewRequestBasis } from "../../src/modules/supervisor/recovery-evidence.js";
 
 const PLAN = { project_id: "PROJECT-A", sprint_id: "SPRINT-A", plan_id: "PLAN-A", plan_revision: 1, plan_path: "plans/a.json", plan_sha256: "a".repeat(64), version: 1 };

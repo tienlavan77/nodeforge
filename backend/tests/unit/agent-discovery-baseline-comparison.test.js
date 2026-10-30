@@ -4,24 +4,29 @@ import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { captureVerificationEnvironment } from "../../src/modules/supervisor/ticket-verification-environment.js";
-import { materializeTicketVerification } from "../../src/modules/supervisor/ticket-verification-materialization.js";
+import { captureVerificationEnvironment } from "../../src/modules/supervisor/ticket/ticket-verification-environment.js";
+import { materializeTicketVerification } from "../../src/modules/supervisor/ticket/ticket-verification-materialization.js";
 
 // Uses argv-only subprocess execution to retain original test assertions and avoid shell or workspace mutations.
 const execute = promisify(execFile);
 // Fixes attribution to the ticket's recorded parent rather than whichever commit happens to be HEAD.
 const baselineCommit = "8d477bbca1901c30cd93872d5a65c2dc45f8f6cd";
-// Keeps baseline ticket bytes separate from the shared non-ticket environment, including the unchanged security assertions.
-const ticketPaths = [
-  "backend/src/application/owner-sdk-stream.js", "backend/src/application/sprint-plan-leader.js", "backend/src/application/ticket-sprint-leader.js",
-  "backend/src/modules/supervisor/committed-review-window.js", "backend/src/modules/supervisor/nodeforge-task-prompts.js", "backend/src/modules/supervisor/reviewer-forge-tools.js",
-  "backend/src/tools/agent-lifecycle-tools.js", "backend/src/tools/index.js", "backend/src/tools/sed-lines.js", "backend/src/tools/sprint-leader-forge-tools.js",
-  "backend/tests/unit/agent-discovery-read-window.test.js", "backend/tests/unit/agent-line-budget-integration.test.js", "backend/tests/unit/sprint-leader-forge-tools.test.js",
-  "backend/tests/tools/sed-lines.test.js", "backend/tests/unit/owner-sdk-tools.test.js", "schemas/agent/tools/read-file.schema.json",
-  "backend/tests/unit/agent-discovery-baseline-comparison.test.js"
-];
+// Keeps the complete backend and schema dependency graph at each source revision.
+// This prevents old lifecycle imports from binding to a newer, incompatible policy;
+// assertions and installed dependencies remain identical in the captured environment.
+async function securitySourcePaths(root) {
+  const paths = new Set((await execute("git", ["ls-tree", "-r", "--name-only", baselineCommit, "--", "backend/src", "schemas"], { cwd: root })).stdout.trim().split("\n").filter(Boolean));
+  for (const directory of ["backend/src", "schemas"]) {
+    for (const entry of await readdir(resolve(root, directory), { recursive: true, withFileTypes: true })) {
+      if (entry.isFile()) paths.add(resolve(entry.parentPath, entry.name).slice(root.length + 1));
+    }
+  }
+  // The historical commit omitted this dependency and its current transitive import.
+  // Capture their identical working-tree bytes as shared environment, not historical source.
+  return [...paths].filter((path) => !["backend/src/tools/execution-file-access.js", "backend/src/infrastructure/filesystem/coder-project-access.js"].includes(path) && /\.(?:js|mjs|cjs|json)$/.test(path)).sort();
+}
 
 // Captures original TAP failure blocks and hashes without treating a nonzero exit code alone as equivalent behavior.
 async function securityResult(root) {
@@ -33,19 +38,26 @@ async function securityResult(root) {
   }
   assert.match(output.stdout, /# tests [1-9]\d*/);
   assert.doesNotMatch(output.stderr, /skipping running files/);
-  const failures = [...output.stdout.matchAll(/not ok[^\n]*\n[\s\S]*?\n  \.\.\./g)].map(([block]) => block.replaceAll(root, "<source-root>").replace(/duration_ms: [^\n]+/g, "duration_ms: <timing>"));
+  const failures = [...output.stdout.matchAll(/not ok[^\n]*\n[\s\S]*?\n {2}\.\.\./g)].map(([block]) => block.replaceAll(root, "<source-root>").replace(/duration_ms: [^\n]+/g, "duration_ms: <timing>"));
   const source = await readFile(resolve(root, "backend/src/application/owner-sdk-stream.js"), "utf8");
   const assertions = await readFile(resolve(root, "backend/tests/unit/system-engineer-sdk-tools.test.js"));
-  return { exit_code: output.exit_code, failures, gate: source.match(/const allowBuiltinWebSearch\s*=\s*[^;]+;/)?.[0], source_sha256: createHash("sha256").update(source).digest("hex"), assertions_sha256: createHash("sha256").update(assertions).digest("hex"), stderr: output.stderr };
+  return { exit_code: output.exit_code, failures, gate: source.match(/const allowBuiltinWebSearch\s*=\s*[^;]+;/)?.[0], source_sha256: createHash("sha256").update(source).digest("hex"), assertions_sha256: createHash("sha256").update(assertions).digest("hex"), stderr: output.stderr, startup_diagnostics: output.stdout.split("\n").filter((line) => /^#.*(?:Error|Cannot|does not provide|ERR_)/.test(line)).slice(0,12) };
 }
 
 // Produces executable attribution evidence without granting acceptance, altering gates, or changing the live working tree.
 test("O3 security assertions compare against the fixed baseline in the same environment", async () => {
-  const root = resolve(new URL("../../..", import.meta.url).pathname);
+  const root = resolve(new URL("../../../", import.meta.url).pathname);
   const repository = await execute("git", ["rev-parse", "--show-toplevel"], { cwd: root });
   const projectRoot = repository.stdout.trim();
+  const referenceFiles = (await execute("git", ["ls-tree", "-r", "--name-only", baselineCommit, "--", "backend/src"], { cwd: projectRoot })).stdout.trim().split("\n");
+  const referenceDiscovery = (await execute("git", ["show", `${baselineCommit}:backend/src/tools/rg-files.js`], { cwd: projectRoot })).stdout;
+  const referenceIntegrity = { discovery_imports_execution_file_access: referenceDiscovery.includes("./execution-file-access.js"), execution_file_access_tracked: referenceFiles.includes("backend/src/tools/execution-file-access.js") };
+  const ticketPaths = await securitySourcePaths(projectRoot);
   const environment = await captureVerificationEnvironment({ projectRoot, ticketPaths });
-  const overlayFiles = Object.fromEntries(await Promise.all(ticketPaths.map(async (path) => [path, await readFile(resolve(root, path), "utf8")])));
+  const overlayFiles = Object.fromEntries(await Promise.all(ticketPaths.map(async (path) => {
+    try { return [path, await readFile(resolve(root, path))]; }
+    catch (error) { if (error.code === "ENOENT") return [path, null]; throw error; }
+  })));
   const baseline = await materializeTicketVerification({ projectRoot, commitSha: baselineCommit, ticketPaths, environment });
   let currentArchive;
   try {
@@ -56,8 +68,9 @@ test("O3 security assertions compare against the fixed baseline in the same envi
     await baseline.assertTicketSource();
     await currentArchive.assertEnvironment();
     await currentArchive.assertTicketSource();
-    console.log(JSON.stringify({ diagnostic_only: true, baseline_commit: baselineCommit, environment_sha256: environment.sha256, current, baseline: previous }));
+    console.log(JSON.stringify({ diagnostic_only: true, baseline_commit: baselineCommit, reference_integrity: referenceIntegrity, environment_sha256: environment.sha256, current, baseline: previous }));
     assert.equal(current.assertions_sha256, previous.assertions_sha256);
-    assert.deepEqual({ exit_code: current.exit_code, failures: current.failures }, { exit_code: previous.exit_code, failures: previous.failures }, "Different assertion causes require reconciliation; this diagnostic never waives backend regression checks.");
+    assert.equal(current.exit_code, 0, JSON.stringify({ current, baseline: previous }));
+    assert.deepEqual(current.failures, [], JSON.stringify({ current, baseline: previous }));
   } finally { await currentArchive?.cleanup(); await baseline.cleanup(); }
 });

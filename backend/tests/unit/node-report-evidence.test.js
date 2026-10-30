@@ -1,9 +1,9 @@
 // Verifies completion evidence covers every required plan check and diagnoses missing Node capabilities.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { completeNodeReportEvidence } from "../../src/tools/node-report-evidence.js";
+import { completeNodeReportEvidence } from "../../src/tools/reporting/node-report-evidence.js";
 import { assertCoderCoverage } from "../../src/modules/supervisor/completion-report-service.js";
-import { createReportDoneTool } from "../../src/tools/agent-report-tool.js";
+import { createReportDoneTool } from "../../src/tools/reporting/agent-report-tool.js";
 
 const artifact = { artifact_id: "ARTIFACT-1", commit_sha: "commit", changed_paths: ["ui/nextjs/lib/example.js"], file_checksums: {}, commands: [{ kind: "test", exit_code: 0, argv: ["node", "--test", "ui/nextjs/tests/example.test.js"] }] };
 

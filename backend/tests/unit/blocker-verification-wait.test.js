@@ -1,9 +1,9 @@
 // Prevents duplicate external verification waits while preserving real missing dependencies and execution gates.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertVerificationWait, verificationDecisionPrompt } from "../../src/modules/supervisor/blocker-verification-wait.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
+import { assertVerificationWait, verificationDecisionPrompt } from "../../src/modules/supervisor/blocker/blocker-verification-wait.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 // Supplies current terminal facts and independent external requests for generic ticket recovery.

@@ -11,16 +11,16 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
-import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket-change-ledger.js";
-import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket-execution-context.js";
-import { createTicketRootCommitService } from "../../src/modules/supervisor/ticket-root-commit-service.js";
-import { createCommitChangesTool } from "../../src/tools/agent-verification-tools.js";
+import { createTicketChangeLedger } from "../../src/modules/supervisor/ticket/ticket-change-ledger.js";
+import { createTicketExecutionContextStore } from "../../src/modules/supervisor/ticket/ticket-execution-context.js";
+import { createTicketRootCommitService } from "../../src/modules/supervisor/ticket/ticket-root-commit-service.js";
+import { createCommitChangesTool } from "../../src/tools/governance/agent-verification-tools.js";
 import { bindEngineeringTools } from "../../src/tools/engineering-tool-binding.js";
 import { CODER_TOOL_NAMES } from "../../src/tools/engineering-tool-catalog.js";
 import { issueExecutionFileAccess } from "../../src/tools/execution-file-access.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
-import { ownerRoleTools } from "../../src/tools/owner-role-tool-policy.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
+import { ownerRoleTools } from "../../src/tools/roles/owner-role-tool-policy.js";
 
 const execFile = promisify(execFileCallback);
 

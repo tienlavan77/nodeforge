@@ -2,8 +2,8 @@
 // from invalid configuration and refreshes profiles before retrying an atomic claim.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectAvailableReviewer, reviewerClaimFailure } from "../../src/modules/supervisor/reviewer-agent-availability.js";
-import { reviewOperationalFailure } from "../../src/modules/supervisor/review-operational-failure.js";
+import { selectAvailableReviewer, reviewerClaimFailure } from "../../src/modules/supervisor/review/reviewer-agent-availability.js";
+import { reviewOperationalFailure } from "../../src/modules/supervisor/review/review-operational-failure.js";
 
 /** Models shared Reviewer profiles and claims without starting providers or
  * modifying live ticket state, including claims held by another project. */

@@ -33,7 +33,7 @@ export function normalizeError(error, { requestId } = {}) {
 }
 
 // Creates a service for running tests with async job tracking.
-export function createTestService({ verificationOrchestrator, fileService, timeoutMs = 120000, jobTimeoutMs = 300000, projectRoot, publisher, internalBus, projectLogger = () => {} } = {}) {
+export function createTestService({ verificationOrchestrator, fileService, timeoutMs = 120000, jobTimeoutMs = 600000, projectRoot, publisher, internalBus, projectLogger = () => {} } = {}) {
   if (typeof verificationOrchestrator?.run !== "function") throw new ConfigurationError("TestService requires a Verification Orchestrator.");
   // Archive verification has no live checkout, so project root remains optional metadata.
   if (projectRoot != null && (typeof projectRoot !== "string" || !projectRoot.trim())) throw new ConfigurationError("TestService project root must be a non-empty string when provided.");

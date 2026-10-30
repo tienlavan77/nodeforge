@@ -1,7 +1,7 @@
 // Verifies browser runner repairs unlock bounded retries without requiring unrelated ticket code changes.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ticketVerificationRunnerRevision } from "../../src/modules/supervisor/ticket-verification-runner-revision.js";
+import { ticketVerificationRunnerRevision } from "../../src/modules/supervisor/ticket/ticket-verification-runner-revision.js";
 
 const plan = [{ kind: "browser" }];
 

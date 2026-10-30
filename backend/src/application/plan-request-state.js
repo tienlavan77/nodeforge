@@ -1,7 +1,7 @@
 // Persists Architecture planning request progress so Coding can recover generating/error state after missed delivery.
 import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { randomUUID } from "node:crypto";
-import { acquireTicketFileLock } from "../modules/supervisor/ticket-file-lock.js";
+import { acquireTicketFileLock } from "../modules/supervisor/ticket/ticket-file-lock.js";
 
 const PROCESS_ID = randomUUID();
 

@@ -2,7 +2,7 @@
 import { ConfigurationError } from "../shared/errors.js";
 import { assertApprovedTicket } from "../modules/governance/sprint-plan-draft.js";
 import { assertPlanOwnerDecisions } from "../modules/governance/plan-decision-requests.js";
-import { captureDependencyExpectations } from "../modules/supervisor/ticket-dependency-expectations.js";
+import { captureDependencyExpectations } from "../modules/supervisor/ticket/ticket-dependency-expectations.js";
 
 // Creates a small intake guard that keeps Sprint Leader decisions within the approved DAG.
 export function createSprintLeaderIntakeService({ fileService, roadmaps, sprintRegistry, ticketStatusStore, logger = () => {} } = {}) {

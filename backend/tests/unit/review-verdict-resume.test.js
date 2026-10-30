@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
-import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket-review-findings.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
+import { createTicketReviewFindingsStore } from "../../src/modules/supervisor/ticket/ticket-review-findings.js";
 
 // Supplies real committed source, a durable failed response and an independent Reviewer without calling a provider.
 async function fixture(t) {

@@ -3,11 +3,11 @@ import { fixture } from "../fixtures/ticket-contract-source-fixture.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { createTicketContractSource } from "../../src/modules/supervisor/ticket-contract-source.js";
-import { findIntegratedTicketSource } from "../../src/modules/supervisor/ticket-integrated-source.js";
-import { preflightBlockerContract } from "../../src/modules/supervisor/blocker-contract-preflight.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { buildBlockerTicketProgress, ticketProgressPrompt } from "../../src/modules/supervisor/blocker-ticket-progress.js";
+import { createTicketContractSource } from "../../src/modules/supervisor/ticket/ticket-contract-source.js";
+import { findIntegratedTicketSource } from "../../src/modules/supervisor/ticket/ticket-integrated-source.js";
+import { preflightBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-preflight.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { buildBlockerTicketProgress, ticketProgressPrompt } from "../../src/modules/supervisor/blocker/blocker-ticket-progress.js";
 
 // Hashes exact source bytes for approval and ledger comparisons.
 const hash = (content) => createHash("sha256").update(content).digest("hex");

@@ -1,5 +1,5 @@
 // Architecture manager selection persisted per project.
-// Mirrors ui/src/architecture-manager-selection.js for Next.js build (same-origin import).
+// Canonical selection persistence module for the Next.js application.
 const STORAGE_KEY = "arch";
 
 function readState(storage) {
@@ -33,4 +33,3 @@ export function architectureManagerSelection(projectId, fallback, storage = glob
 }
 
 export { STORAGE_KEY as ARCHITECTURE_MANAGER_STORAGE_KEY };
-// Next.js same-origin mirror for architecture manager selection.

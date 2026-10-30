@@ -6,11 +6,11 @@ import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { build } from "esbuild";
-import { CODING_BROWSER_ASSERTIONS, assertCodingBrowserStep } from "../../src/modules/supervisor/browser-coding-contract.js";
-import { runBrowserVerification } from "../../src/modules/supervisor/browser-verification-runner.js";
-import { matchesBrowserEvidence } from "../../src/modules/supervisor/browser-verification-evidence.js";
-import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket-verification-plan.js";
-import { verifyCodingAssertion } from "../../src/modules/supervisor/browser-coding-scenarios.js";
+import { CODING_BROWSER_ASSERTIONS, assertCodingBrowserStep } from "../../src/modules/supervisor/browser/browser-coding-contract.js";
+import { runBrowserVerification } from "../../src/modules/supervisor/browser/browser-verification-runner.js";
+import { matchesBrowserEvidence } from "../../src/modules/supervisor/browser/browser-verification-evidence.js";
+import { buildTicketVerificationPlan } from "../../src/modules/supervisor/ticket/ticket-verification-plan.js";
+import { verifyCodingAssertion } from "../../src/modules/supervisor/browser/browser-coding-scenarios.js";
 import { launchProjectChromium } from "../helpers/chromium-cdp.js";
 
 const step = { criterion_ids: ["AC-1", "AC-2", "AC-4", "AC-6", "AC-7", "AC-9", "AC-10"], kind: "browser", viewports: [375, 768, 1440], assertions: CODING_BROWSER_ASSERTIONS.slice(10, 13) };
@@ -47,7 +47,7 @@ function scenarioPage(page) {
 
 // Serves the committed production fixture and runs shared scenario assertions on actual DOM and keyboard/pointer input.
 async function verifyWithCdp(context, sourceRoot, indices, widths) {
-  const bundle = await build({ entryPoints: ["backend/src/modules/supervisor/browser-coding-fixture.js"], bundle: true, write: false, outdir: "browser-fixture", platform: "browser", jsx: "automatic",
+  const bundle = await build({ entryPoints: ["backend/src/modules/supervisor/browser/browser-coding-fixture.js"], bundle: true, write: false, outdir: "browser-fixture", platform: "browser", jsx: "automatic",
     alias: { "@ticket/ui": join(sourceRoot, "ui/nextjs"), react: join(sourceRoot, "ui/nextjs/node_modules/react"), "react-dom": join(sourceRoot, "ui/nextjs/node_modules/react-dom") }, define: { "process.env.NODE_ENV": '"production"' }, logLevel: "silent" });
   const assets = new Map(bundle.outputFiles.map((file) => [file.path.endsWith(".css") ? "/fixture.css" : "/fixture.js", file.text]));
   const server = createServer((request, response) => {

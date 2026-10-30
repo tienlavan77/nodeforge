@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker-technical-reconciliation.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
+import { validateTechnicalReconciliation } from "../../src/modules/supervisor/blocker/blocker-technical-reconciliation.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
 
 const reconciliation = { kind: "source_revision",
   prerequisite: "Recovery design is complete; runtime acceptance follows normal Coder handoff.",

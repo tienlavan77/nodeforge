@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { transitionCoderCandidate } from "../../src/modules/supervisor/blocker-coder-candidate.js";
-import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket-resume.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { transitionCoderCandidate } from "../../src/modules/supervisor/blocker/blocker-coder-candidate.js";
+import { buildResumePrompt, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 
 const request = { action: "coder_requested", summary: "Coder must supply an initialization-preserving alternative.",
   guidance: "Preserve initialization and explain a narrowly scoped handler change.",

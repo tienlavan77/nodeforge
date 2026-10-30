@@ -4,10 +4,10 @@ import test from "node:test";
 import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createReadFileTool } from "../../src/tools/agent-lifecycle-tools.js";
-import { createSedLinesTool } from "../../src/tools/sed-lines.js";
-import { createCommittedReviewWindow } from "../../src/modules/supervisor/committed-review-window.js";
-import { createReviewerForgeTools } from "../../src/modules/supervisor/reviewer-forge-tools.js";
+import { createReadFileTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
+import { createCommittedReviewWindow } from "../../src/modules/supervisor/review/committed-review-window.js";
+import { createReviewerForgeTools } from "../../src/modules/supervisor/review/reviewer-forge-tools.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { readFileDefinition } from "../../src/tools/index.js";
 
@@ -100,7 +100,7 @@ test("schema, tool description, and named prompts consistently advertise 250-lin
   assert.match(readFileDefinition.description, /up to\s+250\s+source lines/);
   const schema = JSON.parse(await readFile(new URL("../../../schemas/agent/tools/read-file.schema.json", import.meta.url), "utf8").catch(async (error) => {
     if (error.code !== "ENOENT") throw error;
-    return readFile(new URL("../../../../schemas/agent/tools/read-file.schema.json", import.meta.url), "utf8");
+    return readFile(new URL("../../../schemas/agent/tools/read-file.schema.json", import.meta.url), "utf8");
   }));
   assert.equal(schema.properties.limit.maximum, 250);
   assert.doesNotMatch(schema.properties.limit.description, /\b80\b/);

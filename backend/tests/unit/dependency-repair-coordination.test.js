@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { dependencyRepairFixture, waitForDependency } from "../fixtures/dependency-repair-fixture.js";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
-import { blockerDependencyProgress } from "../../src/modules/supervisor/blocker-dependency-progress.js";
-import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker-ticket-progress.js";
-import { captureDependencyExpectations, assertDependencyExpectations } from "../../src/modules/supervisor/ticket-dependency-expectations.js";
+import { blockerDependencyProgress } from "../../src/modules/supervisor/blocker/blocker-dependency-progress.js";
+import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker/blocker-ticket-progress.js";
+import { captureDependencyExpectations, assertDependencyExpectations } from "../../src/modules/supervisor/ticket/ticket-dependency-expectations.js";
 
 const QUEUE = "ticket.dependency-repair";
 

@@ -3,7 +3,7 @@
  * retry so a stale preparation guard cannot silently return. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { matchesTicketRetrySource, assertTicketRetrySource } from "../../src/modules/supervisor/ticket-retry-source.js";
+import { matchesTicketRetrySource, assertTicketRetrySource } from "../../src/modules/supervisor/ticket/ticket-retry-source.js";
 import { coderProductionRecoveryFixture, BASIS, TICKET } from "../fixtures/coder-production-recovery-fixture.js";
 
 const expected = { task_id: "T", project_id: "P", supervisor_id: "SUP-T", base_sha: "BASE", execution_root: "project-root",

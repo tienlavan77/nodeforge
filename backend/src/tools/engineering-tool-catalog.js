@@ -1,11 +1,11 @@
 // Defines one versioned engineering tool contract while keeping authority in Node-issued execution policy.
-import { queryReviewDefinition } from "./query-review-tool.js";
-import { lookupSchemaDefinition } from "./lookup-schema-tool.js";
+import { queryReviewDefinition } from "./reporting/query-review-tool.js";
+import { lookupSchemaDefinition } from "./discovery/lookup-schema-tool.js";
 import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, reportDoneDefinition, respondToReviewDefinition } from "./index.js";
-import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./agent-command-tools.js";
-import { ownerSearchTreeDefinition } from "./owner-search-tree.js";
-import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./owner-engineer-tools.js";
-import { ownerDeleteFileDefinition, ownerMoveFileDefinition } from "./owner-delete-file.js";
+import { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./governance/agent-command-tools.js";
+import { ownerSearchTreeDefinition } from "./roles/owner-search-tree.js";
+import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./roles/owner-engineer-tools.js";
+import { ownerDeleteFileDefinition, ownerMoveFileDefinition } from "./roles/owner-delete-file.js";
 
 import { verificationRunnerEnvironmentSchema } from "../modules/supervisor/verification-runner-environment.js";
 import { ENGINEERING_CATALOG_VERSION, ENGINEERING_TOOL_NAMES } from "./engineering-tool-names.js";

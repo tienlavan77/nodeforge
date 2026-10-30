@@ -8,10 +8,10 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
-import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker-ticket-progress.js";
-import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker-prompt-context.js";
-import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker-recovery-tools.js";
-import { createBlockerVerificationDelivery } from "../../src/modules/supervisor/blocker-verification-delivery.js";
+import { buildBlockerTicketProgress } from "../../src/modules/supervisor/blocker/blocker-ticket-progress.js";
+import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker/blocker-prompt-context.js";
+import { blockerRecoveryTools } from "../../src/modules/supervisor/blocker/blocker-recovery-tools.js";
+import { createBlockerVerificationDelivery } from "../../src/modules/supervisor/blocker/blocker-verification-delivery.js";
 
 /** Reproduces a failed committed verification followed by a new coding source
  * context, without changing the original receipts or creating review evidence. */

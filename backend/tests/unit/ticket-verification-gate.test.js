@@ -1,7 +1,7 @@
 // Verifies Supervisor cannot publish a ticket verification pass from path-only checks.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { verifyTicketChangeset } from "../../src/modules/supervisor/ticket-verification-gate.js";
+import { verifyTicketChangeset } from "../../src/modules/supervisor/ticket/ticket-verification-gate.js";
 
 const legacyWorker = { verifyChangeset: async () => ({ status: "passed" }) };
 const fileChecksums = { "backend/src/a.js": "sha256:a" };

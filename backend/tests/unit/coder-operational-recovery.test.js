@@ -5,9 +5,9 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createFileQueueStore } from "../../src/modules/supervisor/file-queue-store.js";
-import { createCoderOperationalRecovery } from "../../src/modules/supervisor/coder-operational-recovery.js";
-import { classifyCoderFailure } from "../../src/modules/supervisor/coder-failure-routing.js";
-import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket-execution-failure.js";
+import { createCoderOperationalRecovery } from "../../src/modules/supervisor/coder/coder-operational-recovery.js";
+import { classifyCoderFailure } from "../../src/modules/supervisor/coder/coder-failure-routing.js";
+import { handleTicketExecutionFailure } from "../../src/modules/supervisor/ticket/ticket-execution-failure.js";
 import { createSupervisorLoop } from "../../src/modules/supervisor/supervisor-loop.js";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 

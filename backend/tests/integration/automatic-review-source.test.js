@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/automatic-review-source.js";
+import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/review/automatic-review-source.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 
 const execFile = promisify(callback);

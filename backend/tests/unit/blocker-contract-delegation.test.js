@@ -2,10 +2,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { retainBlockerContract } from "../../src/modules/supervisor/blocker-contract-evidence.js";
-import { readBlockerContractDelegation, createBlockerContractRefresh } from "../../src/modules/supervisor/blocker-contract-delegation.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker-validation.js";
+import { retainBlockerContract } from "../../src/modules/supervisor/blocker/blocker-contract-evidence.js";
+import { readBlockerContractDelegation, createBlockerContractRefresh } from "../../src/modules/supervisor/blocker/blocker-contract-delegation.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { blockerResponseEvidence } from "../../src/modules/supervisor/blocker/blocker-validation.js";
 
 const basis = { plan_id: "ARCH-PLAN", revision: 1, sha256: "a".repeat(64) };
 const quote = "Preserve the existing approved interfaces and security restrictions while completing the implementation.";

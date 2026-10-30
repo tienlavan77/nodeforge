@@ -2,7 +2,7 @@
  * owns verification; SL receives exact results and Stop revokes live execution. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBlockerBaselineRecovery } from "../../src/modules/supervisor/blocker-baseline-recovery.js";
+import { createBlockerBaselineRecovery } from "../../src/modules/supervisor/blocker/blocker-baseline-recovery.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 /** Models the durable queue reservation without touching production state. */

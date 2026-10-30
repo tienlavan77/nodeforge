@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
 import { createRoleFileService } from "../../src/infrastructure/filesystem/file-service-role-policy.js";
-import { createOwnerConversationTools } from "../../src/tools/owner-conversation-tools.js";
+import { createOwnerConversationTools } from "../../src/tools/roles/owner-conversation-tools.js";
 
 for (const provider of ["codex", "claude"]) {
   test(`${provider} SE discovers, reads, edits and deletes Forge state through the shared tools`, async () => {

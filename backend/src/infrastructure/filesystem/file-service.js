@@ -7,10 +7,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import picomatch from "picomatch";
 import { ConfigurationError } from "../../shared/errors.js";
-import { SECRET_PATTERNS, isProtectedPath } from "./protected-path-policy.js";
+import { SECRET_PATTERNS, isProtectedPath, isProjectGitkeepPath } from "./protected-path-policy.js";
 import { projectIndexPath } from "./project-index-path.js";
 import { readRegularFile, writeRegularFile, prepareSafeWriteTarget } from "./safe-object-open.js";
 import { pruneEmptyAncestorDirectories } from "./empty-directory-cleanup.js";
+import { isCoderProjectPath } from "./coder-project-access.js";
 const DEFAULT_SECRETS = SECRET_PATTERNS; const DEFAULT_IGNORE = [".forge/**", ".node-control/**", "node_modules/**", ".git/**", "dist/**", "coverage/**", ".next/**", ".next.stale-*/**", "**/.DS_Store", "**/._*"];
 const NODE_MODULES_PATH = /^node_modules(?:\/|$)/;
 // Creates a sandboxed FileService scoped to projectRoot with queued writes, secret-path filtering, and atomic/lock operations.
@@ -21,7 +22,11 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   const secretMatch = picomatch(secretPatterns, { dot: true });
   const ignoreMatch = picomatch(watcherIgnore, { dot: true });
   let queue = Promise.resolve();
-  return Object.freeze({ writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, moveFile: renameFile, listFiles, listDirectories });
+  return Object.freeze({ forRole, writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, moveFile: renameFile, listFiles, listDirectories });
+  /** Retains Node's project root, event hooks and storage mapping while giving
+   * ticket file services the configured role's filesystem authority. The role
+   * is chosen by Node wiring, never by an agent tool argument. */
+  function forRole(nextRole) { return nextRole === role ? this : createFileService({ projectRoot: root, secretPatterns, watcherIgnore, databaseService, internalBus, onWrite, logger, allowPlanStorage, role: nextRole }); }
   // Defines writeFile function behavior for file-service.js.
   function writeFile(input) {
     const job = queue.then(() => write(input));
@@ -186,7 +191,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     return Object.freeze({ path: rel, bytes: Buffer.byteLength(content) });
   }
   // Defines readFile function behavior for file-service.js.
-  async function readFile({ path } = {}) { const rel = safePath(path); return readRegularFile(root, rel); }
+  async function readFile({ path, encoding = "utf8" } = {}) { const rel = safePath(path); return readRegularFile(root, rel, { encoding }); }
   // Defines readFileSync function behavior for file-service.js.
   function readFileSync({ path } = {}) { const rel = safePath(path); return fsReadFileSync(resolve(root, rel), "utf8"); }
   // Defines readFileRangeSync function behavior for file-service.js.
@@ -202,7 +207,8 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   async function readForIndex({ path, maxBytes, allowNodeModules = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService indexing path is required.");
     const rel = relative(root, resolve(root, path)).split(sep).join("/");
-    const forgeAccess = role === "system_engineer" && rel.startsWith(".forge/"); const dependencyRead = allowNodeModules === true && NODE_MODULES_PATH.test(rel);
+    const forgeAccess = role === "system_engineer" && rel.startsWith(".forge/") || role === "coder" && isCoderProjectPath(path); const dependencyRead = allowNodeModules === true && NODE_MODULES_PATH.test(rel);
+    if (role === "coder" && !isCoderProjectPath(path)) throw new ConfigurationError("Refusing a path outside Coder project access.");
     if (isAbsolute(path) || !rel || rel.startsWith("..") || (!forgeAccess && secretMatch(rel)) || (ignoreMatch(rel) && !dependencyRead && !forgeAccess)) throw new ConfigurationError("Refusing to index unsafe, ignored, or secret project path.");
     if (maxBytes !== undefined && (!Number.isInteger(maxBytes) || maxBytes < 1)) throw new ConfigurationError("FileService read limit is invalid.");
     let content;
@@ -246,9 +252,10 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   // Defines safePath function behavior for file-service.js.
   function safePath(path, { write = false } = {}) {
     if (typeof path !== "string" || !path) throw new ConfigurationError("FileService path is required.");
+    if (role === "coder" && !isCoderProjectPath(path)) throw new ConfigurationError("Refusing a path outside Coder project access.");
     const absolute = resolve(root, path);
     const rel = relative(root, absolute).split(sep).join("/");
-    const forgeAccess = role === "system_engineer" && (rel === ".forge" || rel.startsWith(".forge/")); const runtimePath = rel === FORGE_STATE_DIR || rel.startsWith(STATE_DIR_PREFIX);
+    const forgeAccess = role === "system_engineer" && (rel === ".forge" || rel.startsWith(".forge/") || isProjectGitkeepPath(rel)) || role === "coder"; const runtimePath = rel === FORGE_STATE_DIR || rel.startsWith(STATE_DIR_PREFIX);
     const planPath = allowPlanStorage && /^\.forge\/runtime\/nf\/(?:planning\/)?plans\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:[1-9][0-9]*\.(?:json|md)|ke-hoach-r[1-9][0-9]*\.md|(?:revision|decision|markdown|markdown-decision)\.lock)$/.test(rel);
     const summaryPath = allowPlanStorage && /^workflows\/\.nodeforge-summary-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(rel);
     if (isAbsolute(path) || !rel || rel.startsWith("..") || (!planPath && !summaryPath && isProtectedPath(rel, { operation: write ? "write" : "read", role })) || (!forgeAccess && secretMatch(rel)) || (ignoreMatch(rel) && !forgeAccess && !runtimePath && !planPath && !summaryPath)) {

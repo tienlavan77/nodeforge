@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeDispatchStorage, openDispatchStorage, PROJECT, TICKET } from "../fixtures/ticket-dispatch-recovery-fixture.mjs";
 import { createTicketRunDispatch } from "../../src/application/ticket-run-dispatch.js";
-import { selectTicketCoder } from "../../src/modules/supervisor/ticket-agent-provider-routing.js";
+import { selectTicketCoder } from "../../src/modules/supervisor/ticket/ticket-agent-provider-routing.js";
 import { createFileQueueStore } from "../../src/modules/supervisor/file-queue-store.js";
 import { createSprintDagRunner } from "../../src/modules/supervisor/sprint-dag.js";
 import { createExecutionEventBus } from "../../src/modules/supervisor/execution-event-bus.js";

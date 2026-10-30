@@ -13,9 +13,9 @@ import { createCompletionReportService } from "../src/modules/supervisor/complet
 import { createClaudeSdkGateway } from "../src/modules/agent/claude-sdk-gateway.js";
 import { createRuntimeToolGovernance } from "../src/modules/governance/runtime-tool-governance.js";
 import { createForgeToolRegistry } from "../src/tools/index.js";
-import { createForgeSdkMcpServer, forgeSdkToolNames } from "../src/tools/claude-sdk-forge-tools.js";
+import { createForgeSdkMcpServer, forgeSdkToolNames } from "../src/tools/roles/claude-sdk-forge-tools.js";
 
-process.chdir(new URL("../..", import.meta.url).pathname);
+process.chdir(new URL("../../", import.meta.url).pathname);
 loadNodeforgeEnv();
 
 const includeCommit = process.argv.includes("--commit");

@@ -1,8 +1,8 @@
 // Verifies that independent review uses bounded Forge source evidence and strict verdicts.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
-import { resolveReviewOnlyWorkspace } from "../../src/modules/supervisor/review-only-workspace.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
+import { resolveReviewOnlyWorkspace } from "../../src/modules/supervisor/review/review-only-workspace.js";
 
 // Supplies a read-only Reviewer and captures the prompt sent through the SDK.
 function harness({ text = '{"verdict":"approved","findings":[]}', sourceSize = 12, staleOnSecondRead = false, patch = "" } = {}) {

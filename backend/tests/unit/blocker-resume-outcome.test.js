@@ -3,9 +3,9 @@
  * while SL receives the new failure and cannot resend an unchanged handoff. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { completeBlockedResume, previousBlockedHandoff, restoreBlockedHandoff, assertBlockerHandoffProgress } from "../../src/modules/supervisor/blocker-resume-outcome.js";
-import { blockerRolePrompt } from "../../src/modules/supervisor/blocker-role-prompt.js";
-import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker-prompt-context.js";
+import { completeBlockedResume, previousBlockedHandoff, restoreBlockedHandoff, assertBlockerHandoffProgress } from "../../src/modules/supervisor/blocker/blocker-resume-outcome.js";
+import { blockerRolePrompt } from "../../src/modules/supervisor/blocker/blocker-role-prompt.js";
+import { createBlockerPromptContext } from "../../src/modules/supervisor/blocker/blocker-prompt-context.js";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
 
 // Supplies two attempts with one source identity to distinguish consumed work

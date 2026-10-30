@@ -11,7 +11,7 @@ import { createCodeCacheService } from "../../src/modules/context/code-cache-ser
 import { createWatcherCacheEvents } from "../../src/modules/context/watcher-cache-events.js";
 import { createForgeV1Router } from "../../src/transport/http/forge-v1-router.js";
 import { createHttpApi } from "../../src/transport/http/server.js";
-import { createReadCodeTool } from "../../src/tools/read-code.js";
+import { createReadCodeTool } from "../../src/tools/discovery/read-code.js";
 
 // Sends one watcher event over HTTP from a separate Node process.
 function postFromWatcher(url, event) {

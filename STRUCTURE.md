@@ -1,49 +1,70 @@
-# Nodeforge project structure
+# NodeForge repository structure
+
+This pnpm workspace contains the backend and the Next.js application.
+Workspace membership is defined by `pnpm-workspace.yaml`.
 
 ```text
 nodeforge/
-├── src/
-│   ├── bootstrap/        # Composition root, configuration loading, lifecycle
-│   ├── application/      # Command/event use cases; no transport or storage details
-│   ├── domain/           # Project, task, session, rule and workflow policies
-│   ├── modules/
-│   │   ├── agents/       # Provider-neutral agent process protocol and streams
-│   │   ├── context/      # Context selection, normalization, budgeting and cache policy
-│   │   ├── events/       # Event publication, idempotency and subscriptions
-│   │   ├── git/          # Change sets and diff collection
-│   │   ├── history/      # Audit history, summaries and retention
-│   │   ├── index/        # Incremental code index and dependency graph
-│   │   ├── projects/     # Registry, project isolation and project state
-│   │   ├── rules/        # Permission and workflow-rule evaluation
-│   │   ├── verification/ # Test, build, lint and typecheck runners
-│   │   ├── watcher/      # Filesystem events, debounce and stability checks
-│   │   └── workflows/    # State-machine execution and handoffs
-│   ├── infrastructure/   # Filesystem, SQLite, child process and OS adapters
-│   ├── transport/        # HTTP/API, WebSocket/SSE and CLI adapters
-│   └── shared/           # Error, IDs, logging and generic utilities
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── fixtures/
-├── config/               # Nodeforge defaults; project-specific state is not stored here
-├── scripts/              # Development and maintenance scripts
-├── schemas/              # Versioned protocol contracts, grouped by bounded context
-│   ├── core/
-│   ├── node/
-│   ├── project/
-│   ├── context/
-│   └── results/
-├── rules/                # Committed default Node policy/rulesets
-├── workflows/            # Committed workflow state-machine definitions
+├── backend/
+│   ├── src/
+│   │   ├── bootstrap/       Composition and service lifecycle
+│   │   ├── application/     Application use cases and orchestration
+│   │   ├── modules/         Governance, agent, indexing and supervisor verification
+│   │   │   └── supervisor/ Core orchestration and queues
+│   │   │       ├── browser/ Browser verification and coding scenarios
+│   │   │       ├── coder/   Coder dispatch and dependency repair
+│   │   │       ├── blocker/ Blocker reconciliation, recovery and escalation
+│   │   │       ├── review/  Review gates, workers and evidence
+│   │   │       └── ticket/  Ticket lifecycle, workspaces and verification
+│   │   ├── tools/
+│   │   │   ├── discovery/   Governed file, search, index and exploration tools
+│   │   │   ├── roles/       Owner, Coder, Reviewer and Sprint Leader SDK bindings
+│   │   │   ├── reporting/   Reports, review responses and verification evidence
+│   │   │   └── governance/  Authorization, lifecycle, mutations and conventions
+│   │   ├── infrastructure/  Filesystem, Git, SQLite and process adapters
+│   │   ├── transport/       HTTP, SSE and CLI interfaces
+│   │   └── shared/          Shared errors and utilities
+│   ├── tests/              Unit, integration, tools and evaluation tests
+│   ├── scripts/            Development, verification and maintenance scripts
+│   └── bin/                Backend maintenance entrypoints
+├── ui/nextjs/              Canonical Next.js application
+│   ├── app/                Routes and styles
+│   ├── components/         UI composition
+│   ├── lib/                Client state and API helpers
+│   └── tests/              UI and state regression tests
+├── schemas/                Versioned protocol and tool contracts
+├── workflows/
+│   ├── agents/             Runtime role instructions at stable paths
+│   ├── archive/            Historical plans, reports and discussions
+│   └── README.md           Workflow guidance
 ├── docs/
-│   └── PROJECT_STRUCTURE.md
-└── .forge/               # Created per monitored project at runtime; runtime is ignored
-    └── runtime/
+│   ├── architecture/       Detailed architecture references
+│   ├── archive/            Historical documentation collections
+│   ├── assets/             Documentation images
+│   └── README.md           Documentation navigation
+├── eslint-rules/           Repository lint rules
+├── vocabulary/             Standard business-to-code terminology
+├── config/                 Committed configuration
+├── rules/                  Committed policy data
+├── package.json            Root development and verification commands
+└── .forge/runtime/         Local runtime data, retained outside source control
 ```
 
-## Boundaries
+The backend source stays under `backend/src/`. The stream bridge is in
+`modules/agent/`; `modules/supervisor/supervisor-adapter-registry.js` identifies
+the supervisor adapter registry separately from the agent registry.
+Tools share their root catalogs and entrypoint. `tools/execution-file-access.js`
+keeps its implementation at the historical path for security baseline integrity.
+Supervisor domain modules now live in `browser/`, `coder/`, `blocker/`,
+`review/` and `ticket/`. Core orchestration and queues remain at the supervisor
+root (39 modules), as approved by Owner and AM. B.3.1–B.3.5 are accepted;
+B.3.6 dependency/cycle audit and final verification are complete. Phase B is
+ready for Owner/AM acceptance. See [the final Phase B report](docs/se-phase-b-final-report.md)
+for evidence, existing cycles and retained runtime-test limitations.
+Runtime guidance in `workflows/agents/` and `workflows/README.md` remains at
+its original paths.
 
-- `src/modules/` implements Node's orchestration capabilities; an agent remains an external process that directly uses the target project's filesystem.
-- `schemas/` is the protocol source of truth. `rules/` and `workflows/` are data validated against schemas rather than hard-coded control flow.
-- `src/infrastructure/` is the only layer that knows SQLite, child-process, filesystem-watcher and network APIs. Runtime data belongs in the monitored project's `.forge/runtime/`, never in source control.
-- `src/transport/` exposes state and streams but never becomes a source of truth; `modules/projects/`, the filesystem, Git and the event/history stores own that state.
+Filesystem and Git retain source evidence. Node's index supports retrieval;
+transport and UI expose state owned by the backend services and stores.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the architecture overview and
+[docs/README.md](docs/README.md) for design and historical references.

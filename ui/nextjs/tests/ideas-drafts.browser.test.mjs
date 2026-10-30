@@ -5,7 +5,7 @@
  */
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { runBrowserVerification } from "../../../backend/src/modules/supervisor/browser-verification-runner.js";
+import { runBrowserVerification } from "../../../backend/src/modules/supervisor/browser/browser-verification-runner.js";
 import { browserAssertions } from "./ideas-drafts.browser.mjs";
 
 test("Ideas draft safety in Chromium at 375, 768 and 1440 pixels", async () => {

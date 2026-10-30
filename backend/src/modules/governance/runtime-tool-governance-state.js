@@ -1,6 +1,6 @@
 // Stores runtime governance state helpers for execution budgets and tool authorization.
 import { ConfigurationError } from "../../shared/errors.js";
-import { cloneExplorationState } from "../../tools/exploration-state.js";
+import { cloneExplorationState } from "../../tools/discovery/exploration-state.js";
 
 export const DEFAULT_MAX_BYTES = 200000;
 export const DEFAULT_MAX_CALLS = 20;

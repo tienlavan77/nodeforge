@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { blockerRecoveryFixture } from "../fixtures/blocker-recovery-fixture.js";
-import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker-recovery-contract.js";
-import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker-recovery-agent.js";
-import { assertOwnerEscalation } from "../../src/modules/supervisor/blocker-decision-authority.js";
+import { validateBlockerDisposition } from "../../src/modules/supervisor/blocker/blocker-recovery-contract.js";
+import { createBlockerRecoveryAgent } from "../../src/modules/supervisor/blocker/blocker-recovery-agent.js";
+import { assertOwnerEscalation } from "../../src/modules/supervisor/blocker/blocker-decision-authority.js";
 
 const technical = { action: "reconciliation_required", summary: "Another ticket still holds the required serving-handler claim.",
   guidance: "Reconcile the serving-handler claim and record the ownership-safe integration handoff before resuming Coder." };

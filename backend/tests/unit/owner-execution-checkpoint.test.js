@@ -211,7 +211,7 @@ test("restart opens a new provider thread with inherited checkpoint context", as
 });
 
 test("System Engineer conversation tools and checkpoints record move_file and delete_file mutations, update owner_changed_paths, and block planning_input_only", async (context) => {
-  const { createOwnerConversationTools } = await import("../../src/tools/owner-conversation-tools.js");
+  const { createOwnerConversationTools } = await import("../../src/tools/roles/owner-conversation-tools.js");
   const fixture = await projectFixture();
   context.after(() => rm(fixture.root, { recursive: true, force: true }));
   await fixture.files.atomicWrite({ path: "src/old.js", content: "const x = 1;\n", replace: true });

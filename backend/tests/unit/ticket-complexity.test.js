@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyTicketComplexity } from "../../src/tools/ticket-complexity.js";
-import { COMPLEXITY_CONFIG } from "../../src/tools/ticket-complexity.js";
+import { classifyTicketComplexity } from "../../src/tools/governance/ticket-complexity.js";
+import { COMPLEXITY_CONFIG } from "../../src/tools/governance/ticket-complexity.js";
 
 test("checklist ticket with explicit component location classifies as simple", () => {
   const result = classifyTicketComplexity({

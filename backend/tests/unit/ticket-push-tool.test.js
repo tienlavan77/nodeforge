@@ -1,7 +1,7 @@
 // Verifies Coder publishes only its latest recorded ticket commit without invoking real remote Git.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTicketPushTool } from "../../src/tools/ticket-push-tool.js";
+import { createTicketPushTool } from "../../src/tools/reporting/ticket-push-tool.js";
 
 test("ticket push accepts its latest ledger commit and delegates Git safety checks", async () => {
   const sha = "a".repeat(40);

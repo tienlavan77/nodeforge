@@ -1,7 +1,7 @@
 // Verifies that documentation does not consume the governed source-code line budget.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { countBudgetLines } from "../../src/tools/agent-code-conventions.js";
+import { countBudgetLines } from "../../src/tools/governance/agent-code-conventions.js";
 
 test("blank lines and standalone comments do not consume the budget", () => {
   for (const content of ["", "\n \n\t\r\n", "// purpose\n// behavior", "#!/usr/bin/env node\n# purpose", "/* purpose\n * behavior\n */", "<!-- purpose\n behavior\n -->", "/* first */ <!-- second --> // last"]) {

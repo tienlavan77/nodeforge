@@ -2,7 +2,7 @@
 // tickets cannot start the same Reviewer and claim races remain safe to retry.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/automatic-review-source.js";
+import { createAutomaticReviewWorkerResolver } from "../../src/modules/supervisor/review/automatic-review-source.js";
 
 /** Provides a minimal production resolver with an in-memory atomic occupancy
  * store; no source is read and no real provider or live claim is created. */

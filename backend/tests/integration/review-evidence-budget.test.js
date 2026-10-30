@@ -9,9 +9,9 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { createCommittedReviewSource } from "../../src/modules/supervisor/reviewer-committed-source.js";
-import { createReviewWorker } from "../../src/modules/supervisor/review-worker.js";
-import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket-review-evidence.js";
+import { createCommittedReviewSource } from "../../src/modules/supervisor/review/reviewer-committed-source.js";
+import { createReviewWorker } from "../../src/modules/supervisor/review/review-worker.js";
+import { assertTicketReviewEvidence } from "../../src/modules/supervisor/ticket/ticket-review-evidence.js";
 
 const run = promisify(execFile);
 

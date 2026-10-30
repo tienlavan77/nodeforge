@@ -11,9 +11,9 @@ import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-databas
 import { rebuildIndex } from "../../src/modules/index/index-rebuild.js";
 import { createCodeSearch } from "../../src/modules/index/code-search.js";
 import { createFileGraph } from "../../src/modules/index/file-graph.js";
-import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket-workspace-service.js";
-import { createTicketIntegrationService } from "../../src/modules/supervisor/ticket-integration-service.js";
-import { createEditDiffTool } from "../../src/tools/agent-lifecycle-tools.js";
+import { createTicketWorkspaceService } from "../../src/modules/supervisor/ticket/ticket-workspace-service.js";
+import { createTicketIntegrationService } from "../../src/modules/supervisor/ticket/ticket-integration-service.js";
+import { createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
 import { createHash } from "node:crypto";
 
 const execFile = promisify(execFileCallback);
@@ -38,7 +38,7 @@ test("ticket root writes claim files and worktree commits contain only ticket de
   await git(root, "add", ".");
   await git(root, "commit", "-m", "base");
   const base = await git(root, "rev-parse", "HEAD");
-  const stateFileService = createFileService({ projectRoot: root });
+  const stateFileService = createFileService({ projectRoot: root, role: "coder" });
   const indexDatabase = await openIndexDatabase(root);
   await rebuildIndex({ projectRoot: root, database: indexDatabase });
   const codeSearch = createCodeSearch({ database: indexDatabase });

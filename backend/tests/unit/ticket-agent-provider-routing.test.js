@@ -1,7 +1,7 @@
 // Confirms approved ticket contracts bind Coder and Reviewer dispatch to signed profiles.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectTicketCoder, selectTicketReviewer } from "../../src/modules/supervisor/ticket-agent-provider-routing.js";
+import { selectTicketCoder, selectTicketReviewer } from "../../src/modules/supervisor/ticket/ticket-agent-provider-routing.js";
 
 const earlyCoder = { agent_id: "early", role: "coder", enabled: true, status: "ready", provider: "codex" };
 const signedCoder = { agent_id: "signed", role: "coder", enabled: true, status: "ready", provider: "claude" };
