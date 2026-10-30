@@ -2,7 +2,7 @@
 // ordering without private reasoning, tool output, duplicate snapshots, or cross-subagent text.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSystemEngineerSdkTranscript } from "../../src/application/system-engineer-sdk-transcript.js";
+import { createSystemEngineerSdkTranscript, formatForgeToolCommand } from "../../src/application/system-engineer-sdk-transcript.js";
 
 // Builds Codex lifecycle snapshots using the installed SDK's ThreadEvent contract.
 function codex(type, id, kind, extra) {
@@ -54,4 +54,37 @@ test("reasoning and subagent streams stay private and separate SDK runs keep uni
   second.finish("Fallback");
   assert.notEqual(first.snapshot().entries[0].id, second.snapshot().entries[0].id);
   assert.equal(first.snapshot().status, "failed");
+});
+
+test("Forge MCP tools emit formatted command_execution blocks for both Claude and Codex without leaking file contents", () => {
+  assert.equal(formatForgeToolCommand("mcp__forge__search_text", { flags: ["-F"], pattern: "needle", paths: ["backend/src"] }), 'search_text -F "needle" backend/src');
+  assert.equal(formatForgeToolCommand("mcp__forge__read_file", { path: "backend/src/index.js", offset: 1, limit: 80 }), "read_file backend/src/index.js:1..80");
+  assert.equal(formatForgeToolCommand("mcp__forge__edit_diff", { path: "backend/src/index.js", anchor: "SECRET", replacement: "NEW" }), "edit_diff backend/src/index.js");
+  assert.equal(formatForgeToolCommand("mcp__forge__git_status", {}, true), "git_status");
+
+  const transcript = createSystemEngineerSdkTranscript("FORGE");
+  transcript.accept({
+    type: "assistant",
+    message: {
+      id: "msg-forge",
+      content: [
+        { type: "tool_use", id: "forge-1", name: "mcp__forge__read_file", input: { path: "backend/src/app.js", offset: 10, limit: 20 } },
+        { type: "tool_use", id: "forge-2", name: "mcp__forge__edit_diff", input: { path: "backend/src/app.js", anchor: "PRIVATE", replacement: "SAFE" } }
+      ]
+    }
+  });
+  transcript.accept({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "forge-1", content: "FILE BODY" }] } });
+  transcript.accept(codex("completed", "forge-3", "mcp_tool_call", { server: "forge", tool: "search_text", arguments: { pattern: "route", paths: ["backend"] } }));
+  transcript.finish("Completed");
+  const snapshot = transcript.snapshot();
+  assert.deepEqual(
+    snapshot.entries.map((entry) => [entry.type, entry.command ?? entry.text, entry.status]),
+    [
+      ["command_execution", "read_file backend/src/app.js:10..29", "success"],
+      ["command_execution", "edit_diff backend/src/app.js", "working"],
+      ["command_execution", 'search_text "route" backend', "success"],
+      ["text", "Completed", undefined]
+    ]
+  );
+  assert.doesNotMatch(JSON.stringify(snapshot), /PRIVATE|SAFE|FILE BODY/);
 });

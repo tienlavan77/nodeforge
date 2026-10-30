@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { statePath } from "../../../infrastructure/filesystem/forge-paths.js";
+import { resolveProjectDependencyRoots } from "../verification-environment-seam.js";
 
 /** Produces stable receipt addresses without persisting environment secrets. */
 const digest = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -14,9 +15,9 @@ const digest = value => createHash("sha256").update(JSON.stringify(value)).diges
  * projects whose lockfiles have not changed during a reinstall. */
 async function dependencyRevision(root) {
   const entries = [];
-  for (const prefix of ["", "backend/", "ui/nextjs/"]) {
-    for (const name of ["node_modules", "node_modules/.pnpm", "node_modules/.package-lock.json", "node_modules/.modules.yaml", "node_modules/.pnpm/lock.yaml"]) {
-      const path = `${prefix}${name}`;
+  for (const depRoot of resolveProjectDependencyRoots(root)) {
+    for (const suffix of ["", "/.pnpm", "/.package-lock.json", "/.modules.yaml", "/.pnpm/lock.yaml"]) {
+      const path = `${depRoot}${suffix}`;
       try {
         const info = await stat(join(root, path));
         entries.push([path, info.dev, info.ino, info.mtimeMs, info.ctimeMs, info.isFile() ? digest(await readFile(join(root, path))) : null]);

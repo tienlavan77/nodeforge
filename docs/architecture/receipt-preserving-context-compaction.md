@@ -11,8 +11,8 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
 ## 1. Bối cảnh và vấn đề kỹ thuật cần giải quyết
 
 1. **Xung đột giữa `READ_REPEATED` và mất dấu `before_checksum` (`ticket-read-cache.js` & `ticket-work-progress.js`)**:
-   - `assertReadNotRepeated` (`backend/src/modules/supervisor/ticket-read-cache.js`, `L39-L45`) từ chối lệnh `read_file` lặp lại trên cùng `path#offset:limit` nếu file chưa thay đổi và yêu cầu Coder tái sử dụng `sha256` đã có.
-   - Tuy nhiên, khi chuyển pha qua `ticketWorkContinuationPrompt` (`backend/src/modules/supervisor/ticket-work-progress.js`, `L31-L34`) hoặc khi khôi phục phiên qua `buildResumePrompt` (`backend/src/modules/supervisor/ticket-resume.js`, `L177-L211`), prompt hiện chỉ đính kèm tên 8 tool gần nhất (`completedTools.slice(-8)`) mà không cung cấp bảng ánh xạ `path -> sha256`.
+   - `assertReadNotRepeated` (`backend/src/modules/supervisor/ticket/ticket-read-cache.js`, `L39-L45`) từ chối lệnh `read_file` lặp lại trên cùng `path#offset:limit` nếu file chưa thay đổi và yêu cầu Coder tái sử dụng `sha256` đã có.
+   - Tuy nhiên, khi chuyển pha qua `ticketWorkContinuationPrompt` (`backend/src/modules/supervisor/ticket/ticket-work-progress.js`, `L31-L34`) hoặc khi khôi phục phiên qua `buildResumePrompt` (`backend/src/modules/supervisor/ticket/ticket-resume.js`, `L177-L211`), prompt hiện chỉ đính kèm tên 8 tool gần nhất (`completedTools.slice(-8)`) mà không cung cấp bảng ánh xạ `path -> sha256`.
    - Khi ngữ cảnh dài bị nén hoặc phiên bị xoay vòng/khôi phục, Coder mất `before_checksum` để gọi `edit_diff`/`write_diff`/`delete_file`/`move_file`, nhưng gọi lại `read_file` thì bị chặn bởi `READ_REPEATED`.
 2. **Tích tụ raw payload trong bộ nhớ của Function-Calling Executor (`function-calling-task-executor.js`)**:
    - Trong `createFunctionCallingTaskExecutor` (`backend/src/modules/supervisor/function-calling-task-executor.js`, `L61-L84`), biến `let history;` giữ nguyên toàn bộ kết quả JSON thô của mọi lần gọi tool qua nhiều pha (`discovery_complete` -> `implementation_complete` -> `verification_complete`), bao gồm cả nội dung file cũ đã bị ghi đè bởi `edit_diff`/`write_diff`.
@@ -21,7 +21,7 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
    - Cần cơ chế giữ nguyên `sessionId`/`threadId` khi dưới ngưỡng token để tận dụng Prompt Cache 1 giờ, nhưng chủ động xoay vòng (`rollover`) sang phiên mới tại ranh giới chuyển pha `work_progress` khi `input_tokens` vượt ngưỡng, đồng thời truyền sang phiên mới bảng tổng hợp Checksum & Receipt Digest đầy đủ.
 4. **Điểm nghẽn điều hướng giữa chừng khi Ticket đang `running` (`owner-chat-service.js` & `ticket-sdk-turns.js`)**:
    - Trong `backend/src/application/owner-chat-service.js` (`L45-L50`), khi hội thoại đang bị khóa bởi ticket `"running"`, mọi thông điệp bổ sung bị chặn cứng (`ticket.input_rejected` / `code: "ticket_input_locked"`).
-   - Tại `backend/src/modules/supervisor/ticket-sdk-turns.js` (`L46-L55`), vòng lặp `for (;;)` đã có ranh giới tự nhiên sau mỗi turn SDK (ngay khi lưu `saveProgressCheckpoint` và trước khi tạo `nextPrompt`), nhưng hiện chưa có bước rút chỉ thị từ hòm thư (Inbox Drain) để tiêm hướng dẫn bổ sung hoặc tạm dừng an toàn tại ranh giới turn.
+   - Tại `backend/src/modules/supervisor/ticket/ticket-sdk-turns.js` (`L46-L55`), vòng lặp `for (;;)` đã có ranh giới tự nhiên sau mỗi turn SDK (ngay khi lưu `saveProgressCheckpoint` và trước khi tạo `nextPrompt`), nhưng hiện chưa có bước rút chỉ thị từ hòm thư (Inbox Drain) để tiêm hướng dẫn bổ sung hoặc tạm dừng an toàn tại ranh giới turn.
 
 ---
 
@@ -34,7 +34,7 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
 - **Không lưu nội dung file vào Checkpoint**: `read_cache` và `delivered_directives` trong checkpoint chỉ lưu metadata/chỉ thị ngắn gọn (`<= 2000` ký tự), tuyệt đối không lưu nội dung mã nguồn (`content`).
 - **Tôn trọng giới hạn 250 `code_lines` và quy tắc Comment của `CLAUDE.md`**:
   - Mọi file mới và hàm mới do SE tạo phải có comment mô tả rõ mục đích nghiệp vụ (business purpose) và mô tả kỹ thuật (technical description) bằng một ngôn ngữ thống nhất.
-  - `backend/src/modules/supervisor/ticket-resume.js` (`198 code_lines`) và `backend/src/modules/supervisor/nodeforge-task-executors.js` (`187 code_lines`) phải giữ dưới trần 250 `code_lines` bằng cách tách logic sang `ticket-context-compaction.js` và `ticket-directive-inbox.js`.
+  - `backend/src/modules/supervisor/ticket/ticket-resume.js` (`198 code_lines`) và `backend/src/modules/supervisor/nodeforge-task-executors.js` (`187 code_lines`) phải giữ dưới trần 250 `code_lines` bằng cách tách logic sang `ticket-context-compaction.js` và `ticket-directive-inbox.js`.
 
 ---
 
@@ -42,7 +42,7 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
 
 ### Mảnh ghép A — Active Checksum & Receipt Digest (`ticket-read-cache.js`, `ticket-resume.js`, `ticket-work-progress.js`)
 
-1. **Nâng cấp `backend/src/modules/supervisor/ticket-read-cache.js`**:
+1. **Nâng cấp `backend/src/modules/supervisor/ticket/ticket-read-cache.js`**:
    - Mở rộng `rememberRead(cache, input, result)` để chấp nhận cả kết quả từ `read_file` và `read_lines` (`sed_lines`) khi có `sha256` hợp lệ (`/^sha256:[a-fA-F0-9]{64}$/`), lưu các trường gọn: `{ path, sha256, total_lines, size_bytes, offset, limit }`.
    - Bổ sung hàm `recordMutationChecksum(cache, { path, from_path, to_path, sha256, tool })`:
      - Khi `edit_diff` hoặc `write_diff` thực thi thành công:
@@ -58,16 +58,16 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
      - Kết hợp với `state.changedPaths`, `state.sdkTurnProgress?.receipt_position`, và kết quả `turnHistory` gần nhất để tạo chuỗi JSON/bảng ngắn gọn (`<= 2000` ký tự).
 
 2. **Tích hợp vào `ticket-work-progress.js` và `ticket-resume.js`**:
-   - Trong `ticketWorkContinuationPrompt(progress, state)` (`backend/src/modules/supervisor/ticket-work-progress.js`):
+   - Trong `ticketWorkContinuationPrompt(progress, state)` (`backend/src/modules/supervisor/ticket/ticket-work-progress.js`):
      - Đính kèm dòng: `Active file checksums (reuse as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged windows): ${JSON.stringify(activeFileChecksums(state.readCache))}.`
-   - Trong `buildResumePrompt(prompt, state, meta)` (`backend/src/modules/supervisor/ticket-resume.js`):
+   - Trong `buildResumePrompt(prompt, state, meta)` (`backend/src/modules/supervisor/ticket/ticket-resume.js`):
      - Đính kèm bảng `Active file checksums` ngay dưới danh sách `Completed turns` và `Files already changed in the worktree` để khi Resume hoặc Rollover, Coder có ngay `before_checksum` chuẩn xác.
 
 ---
 
 ### Mảnh ghép B — Thu gọn `history` In-Memory cho Function-Calling Executor (`ticket-context-compaction.js` & `function-calling-task-executor.js`)
 
-1. **Tạo module mới `backend/src/modules/supervisor/ticket-context-compaction.js`**:
+1. **Tạo module mới `backend/src/modules/supervisor/ticket/ticket-context-compaction.js`**:
    - Cung cấp hàm `compactFunctionCallingHistory(history, { readCache, changedPaths, maxHistoryBytes = 65536, preserveRecentItems = 6 } = {})`:
      - Nếu `!Array.isArray(history)` hoặc tổng kích thước `Buffer.byteLength(JSON.stringify(history)) <= maxHistoryBytes` và không có mục đọc bị lỗi thời do sửa file, giữ nguyên `history`.
      - Khi thực hiện thu gọn tại ranh giới chuyển turn (`runTicketSdkTurns`):
@@ -106,7 +106,7 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
        2. Có `sessionId` hoặc `threadId` đang hoạt động.
        3. `extractTurnInputTokens(result) >= threshold`.
 
-2. **Xoay vòng phiên và tái tạo Prompt nén trong `backend/src/modules/supervisor/ticket-sdk-turns.js`**:
+2. **Xoay vòng phiên và tái tạo Prompt nén trong `backend/src/modules/supervisor/ticket/ticket-sdk-turns.js`**:
    - Trong `runTicketSdkTurns`, lưu lại `const basePrompt = prompt;` (prompt gốc chứa đầy đủ Ticket + Resume context ban đầu).
    - Sau khi xác thực `progress` hợp lệ và cập nhật `resumeState.sdkTurnProgress`:
      - Kiểm tra `shouldRolloverSdkSession({ result, progress, resumeState, threshold: request?.payload?.compaction_token_threshold })`.
@@ -128,9 +128,9 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
 
 ### Mảnh ghép D — Inbox / Mid-Flight Directive Injection tại ranh giới Turn (`ticket-directive-inbox.js`, `ticket-sdk-turns.js`, `ticket-work-progress.js`, `ticket-resume.js`)
 
-1. **Tạo module mới `backend/src/modules/supervisor/ticket-directive-inbox.js`**:
+1. **Tạo module mới `backend/src/modules/supervisor/ticket/ticket-directive-inbox.js`**:
    - **Lưu trữ bền vững & cô lập Multi-Project**:
-     - Sử dụng `statePath("ticket-directives")` từ `backend/src/infrastructure/filesystem/forge-paths.js` và băm `projectId` (`sha256(projectId).slice(7)`) giống hệt `createTicketExecutionContextStore` trong `backend/src/modules/supervisor/ticket-execution-context.js` (`L19-L26`).
+     - Sử dụng `statePath("ticket-directives")` từ `backend/src/infrastructure/filesystem/forge-paths.js` và băm `projectId` (`sha256(projectId).slice(7)`) giống hệt `createTicketExecutionContextStore` trong `backend/src/modules/supervisor/ticket/ticket-execution-context.js` (`L19-L26`).
      - Mỗi hòm thư lưu tại `.forge/runtime/ticket-directives/<projectHash>/<taskId>.json` thông qua `fileService` của đúng `projectRoot`, đồng bộ hóa truy cập đa tiến trình bằng `acquireTicketFileLock(fileService, "${pathFor(taskId)}.lock")`.
    - **Cấu trúc bản ghi `directive_entry` và kiểm tra hợp lệ**:
      - `directive_id`: `DIR-${sha256}` (content-addressed từ `projectId + taskId + sender.role + kind + instruction` hoặc ID truyền vào) để đảm bảo tính idempotent khi gửi lặp.
@@ -157,12 +157,12 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
        `MID-FLIGHT DIRECTIVES (Validated turn-boundary instructions — apply within existing approved ticket scope and manifest; never bypass tool governance, commit, verification, or report_done): ...`
 
 2. **Tích hợp bảo toàn qua Checkpoint & Session Rollover (`ticket-resume.js` & `ticket-context-compaction.js`)**:
-   - Trong `createResumeState(resume)` và `checkpointPayload(state, extra)` (`backend/src/modules/supervisor/ticket-resume.js`):
+   - Trong `createResumeState(resume)` và `checkpointPayload(state, extra)` (`backend/src/modules/supervisor/ticket/ticket-resume.js`):
      - Bổ sung trường `deliveredDirectives: sanitizeDeliveredDirectives(clean?.delivered_directives)` (giữ tối đa 8 chỉ thị gần nhất, mỗi chỉ thị chỉ lưu `{ directive_id, role, kind, instruction, delivered_at_turn }`) và xuất ra `delivered_directives` trong `checkpointPayload`.
    - Trong `buildResumePrompt` (`ticket-resume.js`) và `buildCompactedRolloverPrompt` (`ticket-context-compaction.js`):
      - Nếu `state.deliveredDirectives.length > 0`, đính kèm danh sách các chỉ thị đang hiệu lực để khi phiên bị xoay vòng (Mảnh ghép C) hoặc Resume sau sự cố, Coder vẫn nhớ các hướng dẫn đã nhận ở turn trước.
 
-3. **Điểm tiêm tại ranh giới Turn trong `backend/src/modules/supervisor/ticket-sdk-turns.js` và `ticket-work-progress.js`**:
+3. **Điểm tiêm tại ranh giới Turn trong `backend/src/modules/supervisor/ticket/ticket-sdk-turns.js` và `ticket-work-progress.js`**:
    - Trong `runTicketSdkTurns`:
      - Nhận thêm tùy chọn `directiveInbox = null` (hoặc tự khởi tạo qua `createTicketDirectiveInbox` khi `projectRoot` và `request?.project_id` hiện diện).
      - Ngay sau khi turn SDK kết thúc và trước khi kiểm tra `AGENT_PROGRESS_STALLED`:
@@ -180,12 +180,12 @@ Tài liệu này đặc tả thiết kế kỹ thuật chi tiết cho **4 Mảnh
 
 | File | Thao tác | Mô tả |
 | :--- | :---: | :--- |
-| `backend/src/modules/supervisor/ticket-context-compaction.js` | **Tạo mới** | Chứa `activeFileChecksums`, `compactFunctionCallingHistory`, `extractTurnInputTokens`, `shouldRolloverSdkSession`, và `buildCompactedRolloverPrompt` (giữ dưới 250 `code_lines`). |
-| `backend/src/modules/supervisor/ticket-directive-inbox.js` | **Tạo mới** | Chứa `createTicketDirectiveInbox` (`enqueue`, `list`, `drainPending`), `sanitizeDeliveredDirectives`, và `formatMidFlightDirectives` với khóa file cô lập theo `(projectId, taskId)` (giữ dưới 250 `code_lines`). |
-| `backend/src/modules/supervisor/ticket-read-cache.js` | **Cập nhật** | Hỗ trợ `recordMutationChecksum`, cờ `window_invalidated` (không chặn đọc lại cửa sổ sau khi sửa file nhưng vẫn giữ `sha256` mới nhất cho Digest), và lưu trữ an toàn qua `sanitizeReadCache`. |
-| `backend/src/modules/supervisor/ticket-resume.js` | **Cập nhật** | Gọi `recordMutationChecksum` sau `write_diff`/`edit_diff`/`delete_file`/`move_file`, lưu `delivered_directives` trong `checkpointPayload`, và nhúng `Active file checksums` + `deliveredDirectives` vào `buildResumePrompt`. |
-| `backend/src/modules/supervisor/ticket-work-progress.js` | **Cập nhật** | Nhúng `Active file checksums` và `formatMidFlightDirectives` vào `ticketWorkContinuationPrompt`. |
-| `backend/src/modules/supervisor/ticket-sdk-turns.js` | **Cập nhật** | Rút chỉ thị từ `directiveInbox` tại ranh giới turn, xử lý `pause_after_turn` (`DIRECTIVE_PAUSE_REQUESTED`), miễn trừ stall một nhịp khi có chỉ thị mới, và kiểm tra `shouldRolloverSdkSession`. |
+| `backend/src/modules/supervisor/ticket/ticket-context-compaction.js` | **Tạo mới** | Chứa `activeFileChecksums`, `compactFunctionCallingHistory`, `extractTurnInputTokens`, `shouldRolloverSdkSession`, và `buildCompactedRolloverPrompt` (giữ dưới 250 `code_lines`). |
+| `backend/src/modules/supervisor/ticket/ticket-directive-inbox.js` | **Tạo mới** | Chứa `createTicketDirectiveInbox` (`enqueue`, `list`, `drainPending`), `sanitizeDeliveredDirectives`, và `formatMidFlightDirectives` với khóa file cô lập theo `(projectId, taskId)` (giữ dưới 250 `code_lines`). |
+| `backend/src/modules/supervisor/ticket/ticket-read-cache.js` | **Cập nhật** | Hỗ trợ `recordMutationChecksum`, cờ `window_invalidated` (không chặn đọc lại cửa sổ sau khi sửa file nhưng vẫn giữ `sha256` mới nhất cho Digest), và lưu trữ an toàn qua `sanitizeReadCache`. |
+| `backend/src/modules/supervisor/ticket/ticket-resume.js` | **Cập nhật** | Gọi `recordMutationChecksum` sau `write_diff`/`edit_diff`/`delete_file`/`move_file`, lưu `delivered_directives` trong `checkpointPayload`, và nhúng `Active file checksums` + `deliveredDirectives` vào `buildResumePrompt`. |
+| `backend/src/modules/supervisor/ticket/ticket-work-progress.js` | **Cập nhật** | Nhúng `Active file checksums` và `formatMidFlightDirectives` vào `ticketWorkContinuationPrompt`. |
+| `backend/src/modules/supervisor/ticket/ticket-sdk-turns.js` | **Cập nhật** | Rút chỉ thị từ `directiveInbox` tại ranh giới turn, xử lý `pause_after_turn` (`DIRECTIVE_PAUSE_REQUESTED`), miễn trừ stall một nhịp khi có chỉ thị mới, và kiểm tra `shouldRolloverSdkSession`. |
 | `backend/src/modules/supervisor/function-calling-task-executor.js` | **Cập nhật** | Gọi `compactFunctionCallingHistory` giữa các turn trước khi truyền `history` vào `gateway.execute`. |
 | `backend/tests/unit/ticket-context-compaction.test.js` | **Tạo mới** | Kiểm thử đơn vị toàn diện cho Mảnh ghép A, B, C. |
 | `backend/tests/unit/ticket-directive-inbox.test.js` | **Tạo mới** | Kiểm thử đơn vị cho Mảnh ghép D: cô lập `(projectId, taskId)`, lọc role trái phép, rút chỉ thị tại ranh giới `runTicketSdkTurns`, miễn trừ stall khi có chỉ thị mới, và dừng an toàn với `pause_after_turn`. |

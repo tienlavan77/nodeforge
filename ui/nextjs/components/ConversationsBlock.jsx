@@ -4,25 +4,29 @@
 import { useRef, useState } from "react";
 
 // API helpers for menu actions — trigger backend without full page reload.
-async function apiDeleteConversation(id) {
-  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+async function apiDeleteConversation(id, projectId) {
+  const qs = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}${qs}`, { method: "DELETE" });
   return readActionResponse(res, "Delete failed");
 }
-async function apiRenameConversation(id, title) {
-  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
+async function apiRenameConversation(id, title, projectId) {
+  const qs = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}${qs}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }) });
   return readActionResponse(res, "Rename failed");
 }
 // Pins or unpins a conversation from the left chat list.
-async function apiPinConversation(id, pinned) {
+async function apiPinConversation(id, pinned, projectId) {
   const action = pinned ? "unpin" : "pin";
-  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+  const qs = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/${action}${qs}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
   return readActionResponse(res, pinned ? "Unpin failed" : "Pin failed");
 }
-async function apiArchiveConversation(id) {
-  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/archive`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+async function apiArchiveConversation(id, projectId) {
+  const qs = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}/archive${qs}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
   if (!res.ok && [404, 405, 501].includes(res.status)) {
     // fallback to PATCH status
-    const fallback = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true, status: "archived" }) });
+    const fallback = await fetch(`/forge/v1/conversations/${encodeURIComponent(id)}${qs}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true, status: "archived" }) });
     const updated = await readActionResponse(fallback, "Archive failed");
     if ((updated.conversation ?? updated).status !== "archived") throw new Error("Archive was not persisted");
     return updated;
@@ -35,7 +39,8 @@ async function apiArchiveConversation(id) {
 // Read action results without turning API or malformed-response failures into success.
 async function readActionResponse(response, message) {
   const payload = await response.json();
-  if (!response.ok) throw new Error(typeof payload.message === "string" ? payload.message : message);
+  const detail = typeof payload?.message === "string" ? payload.message : typeof payload?.error?.message === "string" ? payload.error.message : typeof payload?.error === "string" ? payload.error : message;
+  if (!response.ok) throw new Error(detail);
   return payload;
 }
 
@@ -44,12 +49,9 @@ export function ConversationsBlock({
   conversation,
   active = false,
   checked,
-  onCheckedChange,
   onSelect,
-  onRenamed,
   onArchived,
   onDeleted,
-  menuOpen,
   onMenuToggle,
   isEditing,
   editTitle,
@@ -98,8 +100,9 @@ export function ConversationsBlock({
   // Handles pin toggle via API then notifies parent; restores prior state on failure.
   async function handleTogglePin() {
     const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    const projectId = conversation.project_id ?? conversation.projectId;
     await runAction(async () => {
-      const updated = await apiPinConversation(id, isPinned);
+      const updated = await apiPinConversation(id, isPinned, projectId);
       const normalized = updated && typeof updated === "object" ? (updated.conversation ?? updated) : null;
       onTogglePin?.(normalized && typeof normalized === "object" && "pinned" in normalized ? normalized : { ...conversation, pinned: !isPinned });
     }, isPinned ? "Unpin failed" : "Pin failed");
@@ -109,8 +112,9 @@ export function ConversationsBlock({
   async function handleDelete() {
     if (pendingRef.current || !window.confirm(`Delete conversation "${titleText}"? This cannot be undone.`)) return;
     const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    const projectId = conversation.project_id ?? conversation.projectId;
     await runAction(async () => {
-      await apiDeleteConversation(id);
+      await apiDeleteConversation(id, projectId);
       onDeleted?.(conversation);
       onMenuToggle?.(false);
     }, "Delete failed");
@@ -122,17 +126,20 @@ export function ConversationsBlock({
     const title = (editTitle ?? "").trim();
     if (!title || title.length > 120) return;
     const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    const projectId = conversation.project_id ?? conversation.projectId;
     await runAction(async () => {
-      await apiRenameConversation(id, title);
-      onConfirmRename?.();
+      await apiRenameConversation(id, title, projectId);
+      cancelRenameRef.current = true;
+      onConfirmRename?.(title);
     }, "Rename failed");
   }
 
   // Handles archive action via API.
   async function handleArchive() {
     const id = String(conversation.id ?? conversation.conversation_id ?? "");
+    const projectId = conversation.project_id ?? conversation.projectId;
     await runAction(async () => {
-      await apiArchiveConversation(id);
+      await apiArchiveConversation(id, projectId);
       onArchived?.(conversation);
       onMenuToggle?.(false);
     }, "Archive failed");
@@ -162,7 +169,11 @@ export function ConversationsBlock({
             if (event.key === "Enter") { event.preventDefault(); handleRenameConfirm(); }
             if (event.key === "Escape") { event.preventDefault(); cancelRenameRef.current = true; onCancelRename?.(); }
           }}
-          onBlur={handleRenameConfirm}
+          onBlur={() => {
+            const trimmed = (editTitle ?? "").trim();
+            if (!trimmed || trimmed.length > 120 || trimmed === String(titleText).trim()) { cancelRenameRef.current = true; onCancelRename?.(); return; }
+            handleRenameConfirm();
+          }}
           aria-label="Rename conversation"
           aria-busy={pending}
         />

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import { createConversationCrudService } from "../../../backend/src/application/conversation-crud-service.js";
 import { createForgeV1ConversationRoutes } from "../../../backend/src/transport/http/forge-v1-conversation-routes.js";
+import { createForgeV1Router } from "../../../backend/src/transport/http/forge-v1-router.js";
 
 const source = await readFile("ui/nextjs/components/ConversationsBlock.jsx", "utf8");
 const styles = await readFile("ui/nextjs/app/styles/conversations.css", "utf8");
@@ -163,4 +164,47 @@ test("icons are named and actions remain reachable without selecting their conve
   assert.match(styles, /conversations-block-action:focus-visible/);
   assert.match(styles, /\.claude-home-shell \.conversations-block-title \{ flex: 1 1 0; width: 0; min-width: 0; \}/);
   assert.match(styles, /\.claude-home-shell \.conversations-block-actions \{ width: auto; max-width: 100%; margin-left: 0; \}/);
+});
+
+// Ensures multi-project conversation actions include project scope and resolve through the outer router.
+test("project-scoped conversations pass ?project= and route through multi-project Forge v1 router", async () => {
+  const scoped = mountActions({
+    responses: [
+      response(200, { pinned: true }),
+      response(200, { title: "Renamed" }),
+      response(200, { status: "archived" }),
+      response(200, { id: "conv-1" })
+    ],
+    props: { conversation: { id: "conv-1", project_id: "PROJECT-NODEFORGE", title: "Example", pinned: false } }
+  });
+  await scoped.handlers.handleTogglePin();
+  await scoped.handlers.handleRenameConfirm();
+  await scoped.handlers.handleArchive();
+  await scoped.handlers.handleDelete();
+  assert.deepEqual(
+    scoped.requests.map((req) => req.url),
+    [
+      "/forge/v1/conversations/conv-1/pin?project=PROJECT-NODEFORGE",
+      "/forge/v1/conversations/conv-1?project=PROJECT-NODEFORGE",
+      "/forge/v1/conversations/conv-1/archive?project=PROJECT-NODEFORGE",
+      "/forge/v1/conversations/conv-1?project=PROJECT-NODEFORGE"
+    ]
+  );
+
+  const row = { id: "conv-1", project_id: "PROJECT-NODEFORGE", agent_id: "agent", title: "Example", status: "active", pinned: 0 };
+  const service = createConversationCrudService({ database: { all: () => [row], run: () => {} } });
+  const innerRouter = createForgeV1Router({ conversationCrudService: service, expectedProjectId: "PROJECT-NODEFORGE" });
+  const outerRouter = createForgeV1Router({
+    conversationCrudService: service,
+    resolveProjectRouter: async (projectId) => (projectId === "PROJECT-NODEFORGE" ? innerRouter : null)
+  });
+  const pinned = await outerRouter.route("POST", new URL("http://localhost/forge/v1/conversations/conv-1/pin"), { headers: {} }, undefined, {});
+  assert.equal(pinned.status, 200);
+  assert.equal(pinned.body.pinned, true);
+  const renamed = await outerRouter.route("PATCH", new URL("http://localhost/forge/v1/conversations/conv-1"), { headers: {} }, undefined, { title: "Updated" });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.body.title, "Updated");
+  const deleted = await outerRouter.route("DELETE", new URL("http://localhost/forge/v1/conversations/conv-1"), { headers: {} });
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.id, "conv-1");
 });

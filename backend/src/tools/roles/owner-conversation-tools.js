@@ -11,6 +11,7 @@ import { createOwnerDeleteFileTool, createOwnerMoveFileTool } from "./owner-dele
 import { createGitReadTools } from "../discovery/git-read-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 import { createLookupSchemaTool } from "../discovery/lookup-schema-tool.js";
+import { formatForgeToolCommand } from "../../application/system-engineer-sdk-transcript.js";
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
 export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
@@ -42,7 +43,8 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
     const log = (status, error, result) => {
       const timestamp = new Date().toISOString();
       projectLogger?.({ timestamp, event_name: "owner.tool_call", level: error ? "error" : "info", status, message: `Owner Forge tool ${definition.name} ${status}.`, task_id: toolContext.task_id, correlation_id: toolContext.correlation_id, conversation_id: toolContext.conversation_id ?? conversationId, source: "owner-conversation-tools", ...(error ? { error_code: error.code ?? "TOOL_EXECUTION_FAILED" } : {}), payload: { tool: definition.name, agent_id: toolContext.agent_identity?.agent_id, agent_name: toolContext.agent_identity?.agent_name, agent_role: role, provider: toolContext.agent_identity?.provider, ...(status !== "started" ? { duration_ms: Date.now() - started } : {}), ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(error ? { error_message: String(error.message ?? "").slice(0, 240), input_keys: Object.keys(input ?? {}), offset: Number.isInteger(input?.offset) ? input.offset : null, limit: Number.isInteger(input?.limit) ? input.limit : null, symbol_state: input?.symbol == null ? "absent" : input.symbol === "" ? "empty" : "named" } : {}), ...(result ? { result: summarizeResult(result) } : {}) } });
-      if (typeof toolContext.agent_identity?.agent_id === "string") eventSink?.({ event_type: "agent.activity", task_id: toolContext.task_id, conversation_id: toolContext.conversation_id ?? conversationId, timestamp, payload: { agent_id: toolContext.agent_identity.agent_id, conversation_id: toolContext.conversation_id ?? conversationId, correlation_id: toolContext.correlation_id, activity_type: status === "started" ? "tool_started" : error ? "tool_failed" : "tool_completed", status: status === "started" ? "working" : error ? "failed" : "success", summary: `Forge tool ${definition.name} ${status}`, tool_name: definition.name } });
+      const commandText = formatForgeToolCommand(definition.name, input, true);
+      if (typeof toolContext.agent_identity?.agent_id === "string") eventSink?.({ event_type: "agent.activity", task_id: toolContext.task_id, conversation_id: toolContext.conversation_id ?? conversationId, timestamp, payload: { agent_id: toolContext.agent_identity.agent_id, conversation_id: toolContext.conversation_id ?? conversationId, correlation_id: toolContext.correlation_id, activity_type: status === "started" ? "tool_started" : error ? "tool_failed" : "tool_completed", status: status === "started" ? "working" : error ? "failed" : "success", summary: commandText ? `Forge tool ${definition.name} ${status}: ${commandText}` : `Forge tool ${definition.name} ${status}`, tool_name: definition.name } });
     };
     try {
       log("started");
