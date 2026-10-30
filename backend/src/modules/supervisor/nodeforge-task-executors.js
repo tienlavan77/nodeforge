@@ -79,6 +79,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       result = completed.result;
       return { summary: extractFinalAgentReport(result.messages) || "<empty response>", tool_events: completed.toolEvents };
     } catch (error) {
+      if (error?.code === "DIRECTIVE_PAUSE_REQUESTED") throw error;
       const failure = normalizeAgentFailure(error);
       await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", ...(error.code === "CODER_BLOCKED" ? { triage: coderFailureTriage(error), failure_request_id: request.request_id } : {}), failure: failureDetail(failure) });
       throw error;
@@ -164,6 +165,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       result = completed.result;
       return { summary: result.text || "<empty response>", tool_events: completed.toolEvents };
     } catch (error) {
+      if (error?.code === "DIRECTIVE_PAUSE_REQUESTED") throw error;
       const failure = normalizeAgentFailure(error);
       await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id, agent_id: selected?.agent_id ?? null, provider: selected?.provider ?? null, target_path: targetPath, allowed_prefixes: allowedPrefixes, complexity_level: complexity?.level ?? null, changed_paths: [...resumeState.changedPaths], status: "blocked", ...(error.code === "CODER_BLOCKED" ? { triage: coderFailureTriage(error), failure_request_id: request.request_id } : {}), failure: failureDetail(failure) });
       throw error;

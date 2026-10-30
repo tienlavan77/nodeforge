@@ -24,7 +24,7 @@ const safePath = (value, operation = "read", role) => {
 const checksum = (content) => `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
 const checksumPattern = /^sha256:[a-fA-F0-9]{64}$/;
 // error - handles error operation.
-const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details });
+const error = (code, message, details = {}) => Object.assign(new ConfigurationError(message), { code, details, mutation_started: false });
 // textResult - handles textResult operation.
 const textResult = (text, isError = false) => ({ content: [{ type: "text", text }], ...(isError ? { isError: true } : {}) });
 
@@ -123,13 +123,13 @@ export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxL
       if (currentCodeLines > maxLines) throw error("DESTRUCTIVE_OVERWRITE", `${path} has ${currentCodeLines} code lines, over the ${maxLines}-line write_diff limit. Use edit_diff with an exact anchor for localized changes.`, { path, current_lines: currentLines, code_lines: currentCodeLines, total_lines: current.split("\n").length, limit: maxLines });
     }
     assertSummaryEnforced(input.content, current, path);
-    assertEditSummaryEnforced(current ?? "", input.content);
+    assertEditSummaryEnforced(current ?? "", input.content, path);
     if (changeLedger) await changeLedger.write({ path, before: current, after: input.content });
     else await fileService.atomicWrite({ path, content: input.content, replace: true });
     codeCache?.invalidate({ path });
     recordChangedPath(context, path);
     resetExploration(context);
-    const reminder = current === null ? await buildConventionReminder(context, { newFile: true }) : "";
+    const reminder = current === null && !/\.(?:md|markdown)$/i.test(path) ? await buildConventionReminder(context, { newFile: true }) : "";
     return textResult(`Written '${path}' (${checksum(input.content)}).${reminder ? `\n\n${reminder}` : ""}`);
   }});
 }
@@ -158,7 +158,7 @@ export function createEditDiffTool({ fileService, codeCache, changeLedger, maxCh
     const replaced = parts.join(input.replacement);
     const codeLines = countBudgetLines(replaced);
     if (codeLines > WRITE_DIFF_MAX_LINES && codeLines > countBudgetLines(current)) throw error("CONTENT_TOO_LARGE", `edit_diff would increase the code-line budget to ${codeLines}; split the module before adding code beyond ${WRITE_DIFF_MAX_LINES} lines.`, { line_count: replaced.split("\n").length - Number(replaced.endsWith("\n")), code_lines: codeLines, total_lines: replaced.split("\n").length, limit: WRITE_DIFF_MAX_LINES });
-    const newFunctions = assertEditSummaryEnforced(current, replaced);
+    const newFunctions = assertEditSummaryEnforced(current, replaced, path);
     if (changeLedger) await changeLedger.write({ path, before: current, after: replaced });
     else await fileService.atomicWrite({ path, content: replaced, replace: true });
     codeCache?.invalidate({ path });
@@ -185,6 +185,7 @@ function assertAllowed(path, context, operation = "read") {
 // reference through the Forge MCP session, so mutations here are visible to
 // later tool calls in the same execution.
 function assertSummaryEnforced(content, existing, path) {
+  if (/\.(?:md|markdown)$/i.test(path)) return;
   if (!content || typeof content !== "string") return;
   if (existing !== null && existing !== undefined) return;
   if (path.endsWith(".json")) {
@@ -198,7 +199,8 @@ function assertSummaryEnforced(content, existing, path) {
 }
 
 // assertEditSummaryEnforced - handles assertEditSummaryEnforced operation.
-function assertEditSummaryEnforced(before, after) {
+function assertEditSummaryEnforced(before, after, path) {
+  if (/\.(?:md|markdown)$/i.test(path)) return [];
   const beforeFuncs = extractFunctionSignatures(before);
   const afterFuncs = extractFunctionSignatures(after);
   const newFunctions = [];

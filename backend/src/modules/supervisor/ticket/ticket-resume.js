@@ -10,7 +10,8 @@ import { ConfigurationError } from "../../../shared/errors.js";
 import { blockerContractPrompt } from "../blocker/blocker-contract-evidence.js";
 import { engineeringToolName } from "../../../tools/engineering-tool-names.js";
 import { resumeRecovery, reviewRepairInstructions } from "../review/review-repair-handoff.js";
-import { assertReadNotRepeated, forgetRead, rememberRead, sanitizeReadCache, snapshotReadCache } from "./ticket-read-cache.js";
+import { activeFileChecksums, assertReadNotRepeated, recordMutationChecksum, rememberRead, sanitizeReadCache, snapshotReadCache } from "./ticket-read-cache.js";
+import { formatMidFlightDirectives, sanitizeDeliveredDirectives } from "./ticket-directive-inbox.js";
 
 const MAX_HISTORY_TURNS = 12;
 
@@ -31,12 +32,14 @@ export function createResumeState(resume) {
     sdkTurnProgress: clean?.sdk_turn_progress ?? null,
     sessionId: typeof clean?.session_id === "string" ? clean.session_id : null,
     threadId: typeof clean?.thread_id === "string" ? clean.thread_id : null,
+    sessionRolledOver: false,
     turnCount: Number.isInteger(clean?.last_completed_turn) ? clean.last_completed_turn : 0,
     completedTools: Array.isArray(clean?.completed_tools) ? clean.completed_tools.map(engineeringToolName) : [],
     turnHistory: Array.isArray(clean?.turn_history) ? clean.turn_history.map((entry) => ({ ...entry, tool: engineeringToolName(entry.tool) })) : [],
     changedPaths: Array.isArray(clean?.changed_paths) ? [...clean.changed_paths] : [],
     emptyCommitSeen: clean?.empty_commit_seen === true,
     readCache: sanitizeReadCache(clean?.read_cache),
+    deliveredDirectives: sanitizeDeliveredDirectives(clean?.delivered_directives),
     coderRulesRead: clean?.coder_rules_read === true || Object.keys(clean?.read_cache ?? {}).some((key) => key.startsWith("workflows/agents/coder/README.md#"))
   };
 }
@@ -68,13 +71,14 @@ export function checkpointPayload(state, extra = {}) {
     ...(state.agentExchange ? { agent_exchange: state.agentExchange } : {}),
     verification_wait: state.verificationWait,
     sdk_turn_progress: state.sdkTurnProgress,
-    session_id: state.sessionId ?? state.resume?.session_id ?? null,
-    thread_id: state.threadId ?? state.resume?.thread_id ?? null,
+    session_id: state.sessionRolledOver ? (state.sessionId ?? null) : (state.sessionId ?? state.resume?.session_id ?? null),
+    thread_id: state.sessionRolledOver ? (state.threadId ?? null) : (state.threadId ?? state.resume?.thread_id ?? null),
     last_completed_turn: state.turnCount,
     completed_tools: [...state.completedTools],
     turn_history: [...state.turnHistory],
     empty_commit_seen: state.emptyCommitSeen === true,
     read_cache: snapshotReadCache(state.readCache),
+    delivered_directives: sanitizeDeliveredDirectives(state.deliveredDirectives),
     coder_rules_read: state.coderRulesRead === true,
     stage_progress: stageProgress,
     ...extra
@@ -109,10 +113,9 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
             ? await executeReportVerificationWait({ tool, input, context, state, store, taskId, selected, correlationId, projectLogger, checkpointPayload })
             : await tool.execute(input, context);
           if (selected?.role === "coder" && ["read_file", "read_lines", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "read_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
-          if (name === "read_file") rememberRead(state.readCache, input, result);
+          if (["read_file", "read_lines", "sed_lines"].includes(name)) rememberRead(state.readCache, input, result);
           if (["write_diff", "edit_diff", "delete_file", "move_file"].includes(name)) {
-            if (name === "move_file") { forgetRead(state.readCache, { path: input?.from_path }); forgetRead(state.readCache, { path: input?.to_path }); }
-            else forgetRead(state.readCache, input);
+            recordMutationChecksum(state.readCache, { tool: name, input, result });
             state.emptyCommitSeen = false;
           }
         } catch (error) {
@@ -199,7 +202,9 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     ...(recovery?.owner_decision ? [`Project owner decided blocker option "${recovery.owner_decision.option_id}" (${recovery.owner_decision.option_description ?? ""})${recovery.owner_decision.reason ? ` — Reason: ${recovery.owner_decision.reason}` : ""}. Continue implementation strictly within this chosen option.`] : []),
     blockerContractPrompt(state.resume.contract_decisions),
     history,
+    ...(Object.keys(activeFileChecksums(state.readCache)).length ? [`Active file checksums (reuse as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged windows): ${JSON.stringify(activeFileChecksums(state.readCache))}.`] : []),
     `Files already changed in the worktree: ${[...new Set([...state.changedPaths, ...(meta.changedPaths ?? [])])].join(", ") || "(none)"} — verify with read_file if needed, then continue with the next unfinished step.`,
+    ...(state.deliveredDirectives?.length ? [formatMidFlightDirectives(state.deliveredDirectives)] : []),
     `Previous agent: ${meta.agentId ?? state.resume.agent_id ?? "unknown"} (${meta.provider ?? state.resume.provider ?? "unknown provider"}).`,
     ...(state.resume.phase === "coder_report_required" ? ["REPORT GATE: the current passed artifact has no complete durable Coder report. Call report_done for this artifact before respond_to_review. Reuse the saved draft and supply missing or corrected fields, including summary updates supported by new evidence. Node preserves the original draft and submission history; completed reports remain immutable. Do not edit, commit, or rerun tests merely to bypass this report gate."] : []),
     ...(state.resume.phase === "coder_evidence_required" ? [`EVIDENCE RECOVERY: the previous report_done did not complete the ticket. Missing criterion evidence: ${(state.resume.pending_criterion_ids ?? []).join(", ")}. Preserve the existing changes and report history, run the required checks from the approved verification plan, and retry report_done with corrected draft fields. Do not repeat completed edits or commits merely to restart the ticket. Stop only after report_done succeeds; do not resume Reviewer or claim completion with pending evidence.`] : []),

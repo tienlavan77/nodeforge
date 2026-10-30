@@ -7,9 +7,9 @@ an Architecture Plan approval.
 
 ### Problem and boundary
 
-`backend/src/modules/supervisor/ticket-verification-command.js:L12-L47`
+`backend/src/modules/supervisor/ticket/ticket-verification-command.js:L12-L47`
 currently uses direct `spawn` for `environment: "project"` and for an omitted
-environment. `ticket-verification-materialization.js` records ticket and project
+environment. `backend/src/modules/supervisor/ticket/ticket-verification-materialization.js` records ticket and project
 environment hashes after execution, but those checks detect mutation rather than
 prevent a child process from reaching another project or the global catalog.
 

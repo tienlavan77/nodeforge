@@ -17,6 +17,22 @@ export async function runFilesystemNamespace(input) {
   return managers.get(root).run(input);
 }
 
+// Business purpose: reclaims the cached filesystem namespace runner and its underlying socket/process when a target project is closed or removed from the multi-project lifecycle.
+// Technical description: resolves the canonical project root, deletes the runner entry from the process-wide managers map, and awaits manager.close().
+export async function closeFilesystemNamespaceRunner(projectRoot) {
+  if (!projectRoot) return;
+  let root;
+  try { root = await realpath(projectRoot); }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    root = resolve(projectRoot);
+  }
+  const manager = managers.get(root);
+  if (!manager) return;
+  managers.delete(root);
+  await manager.close();
+}
+
 // Keeps startup, test execution and idle cleanup in one queue so concurrent
 // tickets cannot launch duplicate managed sessions or stop an active verifier.
 export function createFilesystemNamespaceRunner({ projectRoot, start = startFilesystemNamespace, request = requestFilesystemNamespace,

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ConfigurationError } from "../../../shared/errors.js";
+import { resolveProjectDependencyRoots } from "../verification-environment-seam.js";
 
 // Defines fail function behavior for ticket-archive-materialization.js.
 const fail = (code, message) => Object.assign(new ConfigurationError(message), { code });
@@ -19,7 +20,7 @@ export async function materializeTicketArchive({ projectRoot, commitSha }) {
     for (const relative of (await readdir(path, { recursive: true })).filter((item) => item === ".gitmodules" || item.endsWith("/.gitmodules") || item === ".gitattributes" || item.endsWith("/.gitattributes"))) {
       if (relative.endsWith(".gitmodules") || /filter\s*=\s*lfs/.test(await readFile(join(path, relative), "utf8"))) throw fail("TICKET_ARCHIVE_UNSUPPORTED", "Git submodules or LFS need a materialization policy before archive verification.");
     }
-    for (const relative of ["node_modules", "backend/node_modules", "ui/nextjs/node_modules"]) {
+    for (const relative of resolveProjectDependencyRoots(projectRoot)) {
       const source = join(projectRoot, relative);
       try { await lstat(source); }
       catch (error) { if (error.code === "ENOENT") continue; throw error; }

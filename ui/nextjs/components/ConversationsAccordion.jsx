@@ -163,26 +163,25 @@ export function ConversationsAccordion({
                     });
                     setDragId(null); setDragOverId(null);
                   };
-                  // Delete with confirmation
+                  // Removes deleted conversation row after ConversationsBlock confirms and completes DELETE.
                   const onDelete = () => {
-                    if (typeof window !== "undefined" && !window.confirm("Delete this conversation?")) return;
                     setItems((prev) => { const next = prev.filter((c) => getConversationId(c) !== cid); persistOrder(next); return next; });
                     setMenuOpenId(null);
                   };
                   const onArchive = () => { setItems((prev) => prev.map((c) => getConversationId(c) === cid ? { ...c, archived: true, status: "archived" } : c)); setMenuOpenId(null); };
-                  const onTogglePin = (updated) => { setPinError(""); setItems((prev) => sortPinnedFirst(prev.map((c) => getConversationId(c) === cid ? { ...c, ...(updated && typeof updated === "object" ? updated : {}) } : c))); };
+                  const onTogglePin = (updated) => { setPinError(""); setItems((prev) => { const next = sortPinnedFirst(prev.map((c) => getConversationId(c) === cid ? { ...c, ...(updated && typeof updated === "object" ? updated : {}) } : c)); persistOrder(next); return next; }); };
                   const onPinError = (message) => { setPinError(message ?? "Unable to update pin state."); };
                   const onStartRename = () => { setEditingId(cid); setEditTitle(String(titleText)); setMenuOpenId(null); };
-                  const onConfirmRename = () => {
-                    const t = editTitle.trim();
+                  const onConfirmRename = (confirmedTitle) => {
+                    const t = (typeof confirmedTitle === "string" ? confirmedTitle : editTitle).trim();
                     if (!t || t.length > 120) return;
-                    setItems((prev) => prev.map((c) => getConversationId(c) === cid ? { ...c, title: t, name: t } : c));
+                    setItems((prev) => { const next = prev.map((c) => getConversationId(c) === cid ? { ...c, title: t, name: t } : c); persistOrder(next); return next; });
                     setEditingId(null); setEditTitle("");
                   };
                   return (
                     <ConversationsBlock
                       key={cid}
-                      conversation={conv}
+                      conversation={conv.project_id || !projectId ? conv : { ...conv, project_id: projectId }}
                       active={activeConversationId != null && String(activeConversationId) === String(cid)}
                       checked={selectedIds.has(cid)}
                       onCheckedChange={() => { setSelectedIds((prev) => { const n = new Set(prev); if (n.has(cid)) n.delete(cid); else n.add(cid); return n; }); }}

@@ -23,6 +23,7 @@ import { createTicketRootWorkspace } from "./ticket-root-workspace.js";
 import { createTerminalReceiptWriter } from "../terminal-receipt-writer.js";
 import { findIntegratedTicketSource } from "./ticket-integrated-source.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
+import { closeVerificationEnvironmentSeam, resolveProjectDependencyRoots } from "../verification-environment-seam.js";
 
 const execFile = promisify(execFileCallback);
 const SAFE_TASK = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -147,7 +148,7 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
 
   // Makes existing package installs available without copying or indexing dependency directories.
   async function linkDependencies(path) {
-    for (const relativePath of ["node_modules", "backend/node_modules", "ui/nextjs/node_modules"]) {
+    for (const relativePath of resolveProjectDependencyRoots(root)) {
       const source = join(root, relativePath);
       if (!(await exists(source))) continue;
       const target = join(path, relativePath);
@@ -172,11 +173,12 @@ export function createTicketWorkspaceService({ projectRoot, projectId, protocolS
     return base;
   }
 
-  // Releases ticket-local cache and SQLite handles when the Control API stops.
+  // Releases ticket-local cache, verification runners, and SQLite handles when the Control API stops.
   async function close() {
     if (closed) return;
     closed = true;
     await Promise.all([...pending.values()]);
+    await closeVerificationEnvironmentSeam(root);
     if (!sharedCodeCache) sharedCache.close();
     rootWorkspace?.close();
     opened.clear();

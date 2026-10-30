@@ -60,7 +60,7 @@ export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchS
     const ideasResult = await ideasRoutes.routeIdeas({ method, parts, url, body, headers: request.headers });
     if (ideasResult) return ideasResult;
     assertAdmission?.();
-    const projectId = resolveProjectRequest({ method, url, body, parts });
+    const projectId = resolveProjectRequest({ method, url, body, parts }) ?? (parts[0] === "conversations" && parts.length >= 2 ? conversationCrudService?.get?.(parts[1])?.project_id : undefined);
     const globalRequest = parts[0] === "agents" || (method === "GET" && parts.length === 1 && ["health", "version"].includes(parts[0]));
     if (resolveProjectRouter && (projectId !== undefined || !globalRequest)) {
       const selected = await selectProjectRouter({ projectId, resolveProjectRouter });

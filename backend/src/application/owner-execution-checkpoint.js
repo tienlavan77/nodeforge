@@ -147,7 +147,9 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
     return update(conversationId, executionId, (current) => {
       if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
       const safelyCancelledCheck = step.tool_name === "run_check" && error?.code === "EXECUTION_PAUSED";
-      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), status: ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating && !safelyCancelledCheck ? "manual_required" : current.status, pending_tool_calls: step.mutating && !safelyCancelledCheck ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
+      const safelyRejectedWrite = ["write_diff", "edit_diff"].includes(step.tool_name) && error?.mutation_started === false;
+      const uncertainMutation = step.mutating && !safelyCancelledCheck && !safelyRejectedWrite;
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), status: ownerExecutionRolePolicy(current.role).architectureMutations && uncertainMutation ? "manual_required" : current.status, pending_tool_calls: uncertainMutation ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
     });
   }
 

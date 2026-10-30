@@ -14,6 +14,8 @@
 
 - [multi-project-lifecycle](architecture/multi-project-lifecycle.md)
 - [Ordinary verification sandbox design](architecture/ordinary-verification-write-sandbox.md)
+- [Multi-project execution environment seam](architecture/multi-project-execution-environment-seam.md)
+- [Receipt-preserving context compaction & mid-flight directive inbox](architecture/receipt-preserving-context-compaction.md)
 - [multi-project-agent-attribution](architecture/multi-project-agent-attribution.md)
 - [reviewer-evidence](architecture/reviewer-evidence.md)
 - [owner-execution-checkpoint](architecture/owner-execution-checkpoint.md)
