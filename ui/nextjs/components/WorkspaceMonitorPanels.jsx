@@ -5,18 +5,19 @@ import { IdeasDock } from "./ideas-dock.jsx";
 
 import { useEffect, useRef, useState } from "react";
 import { monitorAgentActivities } from "../lib/monitor-agent-activities.js";
-
-const MONITOR_LAYOUT_KEY = "nodeforge:workspace-monitor-layout";
-const INITIAL_PANELS = {
-  watcher: { x: 24, y: 24, width: 360, height: 260, visible: true, minimized: false },
-  agent: { x: 410, y: 24, width: 360, height: 260, visible: true, minimized: false },
-};
+import {
+  INITIAL_PANELS,
+  MONITOR_LAYOUT_KEY,
+  clampDraggedMonitorPosition,
+  restoreMonitorLayout,
+  serializeMonitorLayout,
+} from "../lib/workspace-monitor-layout.js";
 
 // Render movable, resizable monitor windows with close and restore controls.
 export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "connecting", agentProcess, agentActivities = [], agentDirectory = [], layoutScope = "home", activityRoles, selectedAgentId }) {
   const layoutKey = `${MONITOR_LAYOUT_KEY}:${layoutScope}`;
   const [panels, setPanels] = useState(INITIAL_PANELS);
-  const [dragging, setDragging] = useState(null);
+  const draggingRef = useRef(null);
   const [layoutReady, setLayoutReady] = useState(false);
   const panelRefs = useRef({});
   const [watcherActive, setWatcherActive] = useState(false);
@@ -25,21 +26,7 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
   useEffect(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem(layoutKey) ?? "null");
-      if (saved && typeof saved === "object") {
-        setPanels((current) => Object.fromEntries(Object.entries(current).map(([name, defaults]) => {
-          const entry = saved[name];
-          if (!entry || typeof entry !== "object") return [name, defaults];
-          return [name, {
-            ...defaults,
-            x: Number.isFinite(entry.x) ? Math.max(0, Math.min(entry.x, window.innerWidth - 100)) : defaults.x,
-            y: Number.isFinite(entry.y) ? Math.max(0, Math.min(entry.y, window.innerHeight - 60)) : defaults.y,
-            width: Number.isFinite(entry.width) ? Math.max(260, Math.min(entry.width, window.innerWidth - 24)) : defaults.width,
-            height: Number.isFinite(entry.height) ? Math.max(120, Math.min(entry.height, window.innerHeight - 24)) : defaults.height,
-            visible: typeof entry.visible === "boolean" ? entry.visible : defaults.visible,
-            minimized: typeof entry.minimized === "boolean" ? entry.minimized : defaults.minimized,
-          }];
-        })));
-      }
+      setPanels((current) => restoreMonitorLayout(saved, window.innerWidth, window.innerHeight, current));
     } catch (error) {
       console.warn("Unable to restore workspace monitor layout", error);
     }
@@ -48,29 +35,38 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
 
   useEffect(() => {
     if (!layoutReady) return undefined;
-    const timeout = window.setTimeout(() => {
-      try {
-        window.localStorage.setItem(layoutKey, JSON.stringify(panels));
-      } catch (error) {
-        console.warn("Unable to save workspace monitor layout", error);
-      }
-    }, 150);
-    return () => window.clearTimeout(timeout);
-  }, [layoutKey, layoutReady, panels]);
+    try {
+      window.localStorage.setItem(layoutKey, JSON.stringify(serializeMonitorLayout(panels, layoutScope)));
+    } catch (error) {
+      console.warn("Unable to save workspace monitor layout", error);
+    }
+    return undefined;
+  }, [layoutKey, layoutReady, layoutScope, panels]);
 
   useEffect(() => {
     if (!layoutReady || typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver((entries) => entries.forEach(({ target }) => {
       const name = target.dataset.monitorName;
-      if (!name || panels[name].minimized) return;
+      if (!name || !panels[name] || panels[name].minimized || !panels[name].visible) return;
       const { width, height } = target.getBoundingClientRect();
-      setPanels((current) => current[name].width === width && current[name].height === height
+      if (width <= 0 || height <= 0) return;
+      const roundedW = Math.round(width);
+      const roundedH = Math.round(height);
+      setPanels((current) => current[name].width === roundedW && current[name].height === roundedH
         ? current
-        : { ...current, [name]: { ...current[name], width, height } });
+        : { ...current, [name]: { ...current[name], width: roundedW, height: roundedH } });
     }));
     Object.values(panelRefs.current).filter(Boolean).forEach((panel) => observer.observe(panel));
     return () => observer.disconnect();
-  }, [layoutReady, panels.watcher.visible, panels.watcher.minimized, panels.agent.visible, panels.agent.minimized]);
+  }, [
+    layoutReady,
+    panels.watcher.visible,
+    panels.watcher.minimized,
+    panels.agent.visible,
+    panels.agent.minimized,
+    panels.ideas?.visible,
+    panels.ideas?.minimized,
+  ]);
 
   function updatePanel(name, changes) {
     setPanels((current) => ({ ...current, [name]: { ...current[name], ...changes } }));
@@ -78,16 +74,23 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
 
   function startDrag(event, name) {
     if (event.target.closest("button")) return;
-    setDragging({ name, startX: event.clientX, startY: event.clientY, x: panels[name].x, y: panels[name].y });
-    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    draggingRef.current = { name, startX: event.clientX, startY: event.clientY, x: panels[name].x, y: panels[name].y };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
   function movePanel(event) {
-    if (!dragging) return;
-    updatePanel(dragging.name, {
-      x: Math.max(0, dragging.x + event.clientX - dragging.startX),
-      y: Math.max(0, dragging.y + event.clientY - dragging.startY),
-    });
+    const activeDrag = draggingRef.current;
+    if (!activeDrag) return;
+    const currentPanel = panels[activeDrag.name];
+    const next = clampDraggedMonitorPosition(
+      currentPanel,
+      activeDrag.x + event.clientX - activeDrag.startX,
+      activeDrag.y + event.clientY - activeDrag.startY,
+      window.innerWidth,
+      window.innerHeight
+    );
+    updatePanel(activeDrag.name, next);
   }
 
   const watcherStatus = watcherState === "connected" ? "Connected" : watcherState === "error" ? "Error" : "Connecting";
@@ -110,12 +113,20 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
     return () => window.clearTimeout(timeout);
   }, [latestAgentEvent]);
 
-  return <>
+  return <div onPointerMove={movePanel} onPointerUp={() => { draggingRef.current = null; }} onPointerCancel={() => { draggingRef.current = null; }}>
     <div className="workspace-monitor-dock" role="group" aria-label="System monitors">
-      {layoutScope === "home" && <IdeasDock />}
-      {Object.entries(panels).map(([name, panel]) => <button key={name} type="button" aria-pressed={panel.visible && !panel.minimized} onClick={() => updatePanel(name, { visible: !panel.visible || panel.minimized, minimized: false })}><span className={`workspace-monitor-light${(name === "watcher" ? watcherActive : agentActive) ? " is-active" : name === "watcher" && watcherState !== "connected" ? " is-offline" : ""}`} aria-hidden="true" />{name === "watcher" ? "Watcher" : "Agent activity"}</button>)}
+      {layoutScope === "home" && <IdeasDock
+        panelState={panels.ideas}
+        onUpdatePanel={(changes) => updatePanel("ideas", changes)}
+        onStartDrag={(event) => startDrag(event, "ideas")}
+        panelRef={(node) => { panelRefs.current.ideas = node; }}
+      />}
+      {["watcher", "agent"].map((name) => {
+        const panel = panels[name];
+        return <button key={name} type="button" aria-pressed={panel.visible && !panel.minimized} onClick={() => updatePanel(name, { visible: !panel.visible || panel.minimized, minimized: false })}><span className={`workspace-monitor-light${(name === "watcher" ? watcherActive : agentActive) ? " is-active" : name === "watcher" && watcherState !== "connected" ? " is-offline" : ""}`} aria-hidden="true" />{name === "watcher" ? "Watcher" : "Agent activity"}</button>;
+      })}
     </div>
-    <div className="workspace-monitor-layer" onPointerMove={movePanel} onPointerUp={() => setDragging(null)}>
+    <div className="workspace-monitor-layer">
       {panels.watcher.visible && <section ref={(node) => { panelRefs.current.watcher = node; }} data-monitor-name="watcher" className={`workspace-monitor${panels.watcher.minimized ? " is-minimized" : ""}`} style={{ left: panels.watcher.x, top: panels.watcher.y, width: panels.watcher.width, height: panels.watcher.minimized ? "auto" : panels.watcher.height }} aria-label="Watcher monitor">
         <header className="workspace-monitor-header" onPointerDown={(event) => startDrag(event, "watcher")}><span className={`workspace-monitor-light${watcherActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={watcherActive ? "Watcher working" : "Watcher idle"} role="img" /><strong>Watcher</strong><span className={`workspace-monitor-indicator is-${watcherState}`}>{watcherStatus}</span><button type="button" aria-label="Minimize Watcher monitor" onClick={() => updatePanel("watcher", { minimized: !panels.watcher.minimized })}>{panels.watcher.minimized ? "□" : "−"}</button><button type="button" aria-label="Close Watcher monitor" onClick={() => updatePanel("watcher", { visible: false })}>×</button></header>
         {!panels.watcher.minimized && <div className="workspace-monitor-content" aria-live="polite">
@@ -132,5 +143,5 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
         </div>}
       </section>}
     </div>
-  </>;
+  </div>;
 }
