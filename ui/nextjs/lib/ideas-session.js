@@ -51,7 +51,7 @@ export function createSession(projectId) {
       return true;
     } catch (failure) {
       if (request === readId) {
-        if (!state.loaded && !state.uncertain && !state.conflict) publish({ items: [], loaded: true, error: "" });
+        if (!state.loaded && !state.uncertain && !state.conflict) publish({ items: state.items, loaded: true, error: "" });
         else publish({ error: "Chưa xác nhận lưu. Không thể tải dữ liệu: " + failure.message });
       }
       return false;
