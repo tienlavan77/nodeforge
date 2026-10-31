@@ -31,7 +31,7 @@ import { WorkspaceMonitorPanels } from "../../components/WorkspaceMonitorPanels.
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { SystemExecutionControls } from "../../components/system-execution-controls.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { ConversationProjectGit } from "../../components/conversation-project-git.jsx";
+import { ConversationHeaderProjectGit, ConversationProjectGit } from "../../components/conversation-project-git.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { SystemToolMode } from "../../components/system-tool-mode.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -217,6 +217,7 @@ export default function SystemPage({ sectionTitle = "System", projectId: propPro
       <section className="claude-chat" aria-label="System chat">
         <header className="claude-chat-header">
           <h1>{activeConversationTitle}</h1>
+          <ConversationHeaderProjectGit client={client} projectId={PROJECT_ID} />
         </header>
         <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
           {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
