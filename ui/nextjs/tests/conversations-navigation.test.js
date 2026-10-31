@@ -4,19 +4,18 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 
-const component = await readFile("ui/nextjs/components/ConversationsAccordion.jsx", "utf8");
-const page = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
-const sidebar = await readFile("ui/nextjs/components/conversation-sidebar.jsx", "utf8");
-const codePage = await readFile("ui/nextjs/app/code/page.jsx", "utf8");
-const legacyCodePage = await readFile("ui/nextjs/app/coding/page.jsx", "utf8");
-const systemPage = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
-const codingMonitor = await readFile("ui/nextjs/components/coding-workspace-monitor.jsx", "utf8");
-const preferenceSource = await readFile("ui/nextjs/lib/sidebar-preference.js", "utf8");
-const preference = runInNewContext(
-  preferenceSource.replaceAll("export ", "") +
-    ";({ readSidebarPreference, writeSidebarPreference, SIDEBAR_PREFERENCE_KEY })",
-  { console }
-);
+const [component, page, sidebar, codePage, legacyCodePage, systemPage, codingMonitor, agentsPage, preferenceSource] = await Promise.all([
+  readFile("ui/nextjs/components/ConversationsAccordion.jsx", "utf8"),
+  readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8"),
+  readFile("ui/nextjs/components/conversation-sidebar.jsx", "utf8"),
+  readFile("ui/nextjs/app/code/page.jsx", "utf8"),
+  readFile("ui/nextjs/app/coding/page.jsx", "utf8"),
+  readFile("ui/nextjs/app/system/page.jsx", "utf8"),
+  readFile("ui/nextjs/components/coding-workspace-monitor.jsx", "utf8"),
+  readFile("ui/nextjs/app/agents/page.jsx", "utf8"),
+  readFile("ui/nextjs/lib/sidebar-preference.js", "utf8"),
+]);
+const preference = runInNewContext(`${preferenceSource.replaceAll("export ", "")};({ readSidebarPreference, writeSidebarPreference, SIDEBAR_PREFERENCE_KEY })`, { console });
 
 // Action behavior remains covered by conversation-actions.test.js: pin/unpin observes
 // PATCH requests and onTogglePin; rename observes PATCH and onConfirmRename; archive
@@ -107,28 +106,23 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(sidebar.includes('<Link href={projectSystemPath(activeRouteProjectId)} title="System"'));
   assert.ok(sidebar.indexOf('title="System"') < sidebar.indexOf('title="Code"'));
   assert.ok(sidebar.includes('aria-current={agentSectionTitle === "Code" ? "page" : undefined}'));
-  assert.ok(legacyCodePage.includes("<ConversationSidebar"));
-  assert.ok(legacyCodePage.includes("showConversationControls={false}"));
+  assert.ok(legacyCodePage.includes("<ConversationSidebar") && legacyCodePage.includes("showConversationControls={false}"));
   assert.doesNotMatch(legacyCodePage, /ConversationsAccordion|architectureControl|onNewConversation/);
+  assert.match(codingMonitor, /claude-chat-header[\s\S]*?<h1>(Coding|Code)<\/h1>[\s\S]*?<ConversationHeaderProjectGit/);
+  assert.ok(agentsPage.includes("<ConversationSidebar") && agentsPage.includes('agentSectionTitle="Agents"') && agentsPage.includes("showConversationControls={false}") && !agentsPage.includes("<NodeForgeHeader"));
+  assert.match(agentsPage, /claude-chat-header[^>]*><h1>Agents<\/h1><\/header>/);
   assert.ok(legacyCodePage.includes('agentActivities={agentActivities}'));
   assert.equal(legacyCodePage.includes("../system/page.jsx"), false);
   assert.equal(legacyCodePage.includes("System chat"), false);
   assert.ok(codePage.includes('redirect("/coding")'));
   assert.ok(sidebar.includes("{showConversationControls && children}"));
   assert.ok(component.includes('aria-label="New conversation"'));
-  assert.ok(component.indexOf('aria-label="New conversation"') <
-    component.indexOf('aria-label="Conversations list"'));
+  assert.ok(component.indexOf('aria-label="New conversation"') < component.indexOf('aria-label="Conversations list"'));
 });
 
 test("sidebar preferences round-trip without modifying conversation storage", () => {
-  const values = new Map([
-    ["conversation", "active-conversation"],
-    ["agent", "architecture-manager"],
-  ]);
-  const storage = {
-    getItem: (key) => values.get(key),
-    setItem: (key, value) => values.set(key, value),
-  };
+  const values = new Map([["conversation", "active-conversation"], ["agent", "architecture-manager"]]);
+  const storage = { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) };
   assert.equal(preference.readSidebarPreference(() => storage), false);
   preference.writeSidebarPreference(true, () => storage);
   assert.equal(preference.readSidebarPreference(() => storage), true);

@@ -29,20 +29,23 @@
 }
 
 /* Keep Coding navigation in its own track and let the workspace use the remaining width. */
-.claude-home-shell.coding-workspace-shell { grid-template-columns: 350px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-.claude-home-shell.coding-workspace-shell:has(.conversation-sidebar.is-collapsed) { grid-template-columns: 42px minmax(0, 1fr); }
+.claude-home-shell.coding-workspace-shell, .claude-home-shell.agents-workspace-shell { grid-template-columns: 350px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.claude-home-shell.coding-workspace-shell:has(.conversation-sidebar.is-collapsed), .claude-home-shell.agents-workspace-shell:has(.conversation-sidebar.is-collapsed) { grid-template-columns: 42px minmax(0, 1fr); }
 @media (max-width: 640px) {
-  .claude-home-shell.coding-workspace-shell, .claude-home-shell.coding-workspace-shell:has(.conversation-sidebar.is-collapsed) { grid-template-columns: minmax(0, 1fr); padding-left: 56px; }
-  .claude-home-shell.coding-workspace-shell .conversation-mobile-rail { display: flex; top: 0; }
+  .claude-home-shell.coding-workspace-shell, .claude-home-shell.coding-workspace-shell:has(.conversation-sidebar.is-collapsed), .claude-home-shell.agents-workspace-shell, .claude-home-shell.agents-workspace-shell:has(.conversation-sidebar.is-collapsed) { grid-template-columns: minmax(0, 1fr); padding-left: 56px; }
+  .claude-home-shell.coding-workspace-shell .conversation-mobile-rail, .claude-home-shell.agents-workspace-shell .conversation-mobile-rail { display: flex; top: 0; }
 }
 @media (min-width: 641px) {
-  .claude-home-shell.coding-workspace-shell > .responsive-region--conversations { position: static; width: auto; }
+  .claude-home-shell.coding-workspace-shell > .responsive-region--conversations, .claude-home-shell.agents-workspace-shell > .responsive-region--conversations { position: static; width: auto; }
 }
+.claude-home-main.agents-workspace-main { grid-template-rows: auto minmax(0, 1fr); }
+.agents-workspace-main > .agents-page-header { margin-bottom: 0; background: var(--app-panel); }
 .coding-workspace-shell > .coding-workspace-monitor { width: 100%; min-width: 0; min-height: 0; height: 100%; overflow: auto; }
 .coding-workspace-shell .coding-workspace-column { min-height: 0; box-sizing: border-box; overflow-wrap: anywhere; }
 
 /* Keep the legacy Sprint Plan and live Coding agents visible side by side. */
-.coding-workspace-monitor { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr); grid-template-rows: minmax(0, 1fr); gap: 1px; background: var(--app-border); color: var(--app-text); }
+.coding-workspace-monitor { display: grid; min-height: 100vh; grid-template-columns: minmax(0, 1fr) minmax(260px, 2fr); grid-template-rows: auto minmax(0, 1fr); gap: 1px; background: var(--app-border); color: var(--app-text); }
+.coding-workspace-header { grid-column: 1 / -1; margin-bottom: 0; border-bottom: 0; background: var(--app-panel); }
 .coding-workspace-column { min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scroll-padding-top: 110px; padding: 0 28px 28px; background: var(--app-panel); }
 .coding-workspace-column-header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 28px 0 18px; margin-bottom: 18px; background: var(--app-panel); border-bottom: 1px solid var(--app-border); }
 .coding-workspace-column-header h1 { min-width: 0; margin: 0; font-size: 16px; }
@@ -85,4 +88,4 @@
 .coding-agent-monitor.is-minimized .workspace-monitor-header { border-bottom: 0; }
 .coding-workspace-list > .coding-workspace-empty { grid-column: 1 / -1; }
 /* Stacked workspace columns each receive half the viewport; reserve space for their sticky headers so an activity panel remains readable within its own column. */
-@media (max-width: 760px) { .coding-agent-monitor { max-height: min(50vh, calc(50dvh - 140px)); } .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); } .coding-workspace-column { padding: 0 20px 20px; } .coding-workspace-column-header { padding-top: 20px; } }
+@media (max-width: 760px) { .coding-agent-monitor { max-height: min(50vh, calc(50dvh - 140px)); } .coding-workspace-monitor { min-height: auto; grid-template-columns: 1fr; grid-template-rows: auto repeat(2, minmax(0, 1fr)); } .coding-workspace-column { padding: 0 20px 20px; } .coding-workspace-column-header { padding-top: 20px; } }
