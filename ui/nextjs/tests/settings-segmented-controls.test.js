@@ -40,6 +40,8 @@ test("Settings menu replaces the Effort and Tools selects with sliding segmented
   assert.match(styles, /\.composer-segmented-thumb \{[^}]*transition: transform/);
   assert.match(styles, /\.composer-segmented-option \{[^}]*flex: 1 1 0/);
   assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*?\.composer-segmented-thumb \{ transition: none; \}/);
+  assert.doesNotMatch(menu, /ProjectContext|GitStatusIndicator|home-plan-approval-project/);
+  assert.match(menu, /composer-agent-settings-toggle[\s\S]*?⚙ Settings/);
 });
 
 test("both chat pages mount the segmented settings control on the selected agent", async () => {

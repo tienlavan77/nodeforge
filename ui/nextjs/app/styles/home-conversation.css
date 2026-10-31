@@ -2,8 +2,14 @@
 .claude-home-main { min-width: 0; min-height: 0; height: 100dvh; display: grid; grid-template-rows: minmax(0, 1fr); }
 .claude-welcome-mark { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 7px; background: var(--app-text); color: var(--app-surface); font: 600 12px 'DM Mono', monospace; }
 .claude-chat { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
-.claude-chat-header { display: flex; min-width: 0; min-height: 40px; align-items: center; margin-bottom: 15px; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); padding: 0 26px; }
-.claude-chat-header h1 { overflow: hidden; margin: 0; color: var(--app-text); font: 600 15px/1.2 'Space Grotesk', sans-serif; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+.claude-chat-header { display: flex; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 40px; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); padding: 6px 26px; }
+.claude-chat-header h1 { flex: 1 1 0; min-width: 0; overflow: hidden; margin: 0; color: var(--app-text); font: 600 15px/1.2 'Space Grotesk', sans-serif; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+.claude-chat-header .claude-chat-header-project { flex: 0 1 auto; min-width: 0; max-width: 65%; margin-left: auto; justify-content: flex-end; flex-wrap: wrap; gap: 6px 8px; }
+.claude-chat-header .claude-chat-header-project-name { min-width: 0; max-width: min(220px, 28vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-chat-header .home-plan-git-icon { margin-left: 6px; }
+.claude-chat-header .workspace-git-status { min-width: 0; max-width: 100%; justify-content: flex-end; gap: 6px; margin: 0; }
+.claude-chat-header .workspace-git-status small, .claude-chat-header .workspace-git-status strong { min-width: 0; max-width: min(200px, 34vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-chat-header .workspace-git-status .workspace-git-action-result { max-width: min(260px, 45vw); }
 .claude-chat-scroll { min-height: 0; overflow: auto; padding: clamp(32px, 7vh, 80px) max(24px, calc((100% - 780px) / 2)); }
 .claude-welcome { min-height: 100%; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; }
 .claude-welcome-mark { width: 42px; height: 42px; border-radius: 13px; font-size: 17px; }
@@ -20,7 +26,7 @@
 .claude-typing { display: inline-flex; align-items: center; gap: 5px; height: 30px; }
 .claude-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--app-muted); animation: claude-typing 1.1s ease-in-out infinite; }
 .claude-typing i:nth-child(2) { animation-delay: .15s; }.claude-typing i:nth-child(3) { animation-delay: .3s; }
-.claude-composer-wrap { width: min(780px, calc(100% - 48px)); justify-self: center; padding: 12px 0 20px; }
+.claude-composer-wrap { width: min(780px, calc(100% - 48px)); justify-self: center; padding: 12px 0 60px; }
 .claude-composer-wrap .home-composer { gap: 10px; padding: 8px; border: 1px solid var(--app-button-border); border-radius: 14px; background: var(--app-input); box-shadow: 0 8px 25px color-mix(in srgb, #000 9%, transparent); }
 .claude-composer-wrap .home-composer textarea { min-height: 80px; border: 0; background: transparent; padding: 8px 9px; font: 15px/1.4 'Space Grotesk', sans-serif; }
 .claude-composer-wrap .home-composer textarea:focus { outline: none; }
