@@ -21,11 +21,13 @@
 .workspace-monitor-content article { display: flex; flex-direction: column; gap: 2px; padding: 7px 0; border-bottom: 1px solid var(--app-border); }
 .workspace-monitor-content article small { color: var(--app-accent); text-transform: capitalize; }
 .workspace-monitor-content article span { overflow-wrap: anywhere; }
-.workspace-monitor-dock { position: fixed; right: 16px; bottom: 16px; z-index: 81; display: flex; gap: 8px; }
-.workspace-monitor-dock button { display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-panel); color: var(--app-text); padding: 8px 12px; box-shadow: 0 6px 18px #0005; cursor: pointer; }
+.workspace-monitor-dock { position: fixed; right: 16px; bottom: 4px; z-index: 81; display: flex; gap: 8px; }
+.workspace-monitor-dock button { display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-panel); color: var(--app-text); padding: 3px 10px; box-shadow: 0 6px 18px #0005; cursor: pointer; }
 @media (max-width: 640px) {
   .workspace-monitor { min-width: 220px; max-width: calc(100vw - 16px); }
   .workspace-monitor-layer { z-index: 90; }
+  .workspace-monitor-dock { right: 8px; bottom: 2px; gap: 6px; }
+  .workspace-monitor-dock button { padding: 2px 8px; font-size: 11px; }
 }
 
 /* Keep Coding navigation in its own track and let the workspace use the remaining width. */

@@ -40,8 +40,12 @@ test("Settings menu replaces the Effort and Tools selects with sliding segmented
   assert.match(styles, /\.composer-segmented-thumb \{[^}]*transition: transform/);
   assert.match(styles, /\.composer-segmented-option \{[^}]*flex: 1 1 0/);
   assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*?\.composer-segmented-thumb \{ transition: none; \}/);
-  assert.doesNotMatch(menu, /ProjectContext|GitStatusIndicator|home-plan-approval-project/);
-  assert.match(menu, /composer-agent-settings-toggle[\s\S]*?⚙ Settings/);
+  assert.match(styles, /\.claude-composer-wrap \{[^}]*padding: 12px 0 30px;/);
+  assert.match(styles, /\.claude-composer-wrap \.home-composer textarea \{[^}]*min-height: 110px;/);
+  assert.match(menu, /import \{ GitStatusIndicator \} from "\.\/git-status-indicator\.jsx"/);
+  assert.match(menu, /import \{ resolveConversationProjectName \} from "\.\/conversation-project-git\.jsx"/);
+  assert.match(menu, /className="home-plan-approval-project"[\s\S]*?<GitStatusIndicator\b(?=[^>]*\bclient=\{client\})(?=[^>]*\bprojectId=\{projectId\})[^>]*\/>/);
+  assert.match(menu, /className="claude-composer-tool-mode"[\s\S]*?\{projectGit\}[\s\S]*?composer-agent-settings-toggle[\s\S]*?⚙ Settings/);
 });
 
 test("both chat pages mount the segmented settings control on the selected agent", async () => {
@@ -49,6 +53,9 @@ test("both chat pages mount the segmented settings control on the selected agent
   const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
   for (const [name, page] of [["architecture", architecture], ["system", system]]) {
     assert.match(page, /import \{ SystemToolMode \} from/, `${name} page must mount SystemToolMode`);
+    assert.equal((page.match(/<ConversationHeaderProjectGit\b/g) ?? []).length, 1, `${name} page must mount one header Git status`);
+    assert.equal((page.match(/<SystemToolMode\b/g) ?? []).length, 1, `${name} page must mount one composer-toolbar SystemToolMode`);
+    assert.match(page, /<SystemToolMode\b[\s\S]*?\bclient=\{client\}[\s\S]*?\bprojectId=\{PROJECT_ID\}[\s\S]*?\/>/);
     const agent = name === "architecture" ? "selectedArchitectureManager" : "selectedAgent";
     const key = page.match(/<SystemToolMode key=\{([^\n]+?)\} agent=/)[1];
     const { runInNewContext } = await import("node:vm");
