@@ -52,7 +52,6 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId, minimize
       <button type="button" onClick={onClose} aria-label="Đóng Ý tưởng">×</button>
     </header>
     {!minimized && <div className="workspace-monitor-content ideas-panel-body">
-      <p className="ideas-project">Project: {projectId}</p>
       <form className="ideas-entry-form" onSubmit={create}>
         <label htmlFor={panelId + "-entry"}>Ý tưởng mới</label>
         <textarea ref={input} id={panelId + "-entry"} value={draft.content}
