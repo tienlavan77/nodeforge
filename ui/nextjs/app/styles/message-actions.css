@@ -63,11 +63,15 @@
   justify-content: flex-end;
   gap: 4px;
   width: min(100%, 700px);
+  box-sizing: border-box;
   margin-top: 8px;
 }
 
 .claude-message-inline-edit textarea {
   flex-basis: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-y: hidden;
   min-height: 72px;
   resize: vertical;
   border: 1px solid var(--app-border);

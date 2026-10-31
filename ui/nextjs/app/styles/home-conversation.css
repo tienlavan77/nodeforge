@@ -26,17 +26,22 @@
 .claude-typing { display: inline-flex; align-items: center; gap: 5px; height: 30px; }
 .claude-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--app-muted); animation: claude-typing 1.1s ease-in-out infinite; }
 .claude-typing i:nth-child(2) { animation-delay: .15s; }.claude-typing i:nth-child(3) { animation-delay: .3s; }
-.claude-composer-wrap { width: min(780px, calc(100% - 48px)); justify-self: center; padding: 12px 0 60px; }
+.claude-composer-wrap { width: min(780px, calc(100% - 48px)); justify-self: center; padding: 12px 0 30px; }
 .claude-composer-wrap .home-composer { gap: 10px; padding: 8px; border: 1px solid var(--app-button-border); border-radius: 14px; background: var(--app-input); box-shadow: 0 8px 25px color-mix(in srgb, #000 9%, transparent); }
-.claude-composer-wrap .home-composer textarea { min-height: 80px; border: 0; background: transparent; padding: 8px 9px; font: 15px/1.4 'Space Grotesk', sans-serif; }
+.claude-composer-wrap .home-composer textarea { min-height: 110px; border: 0; background: transparent; padding: 8px 9px; font: 15px/1.4 'Space Grotesk', sans-serif; }
 .claude-composer-wrap .home-composer textarea:focus { outline: none; }
 .claude-composer-wrap .home-composer button { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 10px; }
 .home-composer-fields { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
 .home-composer-fields textarea { width: 100%; box-sizing: border-box; }
 .home-composer-markdown { display: inline-flex; width: fit-content; align-items: center; gap: 6px; color: var(--app-muted); cursor: pointer; font: 11px 'DM Mono', monospace; }
 .home-composer-markdown input { margin: 0; accent-color: var(--app-accent); }
-.claude-composer-tool-mode { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 25px; margin: 4px 0 0; padding: 0 2px; color: var(--app-muted); font-size: 12px; }
-.claude-composer-tool-mode .home-plan-approval-project { flex: 0 1 auto; }
+.claude-composer-tool-mode { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; min-width: 0; max-width: 100%; min-height: 25px; margin: 4px 0 0; padding: 0 2px; color: var(--app-muted); font-size: 12px; }
+.claude-composer-tool-mode .home-plan-approval-project { flex: 0 1 auto; min-width: 0; max-width: 100%; flex-wrap: wrap; gap: 6px 8px; }
+.claude-composer-tool-mode .claude-chat-header-project-name { min-width: 0; max-width: min(220px, 34vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-composer-tool-mode .home-plan-git-icon { margin-left: 6px; }
+.claude-composer-tool-mode .workspace-git-status { min-width: 0; max-width: 100%; justify-content: flex-start; gap: 6px; margin: 0; }
+.claude-composer-tool-mode .workspace-git-status small, .claude-composer-tool-mode .workspace-git-status strong { min-width: 0; max-width: min(200px, 34vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.claude-composer-tool-mode .workspace-git-status .workspace-git-action-result { max-width: min(260px, 45vw); }
 .claude-composer-tool-mode .history-button { border-radius: 7px; padding: 3px 8px; font-size: 12px; }
 .composer-tool-mode-choice { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 .composer-tool-mode-label { font: 11px 'DM Mono', monospace; }
