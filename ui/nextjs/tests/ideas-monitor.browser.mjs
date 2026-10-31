@@ -100,20 +100,23 @@ export const browserAssertions = {
     const minBtn = header.getByRole("button", { name: /Thu gọn Ý tưởng|Mở rộng Ý tưởng/ });
     const inspectHeader = () => header.evaluate((headerEl) => {
       const rules = Array.from(document.styleSheets).flatMap((s) => Array.from(s.cssRules || []));
-      const hasHover = rules.some((r) => r.selectorText?.includes(".ideas-panel") && r.selectorText.includes(".workspace-monitor-header") && r.selectorText.includes(":hover"));
-      const hasLineHeight = rules.some((r) => r.selectorText?.includes(".ideas-panel") && r.selectorText.includes(".workspace-monitor-header") && r.style.lineHeight === "1");
+      const btnRules = rules.filter((r) => r.selectorText?.includes(".ideas-panel") && r.selectorText.includes(".workspace-monitor-header") && r.selectorText.includes("button"));
+      const hasInlineFlex = btnRules.some((r) => r.style.display === "inline-flex");
+      const hasHover = btnRules.some((r) => r.selectorText.includes(":hover"));
+      const hasLineHeight = btnRules.some((r) => r.style.lineHeight === "1");
+      const gap = parseFloat(getComputedStyle(headerEl).columnGap || getComputedStyle(headerEl).gap || "0");
       const buttons = Array.from(headerEl.querySelectorAll("button")).map((b) => {
         const cs = getComputedStyle(b), rect = b.getBoundingClientRect();
-        return { w: Math.round(rect.width), h: Math.round(rect.height), display: cs.display, align: cs.alignItems, justify: cs.justifyContent, pad: `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}` };
+        return { w: Math.round(rect.width), h: Math.round(rect.height), flex: cs.display === "inline-flex" || cs.display === "flex", align: cs.alignItems, justify: cs.justifyContent, pad: `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`, lh: cs.lineHeight === "1" || cs.lineHeight === cs.fontSize };
       });
-      return { hasHover, hasLineHeight, buttons };
+      return { hasInlineFlex, hasHover, hasLineHeight, gapOk: gap > 0 && gap <= 10, buttons };
     });
     for (const expectedSymbol of ["−", "□"]) {
       assert.equal(await minBtn.textContent(), expectedSymbol);
       const res = await inspectHeader();
-      assert.equal(res.hasHover && res.hasLineHeight, true);
+      assert.equal(res.hasInlineFlex && res.hasHover && res.hasLineHeight && res.gapOk, true);
       for (const b of res.buttons) {
-        assert.deepEqual(b, { w: 26, h: 26, display: "inline-flex", align: "center", justify: "center", pad: "0px 0px 0px 0px" });
+        assert.deepEqual(b, { w: 26, h: 26, flex: true, align: "center", justify: "center", pad: "0px 0px 0px 0px", lh: true });
       }
       if (expectedSymbol === "−") await minBtn.click();
     }
