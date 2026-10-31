@@ -73,8 +73,11 @@ test("quiet initial load suppression does not hide uncertain writes, 409 conflic
     },
     createIdea: async ({ content }) => {
       calls.push("POST:" + content);
+      if (failCreate === "http") {
+        throw Object.assign(new Error("Ideas project permission port is not configured."), { status: 503 });
+      }
       if (failCreate) {
-        throw Object.assign(new Error("Connection reset during write"), { status: 503 });
+        throw Object.assign(new Error("Connection reset during write"), { status: null });
       }
       return { id: "idea-2", project_id: "quiet-safety", content, version: 1, status: "open" };
     },
@@ -90,7 +93,16 @@ test("quiet initial load suppression does not hide uncertain writes, 409 conflic
   assert.equal(session.getSnapshot().loaded, true);
 
   session.changeDraft({ content: "Important new idea", edit: { ...item, content: "Local edit v1" } });
+  failCreate = "http";
   assert.equal(await session.mutate(client, "create"), false);
+  assert.equal(session.getSnapshot().error, "Ideas project permission port is not configured.");
+  assert.equal(session.getSnapshot().uncertain, null);
+  assert.equal(session.getSnapshot().draft.content, "Important new idea");
+
+  // Definite HTTP failure does not require reconciliation GET before the next explicit retry.
+  failCreate = true;
+  assert.equal(await session.mutate(client, "create"), false);
+  assert.deepEqual(calls, ["GET", "POST:Important new idea", "POST:Important new idea"]);
   assert.match(session.getSnapshot().error, /Chưa xác nhận lưu/);
   assert.equal(session.getSnapshot().uncertain?.kind, "create");
   assert.equal(session.getSnapshot().uncertain?.checked, false);
@@ -98,7 +110,7 @@ test("quiet initial load suppression does not hide uncertain writes, 409 conflic
 
   // Retry while listIdeas still fails must keep the unconfirmed-save error visible and never replay POST.
   assert.equal(await session.mutate(client, "create"), false);
-  assert.deepEqual(calls, ["GET", "POST:Important new idea", "GET"]);
+  assert.deepEqual(calls, ["GET", "POST:Important new idea", "POST:Important new idea", "GET"]);
   assert.match(session.getSnapshot().error, /Chưa xác nhận lưu\. Không thể tải dữ liệu/);
   assert.equal(session.getSnapshot().uncertain?.checked, false);
 
@@ -106,7 +118,7 @@ test("quiet initial load suppression does not hide uncertain writes, 409 conflic
   failList = false;
   failCreate = false;
   assert.equal(await session.mutate(client, "create"), false);
-  assert.deepEqual(calls, ["GET", "POST:Important new idea", "GET", "GET"]);
+  assert.deepEqual(calls, ["GET", "POST:Important new idea", "POST:Important new idea", "GET", "GET"]);
   assert.equal(session.getSnapshot().uncertain?.checked, true);
   assert.equal(session.getSnapshot().error, "");
 
