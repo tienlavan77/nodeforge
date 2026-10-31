@@ -119,7 +119,7 @@ export const o4BrowserAssertions = {
     assert.equal(await panel.getByRole("note").count(), 0);
 
     await panel.getByRole("button", { name: "Thêm ý tưởng", exact: true }).click();
-    await panel.getByText("Retry directly after 503", { exact: true }).waitFor();
+    await panel.getByRole("list", { name: "Danh sách ý tưởng", exact: true }).getByText("Retry directly after 503", { exact: true }).waitFor();
     const methods = await page.evaluate(() => window.calls.filter((c) => c.path.includes("/ideas")).map((c) => c.method));
     assert.deepEqual(methods, ["POST", "POST"]);
     assert.equal(await panel.getByLabel("Ý tưởng mới", { exact: true }).inputValue(), "");
@@ -216,13 +216,13 @@ export const o4BrowserAssertions = {
 
     await panel.getByLabel("Ý tưởng mới", { exact: true }).fill(quickSecret);
     await panel.getByRole("button", { name: "Thêm ý tưởng", exact: true }).click();
-    await panel.getByText(quickSecret, { exact: true }).waitFor();
-
     const row = panel.locator('[data-idea-id="idea-2"]');
+    await row.getByText(quickSecret, { exact: true }).waitFor();
+
     await row.getByRole("button", { name: "Sửa", exact: true }).click();
     await panel.getByLabel("Sửa nội dung", { exact: true }).fill(editSecret);
     await row.getByRole("button", { name: "Lưu nội dung", exact: true }).click();
-    await panel.getByText(editSecret, { exact: true }).waitFor();
+    await row.locator("p", { hasText: editSecret }).waitFor();
 
     await row.getByRole("button", { name: "Hoàn thành", exact: true }).click();
     await row.getByText("Đã xong", { exact: true }).waitFor();
