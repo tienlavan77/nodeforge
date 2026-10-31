@@ -18,6 +18,7 @@ import {
 } from "../lib/workspace-monitor-layout.js";
 
 const workspaceMonitorsSource = await readFile(new URL("../components/WorkspaceMonitorPanels.jsx", import.meta.url), "utf8");
+const ideasDockSource = await readFile(new URL("../components/ideas-dock.jsx", import.meta.url), "utf8");
 const ideasPanelSource = await readFile(new URL("../components/ideas-panel.jsx", import.meta.url), "utf8");
 const ideasStylesSource = await readFile(new URL("../app/styles/ideas-panel.css", import.meta.url), "utf8");
 
@@ -111,8 +112,35 @@ test("serializeMonitorLayout persists only geometry and visibility/minimized sta
 test("Ideas panel and styles declare workspace-monitor-header, is-minimized, and resize: both when expanded", () => {
   assert.match(ideasPanelSource, /workspace-monitor-header/);
   assert.match(ideasPanelSource, /is-minimized/);
+  assert.doesNotMatch(ideasPanelSource, /ideas-project/);
+  assert.doesNotMatch(ideasPanelSource, /Project:\s*\{projectId\}/);
   assert.match(ideasStylesSource, /\.ideas-panel\s*\{[^}]*resize:\s*both/s);
   assert.match(ideasStylesSource, /\.ideas-panel\.is-minimized\s*\{[^}]*resize:\s*none/s);
   assert.match(workspaceMonitorsSource, /restoreMonitorLayout/);
   assert.match(workspaceMonitorsSource, /serializeMonitorLayout/);
+});
+
+test("Ideas styles declare approved textarea padding, inherited font, submit button alignment, and 26x26 centered header controls with hover", () => {
+  const textareaBlock = ideasStylesSource.match(/\.ideas-panel\s+textarea\s*\{([^}]*)\}/s)?.[1] ?? "";
+  assert.match(textareaBlock, /padding:\s*8px\s+10px/);
+  assert.match(textareaBlock, /font(?:-family)?:\s*inherit/);
+
+  const submitBlock = ideasStylesSource.match(/\.ideas-panel\s+\.ideas-entry-submit\s*\{([^}]*)\}/s)?.[1] ?? "";
+  assert.match(submitBlock, /align-self:\s*flex-end/);
+  assert.match(submitBlock, /width:\s*fit-content/);
+
+  const headerBtnBlock = ideasStylesSource.match(/\.ideas-panel\s+\.workspace-monitor-header\s+button\s*\{([^}]*)\}/s)?.[1] ?? "";
+  assert.match(headerBtnBlock, /width:\s*26px/);
+  assert.match(headerBtnBlock, /height:\s*26px/);
+  assert.match(headerBtnBlock, /display:\s*inline-flex/);
+  assert.match(headerBtnBlock, /align-items:\s*center/);
+  assert.match(headerBtnBlock, /justify-content:\s*center/);
+  assert.match(headerBtnBlock, /padding:\s*0\b/);
+  assert.match(headerBtnBlock, /line-height:\s*1\b/);
+  assert.match(ideasStylesSource, /\.ideas-panel\s+\.workspace-monitor-header\s+button:hover/);
+});
+
+test("IdeasDock close and toggleDock reset minimized state and expand minimized panels from dock", () => {
+  assert.match(ideasDockSource, /function\s+close\s*\(\)\s*\{[^}]*update\(\{\s*visible:\s*false\s*,\s*minimized:\s*false\s*\}\)/s);
+  assert.match(ideasDockSource, /function\s+toggleDock\s*\(\)\s*\{[^}]*update\(\{\s*visible:\s*!open\s*\|\|\s*minimized\s*,\s*minimized:\s*false\s*\}\)/s);
 });

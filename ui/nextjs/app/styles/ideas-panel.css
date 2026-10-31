@@ -16,7 +16,7 @@
 .ideas-panel[hidden] { display: none; }
 .ideas-panel .workspace-monitor-header {
   display: flex; min-height: 42px; flex: none; align-items: center;
-  gap: 10px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--app-border, #777);
+  gap: 6px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--app-border, #777);
   cursor: move; touch-action: none; user-select: none;
 }
 .ideas-panel.is-minimized .workspace-monitor-header { border-bottom: 0; }
@@ -24,21 +24,29 @@
   overflow: hidden; flex: 1; font-size: 13px; text-overflow: ellipsis; white-space: nowrap;
 }
 .ideas-panel .workspace-monitor-header button {
-  width: 26px; height: 26px; border: 1px solid var(--app-border, #777);
-  border-radius: 6px; background: transparent; color: var(--app-text, #222); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; line-height: 1; flex: none;
+  border: 1px solid var(--app-border, #777); border-radius: 6px;
+  background: transparent; color: var(--app-text, #222); cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.ideas-panel .workspace-monitor-header button:hover:not(:disabled) {
+  border-color: var(--app-accent, #629dff);
+  background: color-mix(in srgb, var(--app-accent, #629dff) 14%, transparent);
+  color: var(--app-accent, #629dff);
 }
 .ideas-panel .workspace-monitor-content {
-  min-height: 0; flex: 1; overflow: auto; padding: 12px 14px;
+  min-height: 0; flex: 1; overflow: auto; padding: 12px 14px; font-family: inherit;
 }
 .ideas-panel form { display: flex; flex-direction: column; gap: 8px; }
 .ideas-panel textarea {
-  box-sizing: border-box; width: 100%; min-height: 80px; resize: vertical;
+  box-sizing: border-box; width: 100%; min-height: 80px; padding: 8px 10px;
+  font: inherit; font-family: inherit; resize: vertical;
   background: var(--app-bg, #fff); color: inherit; border: 1px solid var(--app-border, #777); border-radius: 6px;
 }
 .ideas-panel ul { list-style: none; margin: 12px 0 0; padding: 0; }
 .ideas-panel li { padding: 12px 0; border-top: 1px solid var(--app-border, #777); }
 .ideas-panel p { overflow-wrap: anywhere; white-space: pre-wrap; margin: 0 0 8px; }
-.ideas-panel .ideas-project { overflow-wrap: anywhere; }
 .ideas-panel .ideas-entry-form button[type="submit"],
 .ideas-panel .ideas-entry-submit { align-self: flex-end; width: fit-content; }
 .ideas-panel .ideas-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

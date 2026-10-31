@@ -43,13 +43,13 @@ export function IdeasDock({ projectId: propProjectId, panelState, onUpdatePanel,
     if (controlled) onUpdatePanel(changes);
     else setLocalPanel((current) => ({ ...current, ...changes }));
   }
-  /** Close only the notebook; do not affect conversation navigation or stream subscriptions. */
-  function close() { update({ visible: false }); button.current?.focus(); }
+  /** Close only the notebook and reset minimized state; do not affect conversation navigation or stream subscriptions. */
+  function close() { update({ visible: false, minimized: false }); button.current?.focus(); }
   /**
-   * Toggle the floating Ideas monitor visibility from the dock control button while keeping
-   * the button's aria-pressed state synchronized with whether the Ideas panel is open.
+   * Toggle the floating Ideas monitor visibility from the dock control button, or expand it if
+   * currently minimized, while keeping aria-pressed synchronized with whether the panel is open.
    */
-  function toggleDock() { update({ visible: !open }); }
+  function toggleDock() { update({ visible: !open || minimized, minimized: false }); }
   /**
    * Toggle the minimized state of the Ideas floating monitor so the user can collapse or expand
    * the notebook body without losing in-memory drafts or closing the panel.
