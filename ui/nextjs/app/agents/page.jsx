@@ -1,9 +1,9 @@
 "use client";
 // AgentsPage — agent management with CRUD and connection testing.
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NodeForgeHeader } from "../../components/NodeForgeHeader.jsx";
+// eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+import { ConversationSidebar } from "../../components/conversation-sidebar.jsx";
 import { AddAgentModal } from "../../components/AddAgentModal.jsx";
 import { Dialog } from "../../components/Dialog.jsx";
 import { createProjectStreamClient } from "../../lib/project-stream-client.js";
@@ -74,6 +74,7 @@ export default function AgentsPage() {
   const connectProjectStream = useMemo(() => createProjectStreamClient(forgeV1), []);
   const modelCatalog = useModelCatalog();
   const streamRef = useRef(null);
+  const [openSidebar, setOpenSidebar] = useState(false);
   const [agents, setAgents] = useState([]);
   const [state, setState] = useState("loading");
   const [streamState, setStreamState] = useState("connecting");
@@ -197,7 +198,7 @@ export default function AgentsPage() {
     if (streamRef.current) return undefined;
     let active = true;
     const stream = connectProjectStream({
-      projectId: PROJECT_ID,
+      projectId: PROJECT_ID || "PROJECT-NODEFORGE",
       onOpen: () => { if (active) { setStreamState("connected"); void directory.load(); } },
       onEvent: (event) => { if (active) setAgents((current) => applyAgentStatusEvent(current, event)); },
       onError: () => { if (active) setStreamState("error"); }
@@ -206,10 +207,12 @@ export default function AgentsPage() {
     return () => { active = false; streamRef.current = null; stream.close(); };
   }, [connectProjectStream, directory]);
 
-  return <div className="app-shell app-shell-control-room agent-profile-shell agents-directory-shell">
-    <NodeForgeHeader title="NODEFORGE" subtitle="Supervisor Control Room" project={null} status={<><span className="live-dot" /> node online</>} actions={<Link className="history-button" href="/">Control room</Link>} />
-    <main className="agents-directory" aria-label="Agents directory">
-      <div className="agents-directory-heading"><div><p className="eyebrow">NODEFORGE RUNTIME</p><h1>Agents</h1></div><div className="agents-heading-actions"><span>{state === "ready" ? `${agents.length} agents` : state === "loading" ? "Loading" : "Unavailable"}</span><span title={streamState === "error" ? "Project stream failed; showing last known statuses." : `Project stream ${streamState}.`}>{streamState === "connected" ? "live" : streamState === "error" ? "stream offline" : "connecting…"}</span></div></div>
+  return <div className="claude-home-shell agents-workspace-shell agent-profile-shell agents-directory-shell">
+    <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Agents" showConversationControls={false} />
+    <div className="claude-home-main agents-workspace-main">
+      <header className="claude-chat-header agents-page-header"><h1>Agents</h1></header>
+      <main className="agents-directory" aria-label="Agents directory">
+        <div className="agents-directory-heading"><div><p className="eyebrow">NODEFORGE RUNTIME</p></div><div className="agents-heading-actions"><span>{state === "ready" ? `${agents.length} agents` : state === "loading" ? "Loading" : "Unavailable"}</span><span title={streamState === "error" ? "Project stream failed; showing last known statuses." : `Project stream ${streamState}.`}>{streamState === "connected" ? "live" : streamState === "error" ? "stream offline" : "connecting…"}</span></div></div>
       {state === "loading" && <p className="agents-directory-state">Loading agents from `/forge/v1/agents`…</p>}
       {state === "error" && <div className="agents-directory-state error" role="alert"><p>{error}</p><button className="history-button" type="button" onClick={() => directory.load()}>Retry</button></div>}
       {state === "ready" && agents.length === 0 && <p className="agents-directory-state">No agents returned by the API.</p>}
@@ -223,7 +226,8 @@ export default function AgentsPage() {
           <div className="agent-card-footer"><div className="agent-status-control">{(() => { const status = agent.status ?? "not_connected"; const statusMap = { ready: { label: "READY", className: "ready" }, working: { label: "WORKING", className: "working" }, not_connected: { label: "NOT CONNECT", className: "not-connect" } }; const display = statusMap[status] || statusMap.not_connected; return <span className={`agent-status-badge agent-status-${display.className}`} style={display.className === "ready" ? { color: "#62d39b" } : undefined}><span className="status-dot" style={display.className === "ready" ? { background: "#62d39b" } : undefined} />{display.label}</span>; })()}<div className="agent-card-actions"><button type="button" className="card-action-button" onClick={(event) => { event.stopPropagation(); testAgent(agent); }} disabled={testingAgent === id}>{testingAgent === id ? "Testing…" : "Test"}</button><button type="button" className="card-action-button danger" onClick={(event) => { event.stopPropagation(); deleteAgent(agent); }}>Delete</button></div></div></div>
         </article>;
       })}</div>}
-    </main>
+      </main>
+    </div>
     {modalOpen && <AddAgentModal title={editingAgent ? "Edit agent" : "Add agent"} testState={testState} onTestConnection={testConnection} form={form} apiKeyMasked={editingAgent?.api_key_masked} modelOptions={getModelOptions(modelCatalog, form.provider)} effortOptions={effortOptionsForProvider(form.provider)} saving={saving} error={formError} onChange={updateField} onSubmit={addAgent} onClose={() => setModalOpen(false)} />}
     <Dialog open={Boolean(connectionResult)} onClose={() => setConnectionResult(null)} labelledBy="connection-result-title" variant="confirmation" panelStyle={{ background: "var(--app-panel)" }}>
       {connectionResult && <div className="connection-result-modal"><div className="connection-result-icon">{connectionResult.ok ? "✓" : "!"}</div><p className="eyebrow">AGENT CONNECTION</p><h2 id="connection-result-title">{connectionResult.agent.agent_name ?? connectionResult.agent.agent_id}</h2><strong className={connectionResult.ok ? "connection-result-ok" : "connection-result-failed"}>{connectionResult.ok ? "Connected" : "Connection failed"}</strong><p>{connectionResult.message}</p><button className="history-button" type="button" onClick={() => setConnectionResult(null)}>Close</button></div>}

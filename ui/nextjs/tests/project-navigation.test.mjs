@@ -63,3 +63,14 @@ test("sidebar browser scenario module bundles real components and defines all 4 
   assert.ok(fixture.html.includes("/fixture.js"));
   assert.ok(fixture.assets["/fixture.js"].includes("resolveSidebarProjectId"));
 });
+
+test("workspace navigation headers browser scenario module bundles Coding and Agents components and defines all 6 approved assertions", async () => {
+  const { build } = await import("esbuild");
+  const { createBrowserFixture, browserAssertions } = await import("./workspace-navigation-headers.browser.mjs");
+  assert.equal(typeof createBrowserFixture, "function");
+  assert.equal(Object.keys(browserAssertions).length, 6);
+  const fixture = await createBrowserFixture({ sourceRoot: process.cwd(), build });
+  assert.ok(fixture.html.includes("/fixture.js"));
+  assert.ok(fixture.assets["/fixture.js"].includes("CodingWorkspaceMonitor"));
+  assert.ok(fixture.assets["/fixture.js"].includes("AgentsPage"));
+});

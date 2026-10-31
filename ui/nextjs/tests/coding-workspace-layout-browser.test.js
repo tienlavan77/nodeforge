@@ -10,11 +10,15 @@ import { launchProjectChromium } from "../../../backend/tests/helpers/chromium-c
 // Measure actual rendered tracks, overflow and control visibility without mocking layout.
 const measure = `(() => {
   const monitor = document.querySelector('.coding-workspace-monitor');
+  const pageHeader = monitor.querySelector('.coding-workspace-header');
+  const sprintCol = document.querySelector('.coding-sprint-plan');
   const list = document.querySelector('.coding-workspace-list');
   const column = document.querySelector('.coding-workspace-agent');
-  const git = document.querySelector('.workspace-git-status');
+  const git = pageHeader.querySelector('.workspace-git-status');
   const header = column.querySelector('.coding-workspace-column-header');
   const rect = column.getBoundingClientRect();
+  const sprintRect = sprintCol.getBoundingClientRect();
+  const pageHeaderRect = pageHeader.getBoundingClientRect();
   const gitRect = git.getBoundingClientRect();
   const headerRect = header.getBoundingClientRect();
   const panels = [...list.children];
@@ -25,8 +29,10 @@ const measure = `(() => {
     overflow: column.scrollWidth > column.clientWidth || document.documentElement.scrollWidth > innerWidth,
     vertical: column.scrollHeight > column.clientHeight,
     headerTop: headerRect.top, columnTop: rect.top,
-    gitVisible: gitRect.top >= rect.top && gitRect.bottom <= rect.bottom && gitRect.right <= rect.right,
-    gitRight: Math.abs(gitRect.right - headerRect.right) < 2,
+    pageHeaderAboveBoth: pageHeaderRect.bottom <= sprintRect.top + 4 && pageHeaderRect.bottom <= rect.top + 4,
+    gitCountInColumnHeader: header.querySelectorAll('.workspace-git-status').length,
+    gitVisible: gitRect.top >= pageHeaderRect.top && gitRect.bottom <= pageHeaderRect.bottom && gitRect.right <= pageHeaderRect.right,
+    gitRight: gitRect.left > pageHeader.querySelector('h1').getBoundingClientRect().right,
     panelCount: panels.length,
     scrollTop: column.scrollTop,
     mainScroll: monitor.scrollTop,
@@ -34,7 +40,7 @@ const measure = `(() => {
   };
 })()`;
 
-test("Coding headers stay column-local and the agent list fits one, two and three tracks", { timeout: 60000 }, async (context) => {
+test("Coding headers stay column-local beneath the shared page header and the agent list fits one, two and three tracks", { timeout: 60000 }, async (context) => {
   await mkdir(join(process.cwd(), ".forge/runtime"), { recursive: true });
   const directory = await mkdtemp(join(process.cwd(), ".forge/runtime/coding-layout-"));
   context.after(() => rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
@@ -50,11 +56,13 @@ test("Coding headers stay column-local and the agent list fits one, two and thre
     createRoot(document.getElementById('root')).render(<div className="claude-home-shell coding-workspace-shell"><aside className="conversation-sidebar is-collapsed"/><CodingWorkspaceMonitor projectId={PROJECT_ID} client={client} agentPanelRegistry={{panels,activity:{},sourceStatus:'connected'}} agentDirectory={agents} agentActivities={activities} onAgentPanelClose={(projectId,agentId)=>window.closedPanels.push({projectId,agentId})}/></div>);
   `, resolveDir: join(process.cwd(), "ui/nextjs"), loader: "jsx" }, bundle: true, jsx: "automatic", write: false, format: "iife", platform: "browser" });
   const styles = await readFile(new URL("../app/styles/workspace-monitors.css", import.meta.url), "utf8");
+  const homeStyles = await readFile(new URL("../app/styles/home-workspace.css", import.meta.url), "utf8");
+  const convStyles = await readFile(new URL("../app/styles/home-conversation.css", import.meta.url), "utf8");
   const gitStyles = await readFile(new URL("../app/styles/responsive-workspace.css", import.meta.url), "utf8");
   const html = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>
     :root { --app-panel:#fff; --app-border:#ccc; --app-text:#222; --app-surface-alt:#eee; }
     body {margin:0} .claude-home-shell {display:grid;height:100vh} .conversation-sidebar {min-width:0}
-    ${gitStyles}\n${styles}
+    ${homeStyles}\n${convStyles}\n${gitStyles}\n${styles}
     </style><div id="root"></div><script src="/bundle.js"></script>`;
   const server = createServer((request, response) => {
     response.setHeader("content-type", request.url === "/bundle.js" ? "text/javascript" : "text/html");
@@ -85,6 +93,8 @@ test("Coding headers stay column-local and the agent list fits one, two and thre
     assert.equal(initial.panelCount, 7);
     assert.equal(initial.overflow, false);
     assert.equal(initial.vertical, true);
+    assert.equal(initial.pageHeaderAboveBoth, true);
+    assert.equal(initial.gitCountInColumnHeader, 0);
     assert.equal(initial.gitVisible, true);
     assert.equal(initial.gitRight, true);
     for (const selector of ['.coding-sprint-plan', '.coding-workspace-agent']) {
