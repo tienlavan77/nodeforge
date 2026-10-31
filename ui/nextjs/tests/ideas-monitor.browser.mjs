@@ -9,50 +9,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 export { createBrowserFixture } from "./ideas-monitor-fixture.mjs";
-
-const LAYOUT_KEY = "nodeforge:workspace-monitor-layout:home";
-
-/**
- * Reset browser storage and reload the AM workspace so each scenario starts from a clean state.
- */
-async function resetWorkspace(page, origin, initialLayout = null) {
-  await page.goto(origin);
-  await page.evaluate(({ key, layout }) => {
-    window.localStorage.clear();
-    window.sessionStorage.clear();
-    if (layout !== null) window.localStorage.setItem(key, JSON.stringify(layout));
-    window.consoleLogs = [];
-    window.storageWrites = [];
-  }, { key: LAYOUT_KEY, layout: initialLayout });
-  await page.reload();
-  await page.getByRole("button", { name: "Ý tưởng", exact: true }).waitFor();
-  await page.getByRole("heading", { name: "First conversation", exact: true }).waitFor();
-}
-
-/**
- * Open the Ideas floating monitor from the dock if it is not already visible.
- */
-async function openIdeasMonitor(page) {
-  const dockBtn = page.locator(".workspace-monitor-dock").getByRole("button", { name: "Ý tưởng", exact: true });
-  await dockBtn.waitFor();
-  if ((await dockBtn.getAttribute("aria-pressed")) !== "true") await dockBtn.click();
-  const panel = page.getByRole("region", { name: "Ý tưởng", exact: true });
-  await panel.waitFor();
-  return { dockBtn, panel };
-}
-
-/**
- * Open the conversation drawer on narrow mobile viewports and close overlapping system monitors.
- */
-async function openNavigationDrawerIfNeeded(page, viewport) {
-  for (const name of ["Close Watcher monitor", "Close Agent monitor"]) {
-    const closeBtn = page.getByRole("button", { name, exact: true });
-    if (await closeBtn.isVisible()) await closeBtn.click();
-  }
-  if (viewport < 640) {
-    await page.locator('.conversation-mobile-rail button[aria-label="Open conversations sidebar"]').evaluate((btn) => btn.click());
-  }
-}
+import {
+  LAYOUT_KEY,
+  o4BrowserAssertions,
+  openIdeasMonitor,
+  openNavigationDrawerIfNeeded,
+  resetWorkspace,
+} from "./ideas-monitor-o4-assertions.mjs";
 
 export const browserAssertions = {
   "The Ideas panel body renders no Project identifier line or .ideas-project element.": async ({ page, origin }) => {
@@ -233,4 +196,5 @@ export const browserAssertions = {
     assert.match(testSrc, /visible:\\s\*false\\s\*,\\s\*minimized:\\s\*false/);
     assert.match(testSrc, /visible:\\s\*!open\\s\*\\\|\\\|\\s\*minimized\\s\*,\\s\*minimized:\\s\*false/);
   },
+  ...o4BrowserAssertions,
 };

@@ -100,16 +100,18 @@ export function createSession(projectId) {
       publish({ items, draft: nextDraft, uncertain, saved: !uncertain });
       return true;
     } catch (failure) {
-      if (failure.status === 409) publish({ conflict: { id: item?.id, kind },
+      if (failure?.status === 409) publish({ conflict: { id: item?.id, kind },
         error: "Xung đột phiên bản. Bản nháp được giữ nguyên; tải bản server để đối chiếu." });
-      else {
+      else if (failure?.status != null) {
+        publish({ error: failure.message || "Không thể lưu ý tưởng." });
+      } else {
         // Retain the oldest unresolved identity and every later uncertain operation.
         // A fresh failure invalidates reconciliation; the next attempt must read again.
         publish({ uncertain: state.uncertain
           ? { ...state.uncertain, checked: false,
             pending: [...(state.uncertain.pending ?? []), { kind, id: item?.id }] }
           : { kind, id: item?.id, checked: false },
-          error: "Chưa xác nhận lưu. Bản nháp được giữ nguyên. " + failure.message });
+          error: "Chưa xác nhận lưu. Bản nháp được giữ nguyên. " + (failure?.message ?? "") });
       }
       return false;
     } finally { publish({ saving: false }); }

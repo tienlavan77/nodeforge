@@ -85,22 +85,37 @@ test("409 comparison never changes the draft version or retries a mutation", asy
   assert.equal(session.getSnapshot().draft.edit, edit);
 });
 
-test("all failed writes require a read before another explicit write and never replay", async () => {
+test("definite non-409 HTTP failures retain drafts without uncertain state or reconciliation GET, whereas statusless failures require read-before-retry", async () => {
   for (const kind of ["create", "edit", "toggle", "delete"]) {
-    for (const status of [null, 503, 404]) {
+    const method = kind === "create" ? "createIdea" : kind === "delete" ? "deleteIdea" : "updateIdea";
+    for (const status of [503, 404, 403, 500]) {
       const session = createSession("A"), { calls, client, item } = fixture();
-      const method = kind === "create" ? "createIdea" : kind === "delete" ? "deleteIdea" : "updateIdea";
+      session.changeDraft({ content: "private draft", edit: item });
+      client[method] = async () => { calls.push(["WRITE"]); throw Object.assign(new Error(`HTTP ${status} failure`), { status }); };
+      assert.equal(await session.mutate(client, kind, item), false);
+      const draft = session.getSnapshot().draft;
+      assert.equal(session.getSnapshot().error, `HTTP ${status} failure`);
+      assert.doesNotMatch(session.getSnapshot().error, /Chưa xác nhận lưu/);
+      assert.equal(session.getSnapshot().uncertain, null);
+      assert.equal(session.getSnapshot().draft, draft);
+      assert.equal(await session.mutate(client, kind, item), false);
+      assert.deepEqual(calls.map(([m]) => m), ["WRITE", "WRITE"]);
+      assert.equal(session.getSnapshot().uncertain, null);
+      assert.equal(session.getSnapshot().draft, draft);
+    }
+    for (const status of [null, undefined]) {
+      const session = createSession("A"), { calls, client, item } = fixture();
       session.changeDraft({ content: "private draft", edit: item });
       client[method] = async () => { calls.push(["WRITE"]); throw Object.assign(new Error("unavailable"), { status }); };
       await session.mutate(client, kind, item);
       const draft = session.getSnapshot().draft;
       assert.match(session.getSnapshot().error, /Chưa xác nhận lưu/);
       assert.equal(await session.mutate(client, kind, item), false);
-      assert.deepEqual(calls.map(([method]) => method), ["WRITE", "GET"]);
+      assert.deepEqual(calls.map(([m]) => m), ["WRITE", "GET"]);
       assert.equal(session.getSnapshot().draft, draft);
       assert.equal(session.getSnapshot().uncertain.checked, true);
       await session.mutate(client, kind, item);
-      assert.equal(calls.filter(([method]) => method === "WRITE").length, 2);
+      assert.equal(calls.filter(([m]) => m === "WRITE").length, 2);
       assert.equal(session.getSnapshot().uncertain.checked, false);
     }
   }
