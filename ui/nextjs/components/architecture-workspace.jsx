@@ -17,7 +17,7 @@ import { ArchitectureExecutionControls } from "../components/architecture-execut
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationAgentMessageActions, ConversationMessageActions } from "../components/conversation-message-actions.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { ConversationProjectGit } from "../components/conversation-project-git.jsx";
+import { ConversationHeaderProjectGit, ConversationProjectGit } from "../components/conversation-project-git.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { SystemToolMode } from "../components/system-tool-mode.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -235,7 +235,7 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
     </ConversationSidebar>
     <main className="claude-home-main" aria-label="NodeForge conversation workspace">
       <section className="claude-chat" aria-label="Project chat">
-        <header className="claude-chat-header"><h1>{activeConversationTitle}</h1></header>
+        <header className="claude-chat-header"><h1>{activeConversationTitle}</h1><ConversationHeaderProjectGit client={client} projectId={PROJECT_ID} /></header>
         <div className="claude-chat-scroll" ref={chatMessagesRef} onScroll={handleMessageScroll} role="log" aria-live="polite">
           {messagesLoading && <p className="claude-chat-status">Loading conversation…</p>}
           {hasOlder && messages.length > 0 && <button className="claude-history-more" type="button" disabled={olderLoading} onClick={loadEarlierMessages}>{olderLoading ? "Loading…" : "Show earlier messages"}</button>}

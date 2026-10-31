@@ -48,9 +48,8 @@
 .workspace-git-status.is-dirty strong { color: #e7bc76; }
 .workspace-git-status.is-unavailable strong { color: #ee8f9b; }
 .workspace-git-status button { border: 1px solid var(--app-button-border); background: transparent; color: var(--app-text); padding: 3px 6px; cursor: pointer; font: inherit; }
-.system-workspace .claude-chat-header { display: grid; align-content: center; gap: 8px; padding-block: 10px; }
+.system-workspace .claude-chat-header, .claude-home-shell:not(.system-workspace) .claude-chat-header { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 12px; padding-block: 8px; }
 .system-workspace .claude-chat-header .claude-chat-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.claude-home-shell:not(.system-workspace) .claude-chat-header { display: flex; flex-wrap: wrap; align-content: center; gap: 8px; padding-block: 10px; }
 .conversation-statusbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; min-width: 0; margin-bottom: 6px; }
 .conversation-statusbar > .home-plan-approval-notice { flex: 1 1 auto; margin-bottom: 0; }
 .conversation-statusbar > .claude-chat-status { display: flex; align-items: center; justify-content: flex-end; flex: 0 1 auto; flex-wrap: wrap; gap: 6px; margin: 0; }

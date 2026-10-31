@@ -25,6 +25,8 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(page.includes("<ConversationSidebar"));
   assert.ok(page.includes("<HomeChatComposer"));
   assert.ok(page.includes("<ConversationProjectGit"));
+  assert.match(page, /claude-chat-header[\s\S]*?\{activeConversationTitle\}[\s\S]*?<ConversationHeaderProjectGit/);
+  assert.match(systemPage, /claude-chat-header[\s\S]*?\{activeConversationTitle\}[\s\S]*?<ConversationHeaderProjectGit/);
   assert.ok(page.includes("<ConversationsAccordion"));
   assert.ok(page.includes("useConversationMessageHistory"));
   assert.ok(page.includes("useProjectEventStream"));
