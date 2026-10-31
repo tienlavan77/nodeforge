@@ -2,7 +2,8 @@
 
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { resizeInlineEditTextarea } from "../lib/conversation-message-revisions.js";
 
 // Copies message text through the modern clipboard API or the browser fallback.
 async function copyMessageText(text) {
@@ -31,7 +32,13 @@ export function ConversationMessageActions({ message, onEdit, onRetry, children 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState(String(message?.text ?? ""));
+  const editTextareaRef = useRef(null);
   const text = String(message?.text ?? "");
+
+  useLayoutEffect(() => {
+    if (!editing) return;
+    resizeInlineEditTextarea(editTextareaRef.current);
+  }, [editing, draft]);
 
   // Copies the complete owner message and gives brief visual confirmation.
   async function handleCopy() {
@@ -59,7 +66,7 @@ export function ConversationMessageActions({ message, onEdit, onRetry, children 
 
   return <>
     {editing ? <div className="claude-message-inline-edit">
-      <textarea aria-label="Edit message" value={draft} onChange={(event) => setDraft(event.target.value)} disabled={saving} />
+      <textarea ref={(node) => { editTextareaRef.current = node; resizeInlineEditTextarea(node); }} aria-label="Edit message" value={draft} onChange={(event) => { resizeInlineEditTextarea(event.currentTarget); setDraft(event.target.value); }} disabled={saving} />
       <button type="button" aria-label="Save edited message" title="Save" onClick={() => void handleSave()} disabled={!draft.trim() || saving}>✓</button>
       <button type="button" aria-label="Cancel edit" title="Cancel" onClick={() => { setDraft(text); setEditing(false); }} disabled={saving}>×</button>
     </div> : children}
