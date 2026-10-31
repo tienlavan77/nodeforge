@@ -279,7 +279,7 @@ test("runtime composition verifies Bearer tokens strictly without fallback on in
   await f.request(`ideas/${idea.id}`, { status: 404 });
 });
 
-test("reusable createIdeasProjectAuth and createControlApiHttp contracts remain fail-closed when invoked without runtime overrides", async () => {
+test("reusable createIdeasProjectAuth and createControlApiHttp contracts remain fail-closed without runtime overrides", async () => {
   const unconfiguredAuth = createIdeasProjectAuth({
     planOwnerAuth: createPlanOwnerAuth({ token: "t", ownerId: "o" })
   });
