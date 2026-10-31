@@ -229,6 +229,7 @@ export const o4BrowserAssertions = {
 
     await row.getByRole("button", { name: "Xóa", exact: true }).click();
     await row.getByRole("group", { name: "Xác nhận xóa" }).getByRole("button", { name: "Xác nhận xóa", exact: true }).click();
+    await row.waitFor({ state: "detached" });
     assert.equal(await panel.locator('[data-idea-id="idea-2"]').count(), 0);
 
     const privacy = await page.evaluate(({ q, e }) => {
