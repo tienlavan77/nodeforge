@@ -84,7 +84,18 @@ const markdownPlanStore = createMarkdownPlanStore({ projectId: config.projectId,
 const planStore = createHumanPlanStore({ projectId: config.projectId, database, fileService: planFileService, markdownPlans: markdownPlanStore });
 const sprintRegistry = createSprintRegistry({ projectId: config.projectId, database, plans: planStore });
 const planOwnerAuth = createPlanOwnerAuth({ token: process.env.NODEFORGE_PLAN_OWNER_TOKEN, ownerId: process.env.NODEFORGE_PLAN_OWNER_ID });
-const ideasAuth = createIdeasProjectAuth({ planOwnerAuth });
+const ideasAuth = createIdeasProjectAuth({
+  planOwnerAuth,
+  verifyIdentity: (headers = {}) => {
+    const authHeader = headers.authorization ?? headers.Authorization;
+    return typeof authHeader === "string" && authHeader.trim()
+      ? planOwnerAuth.verify(headers)
+      : (process.env.NODEFORGE_PLAN_OWNER_ID || "local-owner");
+  },
+  canAccessProject: ({ projectId: targetProjectId } = {}) => targetProjectId === "__unlocated_idea__"
+    || targetProjectId === config.projectId
+    || Boolean(projectLifecycle?.list?.().some((entry) => entry?.projectId === targetProjectId))
+});
 const ideas = createIdeasStore({ controlDb, projectId: config.projectId });
 const draftPlan = createSprintPlanDraftPersistence({ projectId: config.projectId, planStore, markdownPlanStore, sprintRegistry });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, logEvent, draftPlan, sprintRegistry });
