@@ -232,6 +232,19 @@ export const browserAssertions = {
     await page.locator('.claude-message-inline-edit button[aria-label="Save edited message"]').click();
     await page.waitForFunction(() => window.calls.some((c) => c.method === "POST" && c.path.endsWith("/messages") && (c.body?.supersedes_message_id === "m-owner-a1" || c.body?.payload?.supersedes_message_id === "m-owner-a1")));
     await page.getByText("Updated owner revision text", { exact: true }).waitFor();
+  },
+
+  "AM and System retain one header Git status and one composer-toolbar Git status while their active conversation title and selected project update correctly.": async ({ page, origin }) => {
+    await openChatRoute(page, origin, "/PROJECT-ALPHA");
+    await page.evaluate(() => { window.projects = [{ project_id: "PROJECT-ALPHA", name: "Alpha Catalog Name", root: "/srv/alpha", readiness: "ready" }, { project_id: "PROJECT-BETA", name: "Beta Catalog Name", root: "/srv/beta", readiness: "ready" }]; window.api.syncProjectsToSelection(window.projects); window.rerenderFixture(); });
+    for (const [projectId, projectName, amTitle, seTitle] of [["PROJECT-ALPHA", "Alpha Catalog Name", "Alpha Architecture Discussion", "Alpha System Discussion"], ["PROJECT-BETA", "Beta Catalog Name", "Beta Architecture Discussion", "Beta System Discussion"]]) {
+      for (const [route, expectedTitle] of [[`/${projectId}`, amTitle], [`/${projectId}/system`, seTitle]]) {
+        await openChatRoute(page, origin, route);
+        await page.waitForFunction(({ title, proj }) => document.querySelector(".claude-chat-header h1")?.textContent?.trim() === title && document.querySelector(".claude-chat-header .claude-chat-header-project-name")?.textContent?.trim() === proj && document.querySelectorAll(".workspace-git-status").length === 2, { title: expectedTitle, proj: projectName });
+        const state = await page.evaluate(() => [document.querySelector(".claude-chat-header h1")?.textContent?.trim(), document.querySelector(".claude-chat-header .claude-chat-header-project-name")?.textContent?.trim(), document.querySelector(".claude-composer-tool-mode .claude-chat-header-project-name")?.textContent?.trim(), document.querySelectorAll(".claude-chat-header .workspace-git-status").length, document.querySelectorAll(".claude-composer-tool-mode .workspace-git-status").length, document.querySelectorAll(".workspace-git-status").length]);
+        assert.deepEqual(state, [expectedTitle, projectName, projectName, 1, 1, 2]);
+      }
+    }
   }
 };
 

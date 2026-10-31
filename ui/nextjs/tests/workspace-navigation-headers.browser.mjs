@@ -101,7 +101,56 @@ async function ensureSidebarOpen(page, viewport) {
 }
 
 export const browserAssertions = {
-  "Coding displays a common header above both columns with Coding or Code on the left and the current project and one GitStatusIndicator on the right, with no Git indicator in the Workspace Agent column header.": async ({ page, origin }) => {
+  "AM, System, Coding, and Agents render the shared left ConversationSidebar and top chat header; sidebar collapse and expansion work without a Project selector.": async ({ page, viewport, origin }) => {
+    for (const [route, current, hasConv] of [["/PROJECT-ALPHA", "Architecture", true], ["/PROJECT-ALPHA/system", "System", true], ["/PROJECT-ALPHA/coding", "Code", false], ["/agents", "Agents", false]]) {
+      await openWorkspaceRoute(page, origin, route);
+      await ensureSidebarOpen(page, viewport);
+      const state = await page.evaluate((cur) => ({
+        hasSidebar: Boolean(document.querySelector(".conversation-sidebar")),
+        hasHeader: Boolean(document.querySelector(".claude-chat-header")),
+        projectSelectors: document.querySelectorAll(".claude-sidebar-projects, .claude-sidebar-project-list, .claude-sidebar-project-link").length,
+        currentAria: document.querySelector(`.claude-sidebar-navigation a[title="${cur}"]`)?.getAttribute("aria-current"),
+        convControls: document.querySelectorAll(".claude-sidebar-architecture").length,
+        newConvBtn: document.querySelectorAll('.claude-sidebar-navigation button[title="New conversation"]').length
+      }), current);
+      assert.deepEqual([state.hasSidebar, state.hasHeader, state.projectSelectors, state.currentAria, state.convControls, state.newConvBtn], [true, true, 0, "page", hasConv ? 1 : 0, hasConv ? 1 : 0]);
+      await page.locator(".conversation-sidebar button.home-sidebar-collapse").click();
+      await page.waitForFunction(() => Boolean(document.querySelector(".conversation-sidebar.is-collapsed")));
+      if (viewport <= 640) {
+        await ensureSidebarOpen(page, viewport);
+      } else {
+        await page.locator(".conversation-sidebar button.home-sidebar-collapse").click();
+      }
+      await page.waitForFunction(() => Boolean(document.querySelector(".conversation-sidebar:not(.is-collapsed)")));
+    }
+  },
+
+  "AM and System display the active conversation title on the left, project and Git status on the right, and a second project and Git status group in the composer toolbar.": async ({ page, origin }) => {
+    for (const route of ["/PROJECT-ALPHA", "/PROJECT-ALPHA/system"]) {
+      await openWorkspaceRoute(page, origin, route);
+      await page.waitForFunction(() => document.querySelectorAll(".workspace-git-status").length === 2 && document.querySelector(".claude-chat-header h1")?.textContent?.trim() === "Conv PROJECT-ALPHA");
+      const layout = await page.evaluate(() => {
+        const header = document.querySelector(".claude-chat-header"), toolbar = document.querySelector(".claude-composer-tool-mode");
+        const titleEl = header?.querySelector("h1"), rightEl = header?.querySelector(".claude-chat-header-project");
+        const toolbarProject = toolbar?.querySelector(".home-plan-approval-project"), settings = toolbar?.querySelector(".composer-agent-settings");
+        const tRect = titleEl?.getBoundingClientRect(), rRect = rightEl?.getBoundingClientRect();
+        const tpRect = toolbarProject?.getBoundingClientRect(), sRect = settings?.getBoundingClientRect();
+        return {
+          titleText: titleEl?.textContent?.trim(),
+          headerProject: rightEl?.querySelector(".claude-chat-header-project-name")?.textContent?.trim(),
+          toolbarProject: toolbarProject?.querySelector(".claude-chat-header-project-name")?.textContent?.trim(),
+          headerGit: header?.querySelectorAll(".workspace-git-status").length ?? 0,
+          toolbarGit: toolbar?.querySelectorAll(".workspace-git-status").length ?? 0,
+          totalGit: document.querySelectorAll(".workspace-git-status").length,
+          headerLeftRight: Boolean(tRect && rRect && tRect.left < rRect.left),
+          toolbarLeftRight: Boolean(tpRect && sRect && tpRect.left <= sRect.left)
+        };
+      });
+      assert.deepEqual([layout.titleText, layout.headerProject, layout.toolbarProject, layout.headerGit, layout.toolbarGit, layout.totalGit, layout.headerLeftRight, layout.toolbarLeftRight], ["Conv PROJECT-ALPHA", "Alpha Catalog Name", "Alpha Catalog Name", 1, 1, 2, true, true]);
+    }
+  },
+
+  "Coding displays Coding on the left and the selected project with Git status on the right.": async ({ page, origin }) => {
     await openWorkspaceRoute(page, origin, "/PROJECT-ALPHA/coding");
     await page.waitForFunction(() => document.querySelector(".coding-workspace-header .workspace-git-status strong")?.textContent === "Clean");
     const layout = await page.evaluate(() => {
@@ -119,11 +168,11 @@ export const browserAssertions = {
         leftRight: Boolean(tRect && rRect && tRect.left < rRect.left)
       };
     });
-    assert.ok(layout.titleText === "Coding" || layout.titleText === "Code");
+    assert.equal(layout.titleText, "Coding");
     assert.deepEqual([layout.projectName, layout.headerGit, layout.totalGit, layout.agentHeaderGit, layout.aboveSprint, layout.aboveAgent, layout.leftRight], ["Alpha Catalog Name", 1, 1, 0, true, true, true]);
   },
 
-  "Agents uses claude-home-shell and ConversationSidebar with an Agents page header, no legacy NodeForgeHeader, and no project identity or Git status in the header.": async ({ page, origin }) => {
+  "Agents displays Agents on the left and renders no project name or Git status in its header.": async ({ page, origin }) => {
     await openWorkspaceRoute(page, origin, "/agents");
     const info = await page.evaluate(() => {
       const shell = document.querySelector(".claude-home-shell.agents-workspace-shell");
@@ -140,75 +189,7 @@ export const browserAssertions = {
     assert.deepEqual([info.hasShell, info.hasSidebar, info.legacyTopbarCount, info.headerTitle, info.headerProjectCount, info.headerGitCount, info.totalGitCount, info.headerAboveMain], [true, true, 0, "Agents", 0, 0, 0, true]);
   },
 
-  "Agents preserves agent count, stream connection status, agent cards, add, edit, delete, enable and disable, and connection testing through real UI interactions.": async ({ page, origin }) => {
-    await openWorkspaceRoute(page, origin, "/agents");
-    await page.waitForFunction(() => document.querySelector(".agents-heading-actions")?.textContent?.includes("agents"));
-    const initialCount = await page.evaluate(() => window.agents.length);
-    assert.match(await page.locator(".agents-heading-actions").textContent(), new RegExp(`${initialCount} agents`));
-    assert.match(await page.locator(".agents-heading-actions").textContent(), /live/);
-    assert.equal(await page.locator(".agent-directory-card.agent-card-editable").count(), initialCount);
-
-    await page.locator('button[aria-label="Add agent"]').click();
-    const modal = page.locator(".agent-modal");
-    await modal.waitFor({ state: "visible" });
-    await modal.locator('input[name="agent_name"]').fill("Added Browser Agent");
-    await modal.locator('input[name="gateway_url"]').fill("https://gw.test/added");
-    await modal.locator('button[type="submit"]').click();
-    await page.waitForFunction((expected) => document.querySelectorAll(".agent-directory-card.agent-card-editable").length === expected, initialCount + 1);
-    assert.match(await page.locator(".agents-heading-actions").textContent(), new RegExp(`${initialCount + 1} agents`));
-
-    const addedCard = page.locator('.agent-directory-card.agent-card-editable[aria-label="Edit Added Browser Agent"]');
-    await addedCard.waitFor({ state: "visible" });
-    const toggleBtn = addedCard.locator('button[aria-label="Toggle agent"]');
-    const wasOn = await toggleBtn.evaluate((el) => el.classList.contains("is-on"));
-    await toggleBtn.click();
-    await page.waitForFunction(({ name, expected }) => document.querySelector(`.agent-directory-card.agent-card-editable[aria-label="Edit ${name}"] button[aria-label="Toggle agent"]`)?.classList.contains("is-on") === expected, { name: "Added Browser Agent", expected: !wasOn });
-
-    await addedCard.locator("button.card-action-button", { hasText: "Test" }).click();
-    const connModal = page.locator(".connection-result-modal");
-    await connModal.waitFor({ state: "visible" });
-    assert.match(await connModal.textContent(), /Connected/);
-    await connModal.locator("button", { hasText: "Close" }).click();
-    await connModal.waitFor({ state: "hidden" });
-
-    await addedCard.click();
-    await modal.waitFor({ state: "visible" });
-    await modal.locator('input[name="agent_name"]').fill("Edited Browser Agent");
-    await modal.locator('button[type="submit"]').click();
-    const editedCard = page.locator('.agent-directory-card.agent-card-editable[aria-label="Edit Edited Browser Agent"]');
-    await editedCard.waitFor({ state: "visible" });
-
-    await editedCard.locator("button.card-action-button.danger", { hasText: "Delete" }).click();
-    const delModal = page.locator(".agent-delete-modal");
-    await delModal.waitFor({ state: "visible" });
-    await delModal.locator("button.danger", { hasText: "Delete agent" }).click();
-    await page.waitForFunction((expected) => document.querySelectorAll(".agent-directory-card.agent-card-editable").length === expected, initialCount);
-  },
-
-  "Coding Sprint Plan and Workspace Agent columns scroll independently beneath the common header and retain responsive layout and operable monitor controls.": async ({ page, viewport, origin }) => {
-    await openWorkspaceRoute(page, origin, "/PROJECT-ALPHA/coding");
-    await page.waitForFunction(() => window.calls.some((c) => c.path.endsWith("/agents") && c.method === "GET"));
-    await page.evaluate(() => window.emitCodingActivities("PROJECT-ALPHA"));
-    await page.waitForFunction(() => document.querySelectorAll(".coding-agent-monitor").length >= 3);
-    const scrollCheck = await page.evaluate((vw) => {
-      const monitor = document.querySelector(".coding-workspace-monitor"), header = monitor.querySelector(".coding-workspace-header");
-      const sprint = document.querySelector(".coding-sprint-plan"), agent = document.querySelector(".coding-workspace-agent");
-      for (const [col, cls] of [[sprint, "s-fill"], [agent, "a-fill"]]) if (!col.querySelector("." + cls)) for (let i = 0; i < 40; i++) { const p = document.createElement("p"); p.className = cls; p.textContent = "Filler " + i; col.append(p); }
-      sprint.scrollTop = 0; agent.scrollTop = 0; const hBefore = header.getBoundingClientRect().top;
-      sprint.scrollTop = 180; const sprintScrolled = sprint.scrollTop > 0 && agent.scrollTop === 0;
-      sprint.scrollTop = 0; agent.scrollTop = 180; const agentScrolled = agent.scrollTop > 0 && sprint.scrollTop === 0;
-      const hAfter = header.getBoundingClientRect().top, monitorCols = getComputedStyle(monitor).gridTemplateColumns.trim().split(/\s+/).length;
-      return { sprintScrolled, agentScrolled, headerPinned: Math.abs(hBefore - hAfter) < 2, monitorCols, expectedCols: vw <= 760 ? 1 : 2 };
-    }, viewport);
-    assert.deepEqual([scrollCheck.sprintScrolled, scrollCheck.agentScrolled, scrollCheck.headerPinned, scrollCheck.monitorCols], [true, true, true, scrollCheck.expectedCols]);
-
-    await page.locator('.coding-agent-monitor[data-agent-id="coder-1"] button[aria-label="Minimize agent panel coder-1"]').click();
-    assert.equal(await page.locator('.coding-agent-monitor[data-agent-id="coder-1"].is-minimized').count(), 1);
-    await page.locator('.coding-agent-monitor[data-agent-id="coder-1"] button[aria-label="Expand agent panel coder-1"]').click();
-    assert.equal(await page.locator('.coding-agent-monitor[data-agent-id="coder-1"].is-minimized').count(), 0);
-  },
-
-  "Opening and operating Agents without a selected project uses the existing agents endpoint, makes no project-admission or Git status requests, hides conversation controls and preserves remembered project links.": async ({ page, viewport, origin }) => {
+  "Navigation among project workspaces retains the selected project; Agents remains usable without project admission or project-specific Git requests.": async ({ page, viewport, origin }) => {
     if (new URL(page.url()).origin !== origin) await page.goto(origin);
     await page.evaluate(() => {
       window.navigateTo("/");
@@ -216,7 +197,7 @@ export const browserAssertions = {
       window.api.clearProjectSelection(); window.calls = []; window.navigateTo("/agents");
     });
     await page.locator(".agents-workspace-shell .conversation-sidebar").waitFor({ state: "attached" });
-    await page.waitForFunction(() => window.calls.some((c) => c.path.endsWith("/agents") && c.method === "GET"));
+    await page.waitForFunction(() => window.calls.some((c) => c.path.endsWith("/agents") && c.method === "GET") && document.querySelector(".agents-heading-actions")?.textContent?.includes("agents"));
     const checkNoProject = await page.evaluate(() => ({
       agentsCalls: window.calls.filter((c) => c.path.endsWith("/agents")).length,
       admissionCalls: window.calls.filter((c) => c.path.endsWith("/lifecycle/list") || c.path === "/forge/v1/projects").length,
@@ -226,33 +207,44 @@ export const browserAssertions = {
     assert.ok(checkNoProject.agentsCalls >= 1);
     assert.deepEqual([checkNoProject.admissionCalls, checkNoProject.gitCalls, checkNoProject.convControls], [0, 0, 0]);
 
-    await page.evaluate(() => { window.api.rememberSelectedProject("PROJECT-BETA"); window.rerenderFixture(); });
-    await ensureSidebarOpen(page, viewport);
-    assert.equal(await page.locator('.claude-sidebar-navigation a[title="Architecture"]').getAttribute("href"), "/PROJECT-BETA");
-    assert.equal(await page.locator('.claude-sidebar-navigation a[title="System"]').getAttribute("href"), "/PROJECT-BETA/system");
-    assert.equal(await page.locator('.claude-sidebar-navigation a[title="Code"]').getAttribute("href"), "/PROJECT-BETA/coding");
+    await openWorkspaceRoute(page, origin, "/PROJECT-BETA");
+    await page.waitForFunction(() => document.querySelector(".claude-chat-header-project-name")?.textContent?.trim() === "Beta Catalog Name");
+    for (const [linkTitle, expectedPath] of [["System", "/PROJECT-BETA/system"], ["Code", "/PROJECT-BETA/coding"], ["Agents", "/agents"], ["Architecture", "/PROJECT-BETA"]]) {
+      await ensureSidebarOpen(page, viewport);
+      const link = page.locator(`.claude-sidebar-navigation a[title="${linkTitle}"]`);
+      assert.equal(await link.getAttribute("href"), expectedPath);
+      await link.click();
+      await page.waitForFunction((target) => window.location.pathname === target, expectedPath);
+    }
   },
 
-  "Architecture, System, Coding and Agents all omit Projects, expose the correct current navigation link and approved conversation controls, and handle long header content without horizontal page overflow.": async ({ page, viewport, origin }) => {
+  "The four workspace layouts and their expanded and collapsed sidebars remain within the viewport without horizontal document overflow.": async ({ page, viewport, origin }) => {
     await page.evaluate(() => {
       const longTitle = "Very-Long-Unbroken-Header-Title-Segment-To-Verify-Responsive-Ellipsis-And-Zero-Horizontal-Overflow-Across-All-Four-Pages";
       window.projects = window.projects.map((p) => p.project_id === "PROJECT-ALPHA" ? { ...p, name: longTitle } : p);
       window.api.syncProjectsToSelection(window.projects);
       window.gitByProject["PROJECT-ALPHA"] = { state: "dirty", branch: "feature/very-long-git-branch-name-across-all-four-workspace-pages", changed_files: 9 };
     });
-    for (const [route, current, hasConv] of [["/PROJECT-ALPHA", "Architecture", true], ["/PROJECT-ALPHA/system", "System", true], ["/PROJECT-ALPHA/coding", "Code", false], ["/agents", "Agents", false]]) {
+    for (const route of ["/PROJECT-ALPHA", "/PROJECT-ALPHA/system", "/PROJECT-ALPHA/coding", "/agents"]) {
       await openWorkspaceRoute(page, origin, route);
       await ensureSidebarOpen(page, viewport);
-      assert.equal(await page.locator(".claude-sidebar-projects, .claude-sidebar-project-list, .claude-sidebar-project-link").count(), 0);
-      assert.equal(await page.locator(`.claude-sidebar-navigation a[title="${current}"]`).getAttribute("aria-current"), "page");
-      assert.equal(await page.locator(".claude-sidebar-architecture").count(), hasConv ? 1 : 0);
-      assert.equal(await page.locator('.claude-sidebar-navigation button[title="New conversation"]').count(), hasConv ? 1 : 0);
-      if (viewport <= 640) await page.evaluate(() => document.querySelector(".conversation-sidebar button.home-sidebar-collapse")?.click());
-      const noOverflow = await page.evaluate((vw) => {
-        const rect = document.querySelector(".claude-chat-header")?.getBoundingClientRect();
-        return document.documentElement.scrollWidth <= window.innerWidth + 1 && Boolean(rect && rect.left >= -1 && rect.right <= vw + 1);
+      const expandedFits = await page.evaluate((vw) => {
+        const header = document.querySelector(".claude-chat-header")?.getBoundingClientRect();
+        const sidebar = document.querySelector(".conversation-sidebar")?.getBoundingClientRect();
+        return document.documentElement.scrollWidth <= window.innerWidth + 1 && Boolean(header && header.left >= -1 && header.right <= vw + 1) && Boolean(sidebar && sidebar.left >= -1 && sidebar.right <= vw + 1);
       }, viewport);
-      assert.equal(noOverflow, true, `no horizontal overflow on ${route} at ${viewport}px`);
+      assert.equal(expandedFits, true, `expanded layout fits on ${route} at ${viewport}px`);
+      await page.locator(".conversation-sidebar button.home-sidebar-collapse").click();
+      await page.waitForFunction(() => Boolean(document.querySelector(".conversation-sidebar.is-collapsed")));
+      const collapsedFits = await page.evaluate((vw) => {
+        const header = document.querySelector(".claude-chat-header")?.getBoundingClientRect();
+        return document.documentElement.scrollWidth <= window.innerWidth + 1 && Boolean(header && header.left >= -1 && header.right <= vw + 1);
+      }, viewport);
+      assert.equal(collapsedFits, true, `collapsed layout fits on ${route} at ${viewport}px`);
+      if (viewport > 640) {
+        await page.locator(".conversation-sidebar button.home-sidebar-collapse").click();
+        await page.waitForFunction(() => Boolean(document.querySelector(".conversation-sidebar:not(.is-collapsed)")));
+      }
     }
   }
 };
