@@ -10,7 +10,7 @@ import { CodingSprintDashboardState } from "./coding-sprint-dashboard-state.js";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { CodingArchitecturePlans } from "./coding-architecture-plans.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { GitStatusIndicator } from "./git-status-indicator.jsx";
+import { ConversationHeaderProjectGit } from "./conversation-project-git.jsx";
 
 // Render the legacy Sprint Plan experience alongside active Coding workspace agents.
 export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], onAgentPanelClose, onAgentPanelOpen, agentPanelRegistry = { panels: [], activity: {}, sourceStatus: "unknown" } }) {
@@ -22,6 +22,7 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
     .flatMap(([key, status]) => status === "working" ? [codingPanelIdentity(key)] : [])
     .filter((identity) => identity?.projectId === projectId && codingAgentProfile(agentDirectory, identity.agentId, projectId));
   return <main className="coding-workspace-monitor" aria-label="Coding workspace monitor">
+    <header className="claude-chat-header coding-workspace-header"><h1>Coding</h1><ConversationHeaderProjectGit client={client} projectId={projectId} /></header>
     <section className="coding-workspace-column coding-sprint-plan" aria-labelledby="coding-sprint-plan-heading">
       <header className="coding-workspace-column-header"><h1 id="coding-sprint-plan-heading">Sprint Plan</h1></header>
       {projectId && <CodingArchitecturePlans planEvents={planEvents} client={client} projectId={projectId} onHandoffCompleted={onRefresh} />}
@@ -32,7 +33,6 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
     <section className="coding-workspace-column coding-workspace-agent" aria-labelledby="coding-workspace-agent-heading">
       <header className="coding-workspace-column-header">
         <h1 id="coding-workspace-agent-heading">Workspace Agent</h1>
-        <div className="coding-workspace-git-status"><GitStatusIndicator client={client} projectId={projectId} /></div>
       </header>
       <div className="coding-workspace-list">
         {panels.map((panel) => {

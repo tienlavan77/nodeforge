@@ -1,8 +1,21 @@
-// Verifies the running Agents page uses its UI proxy, displays timeout errors and retries through real Chromium interactions.
+// Verifies the Agents page uses the shared shell and ConversationSidebar, operates without project admission or Git status requests, and recovers from timeout errors through real Chromium interactions.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { launchProjectChromium } from "../../../backend/tests/helpers/chromium-cdp.js";
+
+test("Agents page integrates with claude-home-shell and ConversationSidebar without NodeForgeHeader, project admission, or Git status requests", async () => {
+  const agentsPage = await readFile(new URL("../app/agents/page.jsx", import.meta.url), "utf8");
+  assert.doesNotMatch(agentsPage, /NodeForgeHeader/);
+  assert.doesNotMatch(agentsPage, /GitStatusIndicator|ConversationHeaderProjectGit|getGitStatus/);
+  assert.match(agentsPage, /className="[^"]*\bclaude-home-shell\b[^"]*\bagents-workspace-shell\b[^"]*"/);
+  assert.ok(agentsPage.includes("<ConversationSidebar") && agentsPage.includes('agentSectionTitle="Agents"') && agentsPage.includes("showConversationControls={false}"));
+  assert.match(agentsPage, /<header\b(?=[^>]*className="[^"]*\bclaude-chat-header\b[^"]*\bagents-page-header\b[^"]*")[^>]*>\s*<h1>Agents<\/h1>\s*<\/header>/);
+  assert.match(agentsPage, /\$\{agents\.length\} agents/);
+  assert.match(agentsPage, /streamState === "connected" \? "live" : streamState === "error" \? "stream offline" : "connecting…"/);
+  assert.match(agentsPage, /aria-label="Add agent"/);
+  assert.match(agentsPage, /aria-label="Toggle agent"/);
+});
 
 test("Chromium: Agents loads through the UI proxy and recovers from a stalled API without page reload", { skip: process.env.NODEFORGE_AGENTS_BROWSER_TEST !== "1" }, async (context) => {
   const root = await mkdtemp(`${process.cwd()}/.forge/runtime/agents-browser-`);

@@ -19,24 +19,29 @@ function declarations(selector) {
   }));
 }
 
-test("Coding pins flow-preserving headers inside each independently scrolling column", () => {
+test("Coding places a shared page header with project and Git status above both independently scrolling columns", () => {
   const column = declarations(".coding-workspace-column");
   assert.equal(column["min-height"], "0");
   assert.equal(column["overflow-y"], "auto");
   assert.equal(column["overflow-x"], "hidden");
+  const pageHeader = declarations(".coding-workspace-header");
+  assert.equal(pageHeader["grid-column"], "1 / -1");
+  assert.equal(pageHeader.background, "var(--app-panel)");
   const header = declarations(".coding-workspace-column-header");
   assert.equal(header.position, "sticky");
   assert.equal(header.top, "0");
   assert.equal(header.background, "var(--app-panel)");
   assert.equal(header["flex-wrap"], "wrap");
-  assert.equal(declarations(".coding-workspace-git-status")["margin-left"], "auto");
   for (const heading of ["coding-sprint-plan-heading", "coding-workspace-agent-heading"]) {
     assert.match(monitor, new RegExp(`<header\\b(?=[^>]*className="coding-workspace-column-header")[^>]*>\\s*<h1\\b(?=[^>]*id="${heading}")[^>]*>`));
   }
-  const git = monitor.match(/<GitStatusIndicator\b[^>]*\/>/)?.[0];
+  assert.match(monitor, /<header\b(?=[^>]*className="[^"]*\bclaude-chat-header\b[^"]*\bcoding-workspace-header\b[^"]*")[^>]*>\s*<h1>(Coding|Code)<\/h1>\s*<ConversationHeaderProjectGit\b[^>]*\/>\s*<\/header>/);
+  const git = monitor.match(/<ConversationHeaderProjectGit\b[^>]*\/>/)?.[0];
   assert.ok(git);
   assert.match(git, /\bclient\s*=\s*\{client\}/);
   assert.match(git, /\bprojectId\s*=\s*\{projectId\}/);
+  assert.doesNotMatch(monitor, /coding-workspace-git-status|<GitStatusIndicator\b/);
+  assert.ok(monitor.indexOf("coding-workspace-header") < monitor.indexOf("coding-sprint-plan"));
   const wiring = page.match(/<CodingWorkspaceMonitor\b[^>]*\/>/)?.[0];
   assert.match(wiring, /\bprojectId\s*=\s*\{PROJECT_ID\}/);
   assert.match(wiring, /\bclient\s*=\s*\{client\}/);
@@ -76,7 +81,7 @@ test("Coding restores navigation before the workspace without conversation contr
   assert.ok(page.indexOf("<ConversationSidebar") < page.indexOf("<CodingWorkspaceMonitor"));
   assert.match(page, /showConversationControls=\{false\}/);
   assert.match(page, /open=\{openSidebar\} onOpen=\{\(\) => setOpenSidebar\(true\)\} onClose=\{\(\) => setOpenSidebar\(false\)\}/);
-  assert.match(styles, /\.claude-home-shell\.coding-workspace-shell\s*\{[^}]*grid-template-columns:\s*350px minmax\(0, 1fr\);[^}]*grid-template-rows:\s*minmax\(0, 1fr\)/);
+  assert.match(styles, /\.claude-home-shell\.coding-workspace-shell[^{]*\{[^}]*grid-template-columns:\s*350px minmax\(0, 1fr\);[^}]*grid-template-rows:\s*minmax\(0, 1fr\)/);
   assert.ok(globals.indexOf('styles/workspace-monitors.css') > globals.indexOf('styles/home-workspace.css'));
 });
 
@@ -84,10 +89,11 @@ test("Coding fills the viewport and keeps scrollable columns without changing Ho
   assert.match(styles, /\.coding-workspace-shell > \.coding-workspace-monitor\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*min-height:\s*0;[^}]*height:\s*100%;[^}]*overflow:\s*auto/);
   assert.match(styles, /\.coding-workspace-shell \.coding-workspace-column\s*\{[^}]*min-height:\s*0;[^}]*box-sizing:\s*border-box/);
   assert.match(styles, /grid-template-columns:\s*minmax\(0, 1fr\) minmax\(260px, 2fr\)/);
+  assert.match(styles, /grid-template-rows:\s*auto minmax\(0, 1fr\)/);
   assert.match(styles, /@media \(max-width: 760px\)[^\n]*grid-template-columns:\s*1fr/);
   assert.doesNotMatch(styles, /\.claude-home-shell\s*\{/);
-  assert.match(styles, /coding-workspace-shell:has\(\.conversation-sidebar.is-collapsed\)\s*\{[^}]*grid-template-columns:\s*42px minmax\(0, 1fr\)/);
+  assert.match(styles, /coding-workspace-shell:has\(\.conversation-sidebar.is-collapsed\)[^{]*\{[^}]*grid-template-columns:\s*42px minmax\(0, 1fr\)/);
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?padding-left:\s*56px/);
-  assert.match(styles, /coding-workspace-shell \.conversation-mobile-rail\s*\{[^}]*display:\s*flex;[^}]*top:\s*0/);
-  assert.match(styles, /@media \(min-width: 641px\)[\s\S]*?responsive-region--conversations\s*\{[^}]*position:\s*static/);
+  assert.match(styles, /coding-workspace-shell \.conversation-mobile-rail[^{]*\{[^}]*display:\s*flex;[^}]*top:\s*0/);
+  assert.match(styles, /@media \(min-width: 641px\)[\s\S]*?responsive-region--conversations[^{]*\{[^}]*position:\s*static/);
 });
