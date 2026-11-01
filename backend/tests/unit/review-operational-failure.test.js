@@ -50,6 +50,21 @@ test("denials, forbidden access, unknown provider outcomes and code failures kee
     { message: "a source file contains 502 records" }
   ]) assert.equal(reviewOperationalFailure(error), null);
   assert.equal(reviewOperationalFailure({ code: "ECONNRESET", message: "Connection reset" }).code, "ECONNRESET");
+  assert.deepEqual(reviewOperationalFailure({
+    code: "CONFIGURATION_ERROR",
+    provider_outcome: "failed",
+    cause: { code: "ECONNRESET" },
+    message: "Codex SDK turn failed for 85661178-4828-4942-a4fb-6177bbb24040: stream disconnected before completion: stream closed before response.completed"
+  }), {
+    code: "ECONNRESET",
+    message: "Codex SDK turn failed for 85661178-4828-4942-a4fb-6177bbb24040: stream disconnected before completion: stream closed before response.completed",
+    retryable: true
+  });
+  assert.equal(reviewOperationalFailure({
+    code: "CONFIGURATION_ERROR",
+    provider_outcome: "unknown",
+    message: "Codex SDK turn failed: stream disconnected before completion: stream closed before response.completed"
+  }), null);
 });
 
 test("SDK transport failures reject an apparent verdict before recording code findings", async () => {

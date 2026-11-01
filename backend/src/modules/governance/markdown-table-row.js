@@ -28,8 +28,13 @@ export function splitMarkdownTableRow(line) {
       cell += source.slice(index, end);
       index = end - 1;
     } else if (char === "|" && codeDelimiter === 0) {
-      cells.push(cell);
-      cell = "";
+      if (source[index + 1] === "|") {
+        cell += "||";
+        index += 1;
+      } else {
+        cells.push(cell);
+        cell = "";
+      }
     } else cell += char;
   }
   cells.push(cell);

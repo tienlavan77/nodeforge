@@ -3,7 +3,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { isProtectedPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 import { isCoderProjectPath } from "../../infrastructure/filesystem/coder-project-access.js";
 
-export const ownerSearchTreeDefinition = Object.freeze({ name: "search_tree", description: "List directories and files below one project path, including empty directories. Depth and result count are bounded. For installed package guidance, specify its node_modules directory and use returned filenames with read_file/read_lines instead of guessing extensions.", input_schema: { type: "object", properties: { path: { type: "string", description: "Project-relative directory, or . for project root" }, max_depth: { type: "integer", minimum: 1, maximum: 8 }, limit: { type: "integer", minimum: 1, maximum: 500 } }, additionalProperties: false } });
+export const ownerSearchTreeDefinition = Object.freeze({ name: "search_tree", description: "List directories and files below one project path, including empty directories. Depth and result count are bounded. For installed package guidance, specify its node_modules directory and use returned filenames with read_file/Read instead of guessing extensions.", input_schema: { type: "object", properties: { path: { type: "string", description: "Project-relative directory, or . for project root" }, max_depth: { type: "integer", minimum: 1, maximum: 8 }, limit: { type: "integer", minimum: 1, maximum: 500 } }, additionalProperties: false } });
 
 // Creates a project-scoped tree reader using the existing File Service ignore rules.
 export function createOwnerSearchTreeTool({ fileService, role }) {

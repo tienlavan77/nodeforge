@@ -12,7 +12,7 @@ import { createOwnerSearchTreeTool } from "../../../tools/roles/owner-search-tre
 import { createRgFilesTool } from "../../../tools/discovery/rg-files.js";
 import { engineeringToolDefinitions } from "../../../tools/engineering-tool-catalog.js";
 import { extractorRegistry } from "../../index/parser/index.js";
-import { createCommittedReviewWindow } from "./committed-review-window.js";
+import { createSourceReadTool } from "../../../tools/discovery/source-read.js";
 import { createCommittedReviewSource } from "./reviewer-committed-source.js";
 import { createReviewerSnapshotTools } from "./reviewer-snapshot-tools.js";
 import { createVerificationReviewSource } from "../ticket/ticket-verification-review-source.js";
@@ -78,7 +78,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       code_index: { ...(cached?.code_index ?? {}), path, symbols }, code_graph: cached?.sha256 === file.sha256 ? cached.code_graph ?? {} : {} };
   } } : snapshot ? { read: (input) => scopedFiles.readForIndex(input) } : codeCache;
   // Review discovery covers project source and instructions; the delta is not a read permission boundary.
-  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff", "review_diff", "run_review_check"], project_root: projectRoot };
+  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "review_diff", "run_review_check"], project_root: projectRoot };
   // Keeps text search under the same project, protected-path and symlink rules as direct reads.
   const searchCache = { read: async ({ path }) => {
     await assertReviewerReadPath(projectRoot, path);
@@ -92,7 +92,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }),
     ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: terminalAuditLogger(projectLogger) } }) : {}),
     list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: terminalAuditLogger(projectLogger) } }),
-    read_lines: createCommittedReviewWindow(snapshot || !codeCache?.read ? scopedFiles : { readForIndex: searchCache.read }, "read_lines"),
+    Read: createSourceReadTool({ fileService: scopedFiles, projectRoot, codeCache: snapshot || !codeCache?.read ? undefined : searchCache }),
     ...(ticketEvidence?.context?.review_commit_sha && ticketEvidence?.context?.base_sha ? {
       review_diff: createReviewDiffTool({ projectRoot, ticketEvidence, job }),
       run_review_check: createRunReviewCheckTool()
@@ -108,8 +108,9 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     const started = Date.now();
     try {
       if (name === "read_file") validateReadInput(input);
-      if (["read_file", "read_lines", "review_diff"].includes(name) && typeof input?.path === "string") {
-        if (snapshot) assertRoleFileAccess("reviewer", "read", input.path); else await assertReviewerReadPath(projectRoot, input.path);
+      const readPath = name === "Read" ? input?.file_path : input?.path;
+      if (["read_file", "Read", "review_diff"].includes(name) && typeof readPath === "string") {
+        if (snapshot) assertRoleFileAccess("reviewer", "read", readPath); else await assertReviewerReadPath(projectRoot, readPath);
       }
       const toolInput = name === "search_tree" ? boundedTreeInput(input) : input;
       if (snapshot && name === "search_tree" && isDependencyPath(toolInput.path)) throw toolError("REVIEW_DEPENDENCY_EVIDENCE_MISSING", "Snapshot dependency discovery requires recorded environment evidence.");
@@ -162,8 +163,8 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
 
 // Binds a canonical source window to the verified artifact after checking live source integrity.
 async function bindReviewEvidence(name, input, result, ticketEvidence, fileService, projectRoot) {
-  if (!ticketEvidence || !["read_lines", "read_file"].includes(name)) return result;
-  const path = input.path;
+  if (!ticketEvidence || !["Read", "read_file"].includes(name)) return result;
+  const path = name === "Read" ? result.path : input.path;
   const file = ticketEvidence.files.find((item) => item.path === path);
   if (!file || file.deleted) {
     if (!fileService.committedReview) throw toolError("REVIEW_SOURCE_MISMATCH", "Source outside ticket evidence requires a pinned snapshot.");
@@ -176,8 +177,8 @@ async function bindReviewEvidence(name, input, result, ticketEvidence, fileServi
   let source = {};
   if (name === "read_file" && typeof result.content === "string") {
     source = { content: canonicalReviewWindow(file.content, result.offset, result.offset + result.limit - 1, false, input.offset === undefined ? 250 : MAX_WINDOW_LINES, false) };
-  } else if (name === "read_lines") {
-    source = { stdout: canonicalReviewWindow(file.content, input.start_line, input.end_line, false) };
+  } else if (name === "Read") {
+    source = { content: canonicalReviewWindow(file.content, result.start_line, result.end_line, true, 80, false) };
   }
   return { ...result, ...source, sha256: file.sha256, total_lines: file.content.split("\n").length, ...(name === "read_file" ? { content_sha256: file.sha256, size_bytes: Buffer.byteLength(file.content) } : {}), review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: ticketEvidence.context.review_commit_sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: file.sha256 } };
 }
@@ -205,9 +206,7 @@ function canonicalReviewWindow(content, start, end, numbered, maxLines = MAX_WIN
 // Bounds existing read_file windows while allowing live symbol resolution.
 function validateReadInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input) || typeof input.path !== "string") throw toolError("REVIEW_TOOL_INPUT", "Reviewer read_file requires a path.");
-  if (input.offset !== undefined || input.limit !== undefined) {
-    if (!Number.isInteger(input.offset) || input.offset < 1 || !Number.isInteger(input.limit) || input.limit < 1 || input.limit > MAX_WINDOW_LINES) throw toolError("REVIEW_TOOL_INPUT", "Reviewer read_file window must contain at most 250 lines.");
-  }
+  if (Object.keys(input).some((key) => key !== "path")) throw toolError("REVIEW_TOOL_INPUT", "read_file accepts path only; use Read for source.");
 }
 
 // Caps the existing search_tree result count for Reviewer discovery.

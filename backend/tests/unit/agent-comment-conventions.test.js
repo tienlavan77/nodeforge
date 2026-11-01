@@ -92,3 +92,20 @@ test("write_diff also checks new functions but does not rewrite existing summari
   await tool.execute({ path: "existing.js", before_checksum: state.sha256(), content: `${state.read()}\n// Validates account state before fulfilling requests.\nfunction added() {}` });
   assert.match(state.read(), /function added/);
 });
+
+test("function declarations embedded inside multiline string or template literals do not trigger false SUMMARY_REQUIRED rejections", async () => {
+  const state = fixture("// Existing fixture file.\nconst placeholder = 1;");
+  const tool = createEditDiffTool({ fileService: state.fileService });
+  const embeddedFixtureSource = [
+    "// Existing fixture file.",
+    "const FIXTURE_SOURCE = `import React from 'react';",
+    "function FixtureApp() { return null; }",
+    "export async function helperInString() { return 1; }",
+    "`;",
+    "// Business purpose: compiles the browser fixture source.",
+    "// Technical description: bundles the fixture string with esbuild.",
+    "export async function createBrowserFixture() { return FIXTURE_SOURCE; }"
+  ].join("\n");
+  await tool.execute({ path: "fixture.browser.mjs", before_checksum: state.sha256(), anchor: state.read(), replacement: embeddedFixtureSource });
+  assert.match(state.read(), /function FixtureApp/);
+});

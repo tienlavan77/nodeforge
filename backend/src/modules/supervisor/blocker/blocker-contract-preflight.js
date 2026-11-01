@@ -15,24 +15,24 @@ export async function preflightBlockerContract(request, { sprintRegistry, archit
   const workspace = await resolveTicketWorkspace(request.task_id);
   try {
     const refs = policy.contract_evidence ?? [];
+    const checkpoint = await checkpoints.load(request.task_id);
+    let delegation = null;
+    let contracts = [];
+    if (checkpoint?.contract_decisions?.length) {
+      const architecture = await approvedBlockerArchitecture(plan, request.project_id, architecturePlans);
+      ({ delegation, contracts } = await readBlockerContractDelegation({ job: { request }, checkpoint, fileService, architecture }));
+    }
     if (!refs.length) {
-      const checkpoint = await checkpoints.load(request.task_id);
-      if (checkpoint?.contract_decisions?.length) {
-        const architecture = await approvedBlockerArchitecture(plan, request.project_id, architecturePlans);
-        const { delegation, contracts } = await readBlockerContractDelegation({ job: { request }, checkpoint, fileService, architecture });
-        if (delegation) {
-          projectLogger?.({ event_name: "ticket.contract_preflight_passed", level: "info", status: "success", task_id: request.task_id,
-            message: "Retained AM contract decision verified against the current approved plan; implementation may continue through existing gates.",
-            payload: { receipts: contracts.map(({ path, sha256 }) => ({ path, sha256 })), authority: "retained_architecture_decision" } });
-          return false;
-        }
-      }
-      throw Object.assign(new Error("Declared existing contract has no verified evidence."), { code: "BLOCKER_DISPOSITION_INVALID" });
+      if (!delegation) throw Object.assign(new Error("Declared existing contract has no verified evidence."), { code: "BLOCKER_DISPOSITION_INVALID" });
+      projectLogger?.({ event_name: "ticket.contract_preflight_passed", level: "info", status: "success", task_id: request.task_id,
+        message: "Retained AM contract decision verified against the current approved plan; implementation may continue through existing gates.",
+        payload: { receipts: contracts.map(({ path, sha256 }) => ({ path, sha256 })), authority: "retained_architecture_decision" } });
+      return false;
     }
     const authority = blockerSprintAuthority(plan, request.ticket);
     const architecture = refs.some((ref) => !authority.includes(ref.authority_quote))
       ? await approvedBlockerArchitecture(plan, request.project_id, architecturePlans) : null;
-    const verifyContractSource = createTicketContractSource({ request, workspace });
+    const verifyContractSource = createTicketContractSource({ request, workspace, contractDelegation: delegation });
     const receipts = [];
     for (const ref of refs) receipts.push(await assertDeclaredContractEvidence(ref, { plan, ticket: request.ticket, architecture, verifyContractSource }));
     projectLogger?.({ event_name: "ticket.contract_preflight_passed", level: "info", status: "success", task_id: request.task_id,

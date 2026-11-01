@@ -21,6 +21,9 @@ import { appendArchitectureDecisions, readArchitectureDecisions } from "../../sr
 import { sprintArchitectureDecisions } from "../../src/modules/governance/sprint-architecture-decisions.js";
 import { architectureSessionFromRecord, renderArchitecturePlanMarkdown } from "../../src/modules/governance/architecture-plan-json.js";
 import { retainConversationPlanSource } from "../../src/modules/governance/conversation-plan-source.js";
+import { createOwnerChatCommandService } from "../../src/application/owner-chat-command-service.js";
+import { formatHumanReadableHandoffBrief } from "../../src/application/am-se-handoff-service.js";
+import { createConversationCrudService } from "../../src/application/conversation-crud-service.js";
 
 const planJSON = JSON.stringify({ title: "Conversation plan", objective: "Deliver API", background: "Owner conversation",
   scope: ["API"], outcomes: [{ id: "O1", outcome: "Deliver API", acceptance_criteria: ["Works"], guardrails: ["Preserve source"] }],
@@ -181,4 +184,86 @@ test("canonical reconstruction rejects altered content and foreign decision prov
   const inconsistentIdentity = { planId: inconsistent.plan_id, revision: 3, sha256: inconsistent.sha256 };
   await f.markdownPlans.decide({ ...inconsistentIdentity, decision: "approved", approverId: "OWNER" });
   await assert.rejects(f.markdownPlans.assertApproved(inconsistentIdentity), { code: "PLAN_HASH_MISMATCH" });
+});
+
+test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), and Phase 2 SL / SE handoff", async (context) => {
+  const f = await fixture(context);
+  await f.fileService.atomicWrite({ path: "docs/spec.md", content: "# Feature Spec\nImplement unified planning.\n", replace: true });
+  const busMessages = [];
+  const conversations = createConversationCrudService({ database: f.database });
+  const commandService = createOwnerChatCommandService({
+    projectId: "PROJECT-A", fileService: f.fileService, planStore: f.plans, markdownPlanStore: f.markdownPlans,
+    sprintRegistry: f.registry, handoffApprovedPlan: ({ plan }) => f.service().handoff({ plan }),
+    conversationCrudService: conversations,
+    bus: { send: (msg) => { busMessages.push(msg); return msg; } },
+    agentRoleResolver: { resolveProfile: (role) => role === "system_engineer" ? { agent_id: "se-1", role: "system_engineer" } : { agent_id: "am-1", role: "architecture_manager" } }
+  });
+
+  // 1. Markdown file + automatic SL handoff -> creates r1, runs 1-round AM-SE critique ([CRITIQUE: ALIGNED]), auto-approves, and marks Sprint ready.
+  const slPrompts = [];
+  const slSeCalls = [];
+  const slRes = await commandService.execute({
+    text: "tạo kế hoạch từ docs/spec.md, giao việc cho SL", conversationId: "CONV-SL", project_id: "PROJECT-A", approvedOwnerId: "OWNER",
+    requestArchitecture: async (prompt) => { slPrompts.push(prompt); return prompt.startsWith("Architecture clarification") ? '{"questions":[]}' : planJSON; },
+    requestSystemEngineer: async (req) => { slSeCalls.push(req); return "SE đã khảo sát code và đồng thuận với kế hoạch.\n[CRITIQUE: ALIGNED]"; }
+  });
+  assert.match(slPrompts[0], /Feature Spec/);
+  assert.equal(slSeCalls.length, 1);
+  assert.equal(slSeCalls[0].phase, "plan_critique");
+  assert.equal(slRes.status, "handed_to_node");
+  assert.equal(slRes.delivery_target, "sl");
+  assert.equal(slRes.critique_rounds_completed, 1);
+  assert.equal(slRes.sprint_status, "ready");
+  assert.equal(f.registry.get(slRes.sprint_id).status, "ready");
+
+  // 2. Markdown file + automatic SE handoff -> 2-round AM-SE critique ([CRITIQUE: DISCUSS] -> [CRITIQUE: ALIGNED]), then implementation REVISE -> PASS.
+  let reviewRound = 0;
+  const seCalls = [];
+  const seRes = await commandService.execute({
+    text: "tạo kế hoạch từ docs/spec.md, giao việc cho SE", conversationId: "CONV-ARCH", project_id: "PROJECT-A", approvedOwnerId: "OWNER",
+    requestArchitecture: async (prompt) => {
+      if (prompt.startsWith("Architecture clarification")) return '{"questions":[]}';
+      if (prompt.startsWith("Architecture plan generation")) return planJSON;
+      if (prompt.startsWith("Architecture plan critique response")) return "AM giải đáp điểm phản biện của SE và thống nhất giữ cấu trúc O1.";
+      reviewRound += 1;
+      return reviewRound === 1 ? "Vòng 1: Cần bổ sung kiểm thử cho O1.\n[VERDICT: REVISE]" : "Nghiệm thu hoàn tất: O1 đạt đầy đủ.\n[VERDICT: PASS]";
+    },
+    requestSystemEngineer: async (req) => {
+      seCalls.push(req);
+      if (req.phase === "plan_critique") {
+        return req.critiqueRound === 1 ? "Cần làm rõ ranh giới O1.\n[CRITIQUE: DISCUSS]" : "Đã rõ, SE đồng thuận.\n[CRITIQUE: ALIGNED]";
+      }
+      return `Báo cáo SE vòng ${req.round}`;
+    }
+  });
+  assert.equal(seRes.delivery_target, "se");
+  assert.equal(seRes.phase, "implementation");
+  assert.equal(seRes.status, "completed");
+  assert.equal(seRes.critique_rounds_completed, 2);
+  assert.equal(seRes.rounds_completed, 2);
+  assert.equal(seCalls.length, 4);
+  assert.equal(seCalls[0].phase, "plan_critique");
+  assert.equal(seCalls[1].phase, "plan_critique");
+  assert.equal(seCalls[2].phase, "implementation");
+  assert.equal(seCalls[3].phase, "implementation");
+  assert.equal(seCalls[0].linkedConversationId, "CONV-ARCH");
+  assert.match(seCalls[0].prompt, /## Trình bày & Phản biện kế hoạch kiến trúc/);
+  assert.doesNotMatch(seCalls[0].prompt, /"acceptance_criteria":\s*\[/);
+  assert.match(seCalls[3].prompt, /Hướng dẫn điều chỉnh vòng 2/);
+  assert.ok(busMessages.some((m) => m.conversation_id === "CONV-ARCH" && m.payload.linked_conversation_id === `CONV-SE-${seRes.plan_id}`));
+  assert.ok(busMessages.every((m) => !m.conversation_id?.startsWith("CONV-SE-")), "handoff dialogue stays in its source conversation");
+  const seConversations = conversations.list({ projectId: "PROJECT-A", agentId: "se-1" });
+  assert.equal(seConversations.length, 0, "internal SE session does not create a sidebar conversation");
+  conversations.ensure({ id: `CONV-SE-${seRes.plan_id}`, project_id: "PROJECT-A", agent_id: "se-1", title: "Legacy handoff" });
+  assert.equal(conversations.list({ projectId: "PROJECT-A", agentId: "se-1" }).length, 0, "legacy internal sessions stay out of the sidebar");
+  assert.ok(conversations.get(`CONV-SE-${seRes.plan_id}`), "legacy history remains accessible for audit");
+  assert.match(formatHumanReadableHandoffBrief(JSON.parse(planJSON), { planId: "PLAN-1", sourceKind: "markdown_file", sourceFilePath: "docs/spec.md" }), /docs\/spec\.md/);
+
+  // 3. Conversation SL handoff retry phrase ("giao lại cho SL") resumes/handoffs the latest plan in the conversation without regenerating the plan.
+  assert.equal(commandService.isCommand("chạy giao lại cho SL giúp đi!"), true);
+  assert.equal(commandService.isCommand("/handoff"), true);
+  const retryRes = await commandService.execute({ text: "chạy giao lại cho SL giúp đi!", conversationId: "CONV-SL", project_id: "PROJECT-A", approvedOwnerId: "OWNER" });
+  assert.equal(retryRes.status, "handed_to_node");
+  assert.equal(retryRes.sprint_id, "SPRINT-A");
+  assert.equal(retryRes.sprint_status, "ready");
 });

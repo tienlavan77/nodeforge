@@ -145,17 +145,19 @@ async function runBoundItemOperation({ method, ideaId, located, body, url, conte
       const code = body.project_id !== located.projectId && body.project !== located.projectId ? "PROJECT_CONTEXT_CONFLICT" : "INVALID_IDEA_PAYLOAD";
       throw ideaHttpError("Cannot mutate or redirect Idea project_id.", code === "PROJECT_CONTEXT_CONFLICT" ? 409 : 400, code);
     }
-    if (Object.keys(body).some((k) => !["content", "status", "expected_version"].includes(k)) || (body.content === undefined && body.status === undefined)) {
+    if (Object.keys(body).some((k) => !["content", "status", "position", "expected_version"].includes(k)) || (body.content === undefined && body.status === undefined && body.position === undefined)) {
       throw ideaHttpError("Invalid PATCH fields.", 400, "INVALID_IDEA_PAYLOAD");
     }
     if (!Number.isSafeInteger(body.expected_version) || body.expected_version < 1) throw ideaHttpError("Invalid expected_version.", 400, "INVALID_IDEA_VERSION");
     if (body.content !== undefined && (typeof body.content !== "string" || !body.content.trim())) throw ideaHttpError("Idea content must be a non-empty string.", 400, "INVALID_IDEA_CONTENT");
     if (body.status !== undefined && !["open", "done"].includes(body.status)) throw ideaHttpError("Invalid Idea status.", 400, "INVALID_IDEA_STATUS");
+    if (body.position !== undefined && (!Number.isSafeInteger(body.position) || body.position < 0)) throw ideaHttpError("Invalid Idea position.", 400, "INVALID_IDEA_POSITION");
     const updated = await store.update(ideaId, {
       projectId: located.projectId,
       version: body.expected_version,
       ...(body.content !== undefined ? { content: body.content } : {}),
-      ...(body.status !== undefined ? { status: body.status } : {})
+      ...(body.status !== undefined ? { status: body.status } : {}),
+      ...(body.position !== undefined ? { position: body.position } : {})
     });
     return { status: 200, body: updated };
   }

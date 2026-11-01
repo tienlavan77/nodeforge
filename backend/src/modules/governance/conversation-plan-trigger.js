@@ -11,20 +11,24 @@
 // begin with a blockquote marker. Matching is exact per line, never substring search
 // over whole prose, so mixed messages are detected by counting distinct trigger kinds.
 
-// Recognized standalone English/Vietnamese imperative create-plan phrases.
-const CREATE_PHRASES = [
-  /^(?:please\s+)?(?:create|generate|draft|make)\s+(?:an?\s+|the\s+)?(?:new\s+)?architecture\s+plan\b[.!]?$/i,
-  /^(?:please\s+)?(?:create|generate|draft|make)\s+(?:an?\s+|the\s+)?(?:new\s+)?plan\s+from\s+(?:this|the)\s+conversation\b[.!]?$/i,
-  /^(?:please\s+)?tạo\s+(?:kế\s+hoạch\s+)?kiến\s+trúc\b[.!]?$/i,
-  /^(?:please\s+)?tạo\s+kế\s+hoạch\s+từ\s+cuộc\s+trao\s+đổi\b[.!]?$/i
+const HANDOFF_SUFFIX_EN = "(?:(?:\\s*,\\s*|\\s+and\\s+)(?:please\\s+)?(?:hand\\s*off|assign|delegate)(?:\\s+(?:it|the\\s+work|work|this))?\\s+to\\s+(?<target_en>se|sl|system\\s+engineer|sprint\\s+leader))?";
+const HANDOFF_SUFFIX_VI = "(?:(?:\\s*,\\s*|\\s+và\\s+)(?:giao\\s+việc|chuyển\\s+giao|bàn\\s+giao)\\s+cho\\s+(?<target_vi>se|sl|system\\s+engineer|sprint\\s+leader))?";
+
+// Recognized standalone English/Vietnamese imperative create-plan phrases from conversation.
+const CONVERSATION_CREATE_PHRASES = [
+  new RegExp(`^(?:please\\s+)?(?:create|generate|draft|make)\\s+(?:an?\\s+|the\\s+)?(?:new\\s+)?architecture\\s+plan\\b${HANDOFF_SUFFIX_EN}[.!]?$`, "i"),
+  new RegExp(`^(?:please\\s+)?(?:create|generate|draft|make)\\s+(?:an?\\s+|the\\s+)?(?:new\\s+)?(?:architecture\\s+)?plan\\s+from\\s+(?:this|the)\\s+conversation\\b${HANDOFF_SUFFIX_EN}[.!]?$`, "i"),
+  new RegExp(`^(?:please\\s+)?tạo\\s+(?:kế\\s+hoạch\\s+)?kiến\\s+trúc${HANDOFF_SUFFIX_VI}[.!]?$`, "i"),
+  new RegExp(`^(?:please\\s+)?tạo\\s+kế\\s+hoạch(?:\\s+kiến\\s+trúc)?\\s+từ\\s+cuộc\\s+trao\\s+đổi${HANDOFF_SUFFIX_VI}[.!]?$`, "i")
 ];
+
+// Recognized standalone English/Vietnamese imperative create-plan phrases from a Markdown file.
+const FILE_CREATE_PHRASES = [
+  new RegExp(`^(?:please\\s+)?(?:create|generate|draft|make)\\s+(?:an?\\s+|the\\s+)?(?:new\\s+)?(?:architecture\\s+)?plan\\s+from\\s+(?:file\\s+)?(?:\`([^\\\`\\s]+\\.md)\`|"([^"\\s]+\\.md)"|'([^'\\s]+\\.md)'|([^\\s,]+\\.md))${HANDOFF_SUFFIX_EN}[.!]?$`, "i"),
+  new RegExp(`^(?:please\\s+)?tạo\\s+kế\\s+hoạch(?:\\s+kiến\\s+trúc)?\\s+từ\\s+(?:file\\s+)?(?:\`([^\\\`\\s]+\\.md)\`|"([^"\\s]+\\.md)"|'([^'\\s]+\\.md)'|([^\\s,]+\\.md))${HANDOFF_SUFFIX_VI}[.!]?$`, "i")
+];
+
 // Recognized standalone imperative update-plan phrases that carry no JSON of their own.
-// Approved sections 3.2.7-3.2.10 additionally require additive slash aliases so an owner
-// can issue the update in command form inside the same conversation without changing any
-// legacy command contract: `/plan-update`, `/update-plan` and `/revise-plan` on their own
-// line are the only new accepted spellings. They never take arguments, so `/plan <file.md>`,
-// `/approve <plan_id>` and `/plan-continue <CLARIFY-id>` keep exact prior behavior, and the
-// shared line scanner still excludes quoted, fenced and interrogative occurrences.
 const UPDATE_PHRASES = [
   /^(?:please\s+)?update\s+(?:the\s+|this\s+)?(?:architecture\s+)?plan\b[.!]?$/i,
   /^(?:please\s+)?revise\s+(?:the\s+|this\s+)?(?:architecture\s+)?plan\b[.!]?$/i,
@@ -36,11 +40,64 @@ const APPROVE_PHRASES = [
   /^(?:please\s+)?(?:approve|accept)\s+(?:the\s+|this\s+)?(?:architecture\s+)?plan\b[.!]?$/i,
   /^(?:please\s+)?duyệt\s+(?:kế\s+hoạch|kiến\s+trúc)\b[.!]?$/i
 ];
+// Recognized standalone retry/continue handoff phrases for an already-created plan in the active conversation.
+const RETRY_HANDOFF_PHRASES = [
+  /^\/(?:handoff|retry-handoff)(?:\s+\S+)?[.!]?$/i,
+  /^(?:please\s+)?(?:retry|continue|resume)\s+(?:the\s+)?(?:sl\s+|sprint\s+leader\s+)?handoff\b[.!]?$/i,
+  /^(?:please\s+)?(?:chạy\s+)?(?:giao\s+lại|bàn\s+giao\s+lại|chuyển\s+giao\s+lại|tiếp\s+tục\s+giao)(?:\s+kế\s+hoạch)?\s+cho\s+(?:sl|sprint\s+leader)\b.*[.!]?$/i
+];
 const FENCE_RE = /^[ \t]*(```|~~~)/;
+
+// Business purpose: translates a matched handoff role phrase from the owner's plan creation request into a canonical delivery target token so Node knows whether to pause for manual review or automatically hand off the locked revision to the Sprint Leader or System Engineer.
+// Technical description: normalizes the captured role string to lowercase, collapses whitespace, and returns sl for Sprint Leader, se for System Engineer, or none when no handoff target was specified.
+function normalizeDeliveryTarget(raw) {
+  if (typeof raw !== "string" || !raw.trim()) return "none";
+  const lower = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (lower === "sl" || lower === "sprint leader") return "sl";
+  if (lower === "se" || lower === "system engineer") return "se";
+  return "none";
+}
+
+// Business purpose: parses a standalone plan creation trigger line in owner conversation so the planning workflow can accept either the active conversation or a specified Markdown document as its input source and optionally trigger automatic handoff to Sprint Leader or System Engineer.
+// Technical description: scans non-fenced, non-quoted, non-interrogative lines against conversation and file creation regex patterns and returns an object containing line, source_kind, source_path, and delivery_target, or null when no trigger is present.
+export function parseConversationPlanCreateTrigger(text) {
+  const lines = String(text ?? "").split(/\r?\n/);
+  let fenced = false;
+  for (const rawLine of lines) {
+    if (FENCE_RE.test(rawLine)) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    const line = rawLine.trim();
+    if (!line || line.endsWith("?") || line.endsWith("？") || line.startsWith(">")) continue;
+    for (const pattern of CONVERSATION_CREATE_PHRASES) {
+      const match = pattern.exec(line);
+      if (match) {
+        return {
+          line,
+          source_kind: "conversation",
+          source_path: null,
+          delivery_target: normalizeDeliveryTarget(match.groups?.target_en ?? match.groups?.target_vi)
+        };
+      }
+    }
+    for (const pattern of FILE_CREATE_PHRASES) {
+      const match = pattern.exec(line);
+      if (match) {
+        const rawPath = (match[1] ?? match[2] ?? match[3] ?? match[4] ?? "").trim().replace(/[.!]+$/, "");
+        return {
+          line,
+          source_kind: "markdown_file",
+          source_path: rawPath,
+          delivery_target: normalizeDeliveryTarget(match.groups?.target_en ?? match.groups?.target_vi)
+        };
+      }
+    }
+  }
+  return null;
+}
 
 // Returns the first standalone create trigger line, or null when the text stays normal chat.
 export function detectPlanCreateTrigger(text) {
-  return firstMatchingLine(text, CREATE_PHRASES);
+  return parseConversationPlanCreateTrigger(text)?.line ?? null;
 }
 
 // Returns the first standalone update trigger line, or null when none is present.
@@ -51,6 +108,12 @@ export function detectPlanUpdateTrigger(text) {
 // Returns the first standalone approve trigger line, or null when none is present.
 export function detectPlanApproveTrigger(text) {
   return firstMatchingLine(text, APPROVE_PHRASES);
+}
+
+// Business purpose: detects a standalone owner request in conversation to retry or continue handing off an already-created plan to Sprint Leader without regenerating the plan.
+// Technical description: scans non-fenced, non-quoted, non-interrogative lines against RETRY_HANDOFF_PHRASES and returns the first matching line or null.
+export function detectPlanHandoffRetryTrigger(text) {
+  return firstMatchingLine(text, RETRY_HANDOFF_PHRASES);
 }
 
 // Tells Node whether one message needs planning routing instead of ordinary agent chat.

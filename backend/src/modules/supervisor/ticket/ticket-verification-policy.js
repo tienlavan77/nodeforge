@@ -15,7 +15,7 @@ export function coversVerificationPolicy(artifact, paths, verificationPlan = [])
   }
   if (requiresSchemaVerification(paths)) required.add("schema_validation");
   if (paths.some((path) => path.startsWith("ui/nextjs/"))) required.add("build");
-  if (artifact.policy_version === "ticket-verification-v8" && paths.some((path) => path.startsWith("backend/"))
+  if (artifact.policy_version === "ticket-verification-v8" && (paths.some((path) => path.startsWith("backend/")) || verificationPlan.some((step) => step?.kind === "backend_tests"))
     && !artifact.commands.some((command) => command.kind === "backend_tests" && command.scope === "ticket" && command.exit_code === 0)) return false;
   for (const [index, planned] of artifact.planned_commands.entries()) {
     const actual = artifact.commands[index];

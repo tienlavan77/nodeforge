@@ -23,6 +23,8 @@ export function createOwnerClaudeMcpTools({ definitions, registry, context }) {
 // Keeps Forge path validation in the service while avoiding gateway-incompatible regex lookaheads in Claude tool declarations.
 export function claudeToolInputSchema(schema) {
   const input = structuredClone(schema);
+  // Conditional selectors remain enforced by Forge; MCP requires an object field shape.
+  delete input.oneOf;
   const path = input?.properties?.path;
   if (typeof path?.pattern === "string" && path.pattern.includes("(?!")) {
     delete path.pattern;

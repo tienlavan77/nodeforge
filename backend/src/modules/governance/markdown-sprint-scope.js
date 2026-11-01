@@ -48,7 +48,8 @@ export function projectMarkdownSprintScope(markdown, sprint) {
 export function normalizeMarkdownSprintScope(markdown, sprint) {
   const approved = readMarkdownSprintScope(markdown);
   if (approved[0]?.kind === "outcome") {
-    const projectedTickets = sprint.tickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, approved));
+    const tickets = Array.isArray(sprint?.tickets) ? sprint.tickets : [];
+    const projectedTickets = tickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, approved, tickets));
     const projected = { ...sprint, tickets: projectedTickets };
     delete projected.outcome_coverage;
     return projected;
@@ -71,21 +72,42 @@ export function normalizeMarkdownSprintScope(markdown, sprint) {
   return { ...sprint, tickets: projected };
 }
 
+// Business purpose: resolves positional criterion/guardrail IDs (O<n>.AC-<i>, O<n>.G-<j>) or text into canonical Owner wording.
+// Technical description: maps each reference to { id, text } when matched against the outcome's positional entries, or retains { id: null, text: raw } for invalid references so admission rejects them.
+function resolveOutcomeEntries(refs, entries) {
+  return refs.map((ref) => {
+    const raw = String(ref ?? "").trim();
+    return entries.find((entry) => entry.id.toUpperCase() === raw.toUpperCase() || normalized(entry.text) === normalized(raw)) ?? { id: null, text: raw };
+  });
+}
+
 // Binds approved criteria, guardrails, and mandatory dependencies to each ticket after semantic checks.
-function bindApprovedOutcomeCoverage(ticket, outcomes) {
-  const copy = { ...structuredClone(ticket), implementation_type: [...ticket.implementation_type], acceptance_criteria: [...ticket.acceptance_criteria], dependencies: [...(ticket.dependencies ?? [])], outcome_refs: [...ticket.outcome_refs] };
+function bindApprovedOutcomeCoverage(ticket, outcomes, allTickets = []) {
+  if (!ticket || typeof ticket !== "object" || !Array.isArray(ticket.outcome_refs)) return ticket;
+  const copy = { ...structuredClone(ticket), ...(Array.isArray(ticket.implementation_type) ? { implementation_type: [...ticket.implementation_type] } : {}), ...(Array.isArray(ticket.acceptance_criteria) ? { acceptance_criteria: [...ticket.acceptance_criteria] } : {}), dependencies: Array.isArray(ticket.dependencies) ? [...ticket.dependencies] : [], outcome_refs: [...ticket.outcome_refs] };
   const coverage = { ...(copy.coverage ?? {}) };
   for (const outcomeId of copy.outcome_refs) {
     const outcome = outcomes.find((item) => item.id === outcomeId);
     if (!outcome) continue;
-    const missingCriteria = outcome.acceptance_criteria.filter((criterion) => !copy.acceptance_criteria.some((item) => normalized(item) === normalized(criterion)));
-    if (missingCriteria.length) copy.acceptance_criteria.push(...missingCriteria);
-    coverage[outcomeId] = {
-      ...(coverage[outcomeId] ?? {}),
-      criterion_refs: [...outcome.acceptance_criteria],
-      guardrail_refs: [...outcome.guardrails],
-      dependency_refs: [...outcome.mandatory_dependencies]
-    };
+    const declared = coverage[outcomeId] ?? {};
+    const hasCriteria = Object.hasOwn(declared, "criterion_refs") || Object.hasOwn(declared, "criteria_refs") || Object.hasOwn(copy.criterion_refs ?? {}, outcomeId);
+    const hasGuardrail = Object.hasOwn(declared, "guardrail_refs") || Object.hasOwn(copy.guardrail_refs ?? {}, outcomeId);
+    const hasDep = Object.hasOwn(declared, "dependency_refs") || Object.hasOwn(copy.dependency_refs ?? {}, outcomeId);
+    const rawCriteria = declared.criterion_refs ?? declared.criteria_refs ?? copy.criterion_refs?.[outcomeId];
+    const rawGuardrails = declared.guardrail_refs ?? copy.guardrail_refs?.[outcomeId];
+    const rawDeps = declared.dependency_refs ?? copy.dependency_refs?.[outcomeId];
+    if ((hasCriteria && !Array.isArray(rawCriteria)) || (hasGuardrail && !Array.isArray(rawGuardrails)) || (hasDep && !Array.isArray(rawDeps))) continue;
+    const isSingleTicketForOutcome = allTickets.filter((candidate) => Array.isArray(candidate?.outcome_refs) && candidate.outcome_refs.includes(outcomeId)).length <= 1;
+    const isLegacySingle = isSingleTicketForOutcome && !hasCriteria && !hasGuardrail;
+    const matchedAc = (copy.acceptance_criteria ?? []).filter((item) => resolveOutcomeEntries([item], outcome.criterion_entries)[0]?.id);
+    if (!hasCriteria && !matchedAc.length && isLegacySingle && Array.isArray(copy.acceptance_criteria)) {
+      copy.acceptance_criteria.push(...outcome.acceptance_criteria.filter((criterion) => !copy.acceptance_criteria.some((item) => normalized(item) === normalized(criterion))));
+    }
+    const criterionRefs = hasCriteria ? resolveOutcomeEntries(rawCriteria, outcome.criterion_entries).map((entry) => entry.text) : matchedAc.length ? resolveOutcomeEntries(matchedAc, outcome.criterion_entries).map((entry) => entry.text) : isLegacySingle ? [...outcome.acceptance_criteria] : [];
+    const guardrailRefs = hasGuardrail ? resolveOutcomeEntries(rawGuardrails, outcome.guardrail_entries).map((entry) => entry.text) : [...outcome.guardrails];
+    const nextDeclared = { ...declared, criterion_refs: criterionRefs, guardrail_refs: guardrailRefs, ...(hasDep ? { dependency_refs: [...rawDeps] } : isSingleTicketForOutcome && !(Array.isArray(ticket.dependencies) && !ticket.dependencies.length && outcome.mandatory_dependencies.length) ? { dependency_refs: [...outcome.mandatory_dependencies] } : {}) };
+    delete nextDeclared.criteria_refs;
+    coverage[outcomeId] = nextDeclared;
   }
   return { ...copy, coverage };
 }
@@ -126,6 +148,35 @@ function assertApprovedVerificationPlan(ticket, label) {
   } catch (error) { throw fail(`Sprint ticket ${label} has an invalid verification plan: ${error.message}`); }
 }
 
+// Business purpose: splits a rendered Markdown table cell into individual acceptance criteria or guardrails without fragmenting parenthesized CSS/JS snippets (such as (display: inline-flex; padding: 0)) into extra artificial criteria.
+// Technical description: splits on ".; " item boundaries when rendered from multi-sentence JSON items, or falls back to splitting on semicolons only at top-level parenthesis depth (depth === 0) when a single item contains parenthesized semicolons.
+function splitOutcomeCellItems(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return [];
+  if (text.includes(".;")) {
+    const bySentenceDelimiter = text.split(/\.\s*;\s*/).map((item, index, arr) => {
+      const trimmed = item.trim();
+      if (!trimmed) return "";
+      return index < arr.length - 1 && !trimmed.endsWith(".") ? `${trimmed}.` : trimmed;
+    }).filter(Boolean);
+    if (bySentenceDelimiter.length > 1) return bySentenceDelimiter;
+  }
+  const items = [];
+  let current = "";
+  let parenDepth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "(") parenDepth += 1;
+    else if (ch === ")" && parenDepth > 0) parenDepth -= 1;
+    if (ch === ";" && parenDepth === 0) {
+      if (current.trim()) items.push(current.trim());
+      current = "";
+    } else current += ch;
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
+}
+
 // Parses outcome identities, criteria, guardrails, and mandatory dependencies as durable scope.
 function readOutcomeRows(lines) {
   const rows = lines.filter((line) => /^\|\s*O[1-9][0-9]*\s*\|/i.test(line)).map(splitMarkdownTableRow);
@@ -133,13 +184,14 @@ function readOutcomeRows(lines) {
   const outcomes = rows.map((rawCells) => {
     const cells = rawCells.map((cell) => cell.replace(/[`*]/g, "").trim());
     const [id, outcome, acceptance, guardrailText = "", dependencyText = ""] = cells;
-    const acceptanceCriteria = String(acceptance ?? "").split(";").map((item) => item.trim()).filter(Boolean);
-    const rawGuardrails = String(guardrailText).split(";").map((item) => item.trim()).filter((item) => item && !/^[—–-]$|^none$/i.test(item));
-    const mandatoryDependencies = String(dependencyText).split(/[,;]/).map((item) => item.trim()).filter(Boolean);
+    const outcomeId = String(id ?? "").toUpperCase();
+    const acceptanceCriteria = splitOutcomeCellItems(acceptance);
+    const rawGuardrails = splitOutcomeCellItems(guardrailText).filter((item) => item && !/^[—–-]$|^none$/i.test(item));
+    const mandatoryDependencies = String(dependencyText).split(/[,;]/).map((item) => item.trim().toUpperCase()).filter((item) => item && !/^[—–-]$|^NONE$/i.test(item));
     const guardrails = cells.length === 4 ? rawGuardrails.filter((item) => !/^O[1-9][0-9]*$/i.test(item)) : rawGuardrails;
     if ((cells.length !== 4 && cells.length !== 5) || !/^O[1-9][0-9]*$/i.test(id) || !outcome || !acceptanceCriteria.length || (cells.length === 5 ? !guardrails.length : !String(guardrailText).trim()) || hasUnfilledPlaceholder(rawCells.join(" "))) throw fail(`Approved outcome ${id ?? "?"} is incomplete.`);
     if (cells.length === 4 && rawGuardrails.some((item) => /^O[1-9][0-9]*$/i.test(item))) mandatoryDependencies.push(...rawGuardrails.filter((item) => /^O[1-9][0-9]*$/i.test(item)).map((item) => item.toUpperCase()));
-    return { kind: "outcome", id: id.toUpperCase(), outcome, acceptance_criteria: acceptanceCriteria, guardrails, mandatory_dependencies: mandatoryDependencies };
+    return { kind: "outcome", id: outcomeId, outcome, acceptance_criteria: acceptanceCriteria, criterion_entries: acceptanceCriteria.map((text, index) => ({ id: `${outcomeId}.AC-${index + 1}`, text })), guardrails, guardrail_entries: guardrails.map((text, index) => ({ id: `${outcomeId}.G-${index + 1}`, text })), mandatory_dependencies: mandatoryDependencies };
   });
   if (new Set(outcomes.map((item) => item.id)).size !== outcomes.length) throw fail("Approved outcomes need unique IDs.");
   return outcomes;
@@ -157,13 +209,15 @@ function coverageFor(ticket, outcome) {
 
 // Verifies every approved outcome element and the dependency graph before admission.
 function assertOutcomeSprintScope(outcomes, sprint) {
-  // Normalize every admission path, including persisted raw candidates from older retries,
-  // before checking coverage. This keeps retry validation identical to initial projection.
-  const tickets = Array.isArray(sprint?.tickets) ? sprint.tickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, outcomes)) : sprint?.tickets;
-  if (!Array.isArray(tickets) || !tickets.length) throw fail("Sprint Leader must map approved outcomes to tickets.");
+  const rawTickets = sprint?.tickets;
+  if (!Array.isArray(rawTickets) || !rawTickets.length) throw fail("Sprint Leader must map approved outcomes to tickets.");
+  const tickets = rawTickets.map((ticket) => bindApprovedOutcomeCoverage(ticket, outcomes, rawTickets));
   const ids = tickets.map((ticket) => ticket?.id);
   if (ids.some((id) => typeof id !== "string" || !/^TICKET-[A-Za-z0-9._-]+$/.test(id)) || new Set(ids).size !== ids.length) throw fail("Sprint tickets need unique TICKET-* IDs.");
   const codes = new Set(outcomes.map((outcome) => outcome.id));
+  const coveredCriteria = new Map(outcomes.map((outcome) => [outcome.id, new Set()]));
+  const coveredGuardrails = new Map(outcomes.map((outcome) => [outcome.id, new Set()]));
+  const coveredDeps = new Map(outcomes.map((outcome) => [outcome.id, new Set()]));
   const covered = new Set();
   const edges = new Map(ids.map((id) => [id, []]));
   for (const ticket of tickets) {
@@ -173,18 +227,28 @@ function assertOutcomeSprintScope(outcomes, sprint) {
     for (const code of ticket.outcome_refs) {
       const outcome = outcomes.find((item) => item.id === code);
       const coverage = coverageFor(ticket, outcome);
-      const criteria = coverage.criteria.length ? coverage.criteria : ticket.acceptance_criteria.filter((item) => outcome.acceptance_criteria.some((approved) => normalized(approved) === normalized(item)));
-      const guardrails = coverage.guardrails.length ? coverage.guardrails : ticket.guardrail_refs?.filter((item) => outcome.guardrails.some((approved) => normalized(approved) === normalized(item))) ?? [];
-      if (criteria.length !== outcome.acceptance_criteria.length || outcome.acceptance_criteria.some((item) => !criteria.some((ref) => normalized(ref) === normalized(item))) || guardrails.length !== outcome.guardrails.length || outcome.guardrails.some((item) => !guardrails.some((ref) => normalized(ref) === normalized(item)))) throw fail(`Sprint ticket ${ticket.id} omits approved criteria or guardrails for ${code}.`);
-      const dependencyRefs = coverage.dependency_declared ? coverage.dependencies : (ticket.dependencies ?? []).flatMap((dependencyId) => tickets.find((candidate) => candidate.id === dependencyId)?.outcome_refs ?? []);
-      if (dependencyRefs.length !== outcome.mandatory_dependencies.length || outcome.mandatory_dependencies.some((item) => !dependencyRefs.includes(item))) throw fail(`Sprint ticket ${ticket.id} weakens mandatory dependencies for ${code}.`);
+      const resolvedAc = resolveOutcomeEntries(coverage.criteria, outcome.criterion_entries);
+      if (!resolvedAc.length || resolvedAc.some((entry) => !entry.id)) throw fail(`Sprint ticket ${ticket.id} ${resolvedAc.find((entry) => !entry.id) ? `cites invalid criterion ${resolvedAc.find((entry) => !entry.id).text}` : "omits approved criteria"} for ${code}.`);
+      for (const entry of resolvedAc) coveredCriteria.get(code).add(entry.id);
+      const resolvedG = resolveOutcomeEntries(coverage.guardrails, outcome.guardrail_entries);
+      if (resolvedG.some((entry) => !entry.id)) throw fail(`Sprint ticket ${ticket.id} cites invalid guardrail ${resolvedG.find((entry) => !entry.id).text} for ${code}.`);
+      for (const entry of resolvedG) coveredGuardrails.get(code).add(entry.id);
+      const graphDeps = (ticket.dependencies ?? []).flatMap((depId) => tickets.find((candidate) => candidate.id === depId)?.outcome_refs ?? []).filter((depCode) => depCode !== code);
+      const depRefs = coverage.dependency_declared ? coverage.dependencies : graphDeps;
+      if (depRefs.some((dep) => !outcome.mandatory_dependencies.includes(dep))) throw fail(`Sprint ticket ${ticket.id} weakens mandatory dependencies for ${code}.`);
+      for (const dep of [...depRefs, ...graphDeps]) if (outcome.mandatory_dependencies.includes(dep)) coveredDeps.get(code).add(dep);
       covered.add(code);
     }
     if (ticket.dependencies !== undefined && (!Array.isArray(ticket.dependencies) || ticket.dependencies.some((id) => !ids.includes(id) || id === ticket.id))) throw fail(`Sprint ticket ${ticket.id} has an invalid dependency.`);
     edges.set(ticket.id, ticket.dependencies ?? []);
   }
   if ([...codes].some((code) => !covered.has(code))) throw fail("Sprint tickets do not cover every approved outcome.");
-  if ([...outcomes].some((outcome) => outcome.mandatory_dependencies.some((dependency) => !tickets.some((ticket) => ticket.dependencies?.includes(dependency) || ticket.outcome_refs?.includes(dependency))))) throw fail("Sprint tickets weaken mandatory outcome dependencies.");
+  for (const outcome of outcomes) {
+    const missing = [...outcome.criterion_entries.filter((entry) => !coveredCriteria.get(outcome.id).has(entry.id)).map((entry) => entry.id), ...outcome.guardrail_entries.filter((entry) => !coveredGuardrails.get(outcome.id).has(entry.id)).map((entry) => entry.id)];
+    if (missing.length) throw fail(`Sprint tickets omit approved coverage for ${outcome.id}: ${missing.join(", ")}.`);
+    const missingDeps = outcome.mandatory_dependencies.filter((dep) => !coveredDeps.get(outcome.id).has(dep) || !tickets.some((ticket) => ticket.outcome_refs?.includes(dep)));
+    if (missingDeps.length) throw fail(`Sprint tickets weaken mandatory dependencies for ${outcome.id}: missing ${missingDeps.join(", ")}.`);
+  }
   if (hasDependencyCycle(edges)) throw fail("Sprint ticket dependencies must be acyclic.");
   return outcomes;
 }

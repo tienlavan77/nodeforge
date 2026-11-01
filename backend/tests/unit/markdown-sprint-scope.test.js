@@ -105,3 +105,72 @@ test("symbolic IDs and path parameters are accepted across outcome and legacy ta
     assert.throws(() => readMarkdownSprintScope(`## 5. Outcomes\n| O1 | Keep IDs | Check behavior | ${missing} |\n## 6. Risks`), { code: "SPRINT_MARKDOWN_SCOPE" });
   }
 });
+
+// Prevents semicolons inside CSS declarations or multi-clause acceptance items from being split into extra AC-11..AC-15 fragments.
+test("outcome acceptance criteria with CSS semicolons and multi-clause items preserve exact 4-item count", () => {
+  const o3Criteria = [
+    "IdeasPanel không còn hiển thị dòng Project: {projectId} (.ideas-project) trong phần thân cửa sổ.",
+    "Ô nhập .ideas-panel textarea (cả ô nhập ý tưởng mới và ô sửa nội dung) có padding (8px 10px) và kế thừa font chữ giao diện; nút Thêm ý tưởng nằm góc dưới bên phải với chiều rộng vừa khít chữ (align-self: flex-end; width: fit-content).",
+    "Các nút điều khiển trên .ideas-panel .workspace-monitor-header (−, □, ×) căn giữa tâm chính xác trong khung 26x26px (display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1) với khoảng cách gọn gàng và hiệu ứng hover đồng bộ.",
+    "Trong IdeasDock, hàm close() đặt lại { visible: false, minimized: false } và toggleDock() đặt { visible: !open || minimized, minimized: false } để khi cửa sổ Ý tưởng đang thu nhỏ (is-minimized), bấm nút □ trên header hoặc bấm nút Ý tưởng dưới dock đều mở rộng lại phần thân (visible: true, minimized: false); khi đóng bằng nút × rồi mở lại từ dock, cửa sổ luôn hiển thị đầy đủ; cập nhật và vượt qua bài test trình duyệt ui/nextjs/tests/ideas-monitor.browser.mjs."
+  ];
+  const o3Markdown = `## 5. Outcomes\n| Outcome | Result | Acceptance | Guardrails |\n| --- | --- | --- | --- |\n| O3 | Hoàn thiện giao diện IdeasPanel | ${o3Criteria.join("; ")} | Chỉ lưu tọa độ vào localStorage; Giữ nguyên bản nháp trong bộ nhớ phiên. |\n## 6. Verification`;
+  const [parsed] = readMarkdownSprintScope(o3Markdown);
+  assert.equal(parsed.id, "O3");
+  assert.deepEqual(parsed.acceptance_criteria, o3Criteria);
+  const ticket = {
+    id: "TICKET-NODEFORGE-81270515-R2-O3",
+    title: "IdeasPanel UI and dock behavior",
+    objective: "Complete IdeasPanel layout and dock controls",
+    implementation_type: ["frontend"],
+    file_budget: 4,
+    outcome_refs: ["O3"],
+    acceptance_criteria: [...o3Criteria, ...Array.from({ length: 6 }, (_, i) => `Ticket check ${i + 1}`)],
+    verification_plan: [{ kind: "browser", criterion_ids: Array.from({ length: 10 }, (_, i) => `AC-${i + 1}`), scenario_path: "ui/nextjs/tests/ideas-monitor.browser.mjs", assertions: ["IdeasPanel works"], viewports: [375, 768, 1440] }]
+  };
+  const projected = projectMarkdownSprintScope(o3Markdown, { id: "SPRINT-81270515", tickets: [ticket] });
+  assert.equal(projected.tickets[0].acceptance_criteria.length, 10);
+});
+
+// Verifies positional outcome IDs (O<n>.AC-<i>, O<n>.G-<j>), Set Union across split tickets, canonical Owner wording binding, and strict rejection on missing/invalid IDs or dependencies.
+test("outcome decomposition via positional IDs enforces 100% Set Union coverage and preserves SL ticket acceptance_criteria", () => {
+  const splitMarkdown = "# Plan: Split Outcome\n\n## 5. Outcomes\n| Mã | Outcome | Acceptance criteria | Guardrail | Phụ thuộc |\n| --- | --- | --- | --- | --- |\n| O1 | Unified Auth | Backend validates JWT token; UI renders login error banner; Audit log records failure | Do not log raw secrets; Keep <= 250 code_lines | — |\n| O2 | Dashboard Guard | Dashboard redirects unauthenticated user | Preserve URL query params | O1 |\n\n## 6. Risks\n";
+  const [o1, o2] = readMarkdownSprintScope(splitMarkdown);
+  assert.deepEqual(o1.criterion_entries.map((entry) => entry.id), ["O1.AC-1", "O1.AC-2", "O1.AC-3"]);
+  assert.deepEqual(o1.guardrail_entries.map((entry) => entry.id), ["O1.G-1", "O1.G-2"]);
+  assert.deepEqual(o2.criterion_entries.map((entry) => entry.id), ["O2.AC-1"]);
+  assert.deepEqual(o2.guardrail_entries.map((entry) => entry.id), ["O2.G-1"]);
+
+  const t1 = {
+    id: "TICKET-AUTH-BE", title: "Backend JWT & Audit", objective: "Validate JWT and write audit entry", implementation_type: ["backend"], file_budget: 3, outcome_refs: ["O1"],
+    acceptance_criteria: ["Verify JWT signature and expiry in middleware", "Write structured audit event on 401"],
+    coverage: { O1: { criterion_refs: ["O1.AC-1", "O1.AC-3"], guardrail_refs: ["O1.G-1"] } },
+    verification_plan: [{ kind: "test", criterion_ids: ["AC-1", "AC-2"], test_path: "backend/tests/unit/auth.test.js" }]
+  };
+  const t2 = {
+    id: "TICKET-AUTH-FE", title: "Frontend Login Banner", objective: "Render login error banner", implementation_type: ["frontend"], file_budget: 2, outcome_refs: ["O1"], dependencies: ["TICKET-AUTH-BE"],
+    acceptance_criteria: ["Show alert banner when API returns 401"],
+    coverage: { O1: { criterion_refs: ["O1.AC-2"], guardrail_refs: ["O1.G-2"] } },
+    verification_plan: [{ kind: "browser", criterion_ids: ["AC-1"], scenario_path: "ui/nextjs/tests/login.browser.mjs", assertions: ["Banner visible"], viewports: [375, 1440] }]
+  };
+  const t3 = {
+    id: "TICKET-DASH-FE", title: "Dashboard Redirect", objective: "Redirect unauthenticated users", implementation_type: ["frontend"], file_budget: 2, outcome_refs: ["O2"], dependencies: ["TICKET-AUTH-FE"],
+    acceptance_criteria: ["Redirect to /login preserving next query param"],
+    coverage: { O2: { criterion_refs: ["O2.AC-1"], guardrail_refs: ["O2.G-1"] } },
+    verification_plan: [{ kind: "browser", criterion_ids: ["AC-1"], scenario_path: "ui/nextjs/tests/dash.browser.mjs", assertions: ["Redirect works"], viewports: [375, 1440] }]
+  };
+
+  const projected = projectMarkdownSprintScope(splitMarkdown, { id: "SPRINT-SPLIT", tickets: [t1, t2, t3] });
+  assert.deepEqual(projected.tickets[0].acceptance_criteria, t1.acceptance_criteria);
+  assert.deepEqual(projected.tickets[1].acceptance_criteria, t2.acceptance_criteria);
+  assert.deepEqual(projected.tickets[0].coverage.O1.criterion_refs, ["Backend validates JWT token", "Audit log records failure"]);
+  assert.deepEqual(projected.tickets[0].coverage.O1.guardrail_refs, ["Do not log raw secrets"]);
+  assert.deepEqual(projected.tickets[1].coverage.O1.criterion_refs, ["UI renders login error banner"]);
+  assert.deepEqual(projected.tickets[1].coverage.O1.guardrail_refs, ["Keep <= 250 code_lines"]);
+
+  assert.throws(() => projectMarkdownSprintScope(splitMarkdown, { id: "SPRINT-SPLIT", tickets: [{ ...t1, coverage: { O1: { criterion_refs: ["O1.AC-1"], guardrail_refs: ["O1.G-1"] } } }, t2, t3] }), (err) => err.code === "SPRINT_MARKDOWN_SCOPE" && err.statusCode === 422 && err.message.includes("O1.AC-3"));
+  assert.throws(() => projectMarkdownSprintScope(splitMarkdown, { id: "SPRINT-SPLIT", tickets: [t1, { ...t2, coverage: { O1: { criterion_refs: ["O1.AC-2"], guardrail_refs: ["O1.G-1"] } } }, t3] }), (err) => err.code === "SPRINT_MARKDOWN_SCOPE" && err.message.includes("O1.G-2"));
+  assert.throws(() => projectMarkdownSprintScope(splitMarkdown, { id: "SPRINT-SPLIT", tickets: [{ ...t1, coverage: { O1: { criterion_refs: ["O1.AC-99"], guardrail_refs: ["O1.G-1"] } } }, t2, t3] }), (err) => err.code === "SPRINT_MARKDOWN_SCOPE" && err.message.includes("O1.AC-99"));
+  assert.throws(() => projectMarkdownSprintScope(splitMarkdown, { id: "SPRINT-SPLIT", tickets: [t1, { ...t2, coverage: { O1: { criterion_refs: [], guardrail_refs: ["O1.G-2"] } } }, t3] }), (err) => err.code === "SPRINT_MARKDOWN_SCOPE" && err.message.includes("TICKET-AUTH-FE"));
+  assert.throws(() => projectMarkdownSprintScope(splitMarkdown, { id: "SPRINT-SPLIT", tickets: [t1, t2, { ...t3, dependencies: [] }] }), (err) => err.code === "SPRINT_MARKDOWN_SCOPE" && err.message.includes("O2") && err.message.includes("O1"));
+});

@@ -100,3 +100,36 @@ test("legacy coverage hints use the actual grouped receipt kind and cannot claim
   assert.equal(saved.criteria_check[0].command_kind, "backend_tests");
   await assert.rejects(tool.execute({ summary: "Done", acceptance_coverage: [{ criterion_id: "AC-1", command_kind: "test", test_path: "backend/tests/unrelated.test.js" }] }, { ticket }), { code: "ACCEPTANCE_COVERAGE_MISSING" });
 });
+
+// Ensures UI-only commit deltas still group and bind planned backend tests and aggregate backend_tests criteria.
+test("UI-only commit delta groups planned backend tests as backend_tests and binds aggregate criterion_ids", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "nf-ui-delta-backend-plan-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "backend/tests/integration"), { recursive: true });
+  await mkdir(join(root, "ui/nextjs/tests"), { recursive: true });
+  await writeFile(join(root, path), "// Planned backend test.\n");
+  await writeFile(join(root, "ui/nextjs/tests/ui-safety.test.js"), "// Planned UI test.\n");
+  const verificationPlan = [
+    { kind: "test", test_path: path, criterion_ids: ["AC-1", "AC-2"] },
+    { kind: "test", test_path: "ui/nextjs/tests/ui-safety.test.js", criterion_ids: ["AC-3"] },
+    { kind: "backend_tests", criterion_ids: ["AC-1", "AC-2", "AC-3"] }
+  ];
+  const plan = await buildTicketVerificationPlan(["ui/nextjs/tests/ui-safety.test.js"], root, { verificationPlan });
+  const backendCheck = plan.find((command) => command.kind === "backend_tests");
+  assert.ok(backendCheck);
+  assert.deepEqual(backendCheck.test_paths, [path]);
+  assert.deepEqual(backendCheck.criterion_ids, ["AC-1", "AC-2", "AC-3"]);
+  const commands = plan.map((command) => ({ ...command, exit_code: 0, output_sha256: `sha256:${"a".repeat(64)}` }));
+  const ticket = {
+    id: "T-MIXED-SCOPE",
+    acceptance_criteria: ["Runtime auth works", "Fail-closed preserved", "UI draft safety works"],
+    verification_plan: verificationPlan
+  };
+  const supplied = [
+    { criterion_id: "AC-1", command_kind: "test", test_path: path },
+    { criterion_id: "AC-2", command_kind: "test", test_path: path },
+    { criterion_id: "AC-3", command_kind: "test", test_path: "ui/nextjs/tests/ui-safety.test.js" }
+  ];
+  const result = completeNodeReportEvidence({ acceptance_coverage: supplied }, ticket, { commands });
+  assert.deepEqual(result.acceptance_coverage.map((entry) => entry.status), ["verified", "verified", "verified"]);
+});

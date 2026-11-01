@@ -20,7 +20,9 @@ export function createBlockerResume({ inspect, classifyFailure, checkpoints, spr
     ticket_progress.evidence_sha256 = blockerDigest([ticket_progress.evidence_sha256, ticket_progress.failure_classification]);
     const { current } = authority;
     const checkpoint = (await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: "coder", status: "resumed_from_blocker", details: { job_id: job.id }, logger, clock })) ?? authority.checkpoint;
-    const resumed = { ...checkpoint, contract_decisions: await retainBlockerContract({ job, checkpoint, fileService }), status: "in_progress", phase: "blocker_resolved", blocker_recovery: {
+    const contract_decisions = await retainBlockerContract({ job, checkpoint, fileService });
+    checkpoint.contract_decisions = contract_decisions;
+    const resumed = { ...checkpoint, contract_decisions, status: "in_progress", phase: "blocker_resolved", blocker_recovery: {
       job_id: job.id, status: job.approval_retry ? "approval_retry" : "resolved", approval_retry: job.approval_retry ?? null,
       disposition: job.resolution, communication: job.communication ?? null, history: job.history, coder_exchange: job.coder_exchange ?? null, execution_admission: job.execution_admission ?? null, ticket_progress } };
     delete resumed.failure;

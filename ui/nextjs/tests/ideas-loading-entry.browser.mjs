@@ -142,10 +142,32 @@ export const browserAssertions = {
     await panel.locator("li").filter({ hasText: "Edited notebook idea" }).waitFor();
 
     const updatedRow = panel.locator("li");
-    await updatedRow.getByRole("button", { name: "Hoàn thành", exact: true }).click();
-    await updatedRow.getByText("Đã xong", { exact: true }).waitFor();
-    await updatedRow.getByRole("button", { name: "Mở lại", exact: true }).click();
-    await updatedRow.getByText("Đang mở", { exact: true }).waitFor();
+    const todoStyles = await updatedRow.evaluate((li) => {
+      const contentEl = li.querySelector(".ideas-todo-content");
+      const editBtn = li.querySelector('button[aria-label="Sửa"]');
+      const delBtn = li.querySelector('button[aria-label="Xóa"]');
+      const contentRect = contentEl.getBoundingClientRect();
+      const editRect = editBtn.getBoundingClientRect();
+      return {
+        fontSize: window.getComputedStyle(contentEl).fontSize,
+        textDecoration: window.getComputedStyle(contentEl).textDecorationLine,
+        editRightOfContent: editRect.left >= contentRect.right - 2,
+        editWidth: Math.round(editRect.width),
+        delWidth: Math.round(delBtn.getBoundingClientRect().width)
+      };
+    });
+    assert.equal(todoStyles.fontSize, "15px");
+    assert.equal(todoStyles.editRightOfContent, true);
+    assert.ok(todoStyles.editWidth <= 28 && todoStyles.delWidth <= 28);
+
+    await updatedRow.getByRole("checkbox", { name: "Hoàn thành", exact: true }).click();
+    const doneRow = panel.getByRole("list", { name: "Danh sách ý tưởng đã hoàn thành", exact: true }).locator("li").filter({ hasText: "Edited notebook idea" });
+    await doneRow.waitFor();
+    const doneDecoration = await doneRow.locator(".ideas-todo-content").evaluate((el) => window.getComputedStyle(el).textDecorationLine);
+    assert.match(doneDecoration, /line-through/);
+
+    await updatedRow.getByRole("checkbox", { name: "Mở lại", exact: true }).click();
+    await panel.getByRole("list", { name: "Danh sách ý tưởng", exact: true }).locator("li").filter({ hasText: "Edited notebook idea" }).waitFor();
 
     await updatedRow.getByRole("button", { name: "Sửa", exact: true }).click();
     await panel.getByLabel("Sửa nội dung", { exact: true }).fill("Local conflicting draft");
@@ -167,6 +189,19 @@ export const browserAssertions = {
       window.records[0].version = 4;
       window.records[0].content = "Edited notebook idea";
     });
+    await panel.getByLabel("Ý tưởng mới", { exact: true }).fill("Second notebook idea");
+    await panel.getByRole("button", { name: "Thêm ý tưởng", exact: true }).click();
+    const secondRow = panel.locator("li").filter({ hasText: "Second notebook idea" });
+    await secondRow.waitFor();
+    await secondRow.dragTo(updatedRow);
+    await panel.getByText("Đã lưu", { exact: true }).waitFor();
+    const openTexts = await panel.getByRole("list", { name: "Danh sách ý tưởng", exact: true }).locator("li .ideas-todo-content").allInnerTexts();
+    assert.deepEqual(openTexts, ["Second notebook idea", "Edited notebook idea"]);
+
+    await secondRow.getByRole("button", { name: "Xóa", exact: true }).click();
+    await secondRow.getByRole("button", { name: "Xác nhận xóa", exact: true }).click();
+    await secondRow.waitFor({ state: "detached" });
+
     await updatedRow.getByRole("button", { name: "Xóa", exact: true }).click();
     await updatedRow.getByRole("button", { name: "Xác nhận xóa", exact: true }).click();
     await panel.getByText("Chưa có ý tưởng.", { exact: true }).waitFor();

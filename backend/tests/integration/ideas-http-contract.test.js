@@ -65,12 +65,13 @@ test("Ideas HTTP creates, filters, reads, patches and deletes independent versio
   const { request, ideas, projectId } = await createIdeasHttpFixture(context);
   const created = await request("ideas", { method: "POST", status: 201, body: { project_id: projectId, content: "  Notebook entry  " } });
   assert.deepEqual(created, ideas.get(created.id));
-  assert.deepEqual(Object.keys(created).sort(), ["id", "project_id", "content", "status", "version", "created_at", "updated_at"].sort());
+  assert.deepEqual(Object.keys(created).sort(), ["id", "project_id", "content", "status", "position", "version", "created_at", "updated_at"].sort());
   assert.equal(typeof created.id, "string");
   assert.ok(created.id.length);
   assert.equal(created.project_id, projectId);
   assert.equal(created.content, "  Notebook entry  ");
   assert.equal(created.status, "open");
+  assert.equal(created.position, 0);
   assert.equal(created.version, 1);
   assert.ok(Number.isFinite(Date.parse(created.created_at)));
   assert.ok(Number.isFinite(Date.parse(created.updated_at)));
@@ -126,6 +127,7 @@ test("Ideas HTTP rejects malformed patches and revisions without mutating saved 
     ...[null, "", "1", 0, -1, 1.5, true, {}, []].map((expected_version) => ({ content: "Invalid revision", expected_version })),
     ...[null, "", " \n\t", 3, {}, []].map((content) => ({ content, expected_version: 1 })),
     ...[null, "", "all", "closed", 1, {}, []].map((status) => ({ status, expected_version: 1 })),
+    ...[null, "", "0", -1, 1.5, true, {}, []].map((position) => ({ position, expected_version: 1 })),
     ...["id", "version", "created_at", "updated_at", "extra"].map((field) => ({ content: "Invalid field", expected_version: 1, [field]: "client" })),
     { project_id: projectId, content: "Same project forbidden", expected_version: 1 }]) {
     await request(path, { method: "PATCH", status: 400, body });
@@ -188,4 +190,22 @@ test("Ideas HTTP rejects project nesting, action routes and PUT without side eff
     assert.deepEqual(ideas.list({ status: "all" }), [created]);
     assert.deepEqual(await request(`ideas/${created.id}`), created);
   }
+});
+
+test("Ideas HTTP persists and reorders item positions atomically within the project", async (context) => {
+  const { request, projectId } = await createIdeasHttpFixture(context);
+  const first = await request("ideas", { method: "POST", status: 201, body: { project_id: projectId, content: "First" } });
+  const second = await request("ideas", { method: "POST", status: 201, body: { project_id: projectId, content: "Second" } });
+  const third = await request("ideas", { method: "POST", status: 201, body: { project_id: projectId, content: "Third" } });
+  assert.deepEqual([first.position, second.position, third.position], [0, 1, 2]);
+  const moved = await request(`ideas/${third.id}`, { method: "PATCH", body: { position: 0, status: "done", expected_version: 1 } });
+  assert.equal(moved.position, 0);
+  assert.equal(moved.status, "done");
+  assert.equal(moved.version, 2);
+  const all = await request(`ideas?project_id=${projectId}&status=all`);
+  assert.deepEqual(all.map((i) => ({ id: i.id, position: i.position, status: i.status })), [
+    { id: third.id, position: 0, status: "done" },
+    { id: first.id, position: 1, status: "open" },
+    { id: second.id, position: 2, status: "open" }
+  ]);
 });

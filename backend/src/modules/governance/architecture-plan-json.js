@@ -63,7 +63,26 @@ function extractJsonObjectPayload(raw, emptyMessage) {
   const text = String(raw ?? "").trim();
   if (!text) throw planJsonError(emptyMessage, null);
   const fences = [...text.matchAll(/^```([^\r\n]*)\r?\n([\s\S]*?)^```[ \t]*(?:\r?\n|$)/gm)];
-  if (!fences.length) return text;
+  if (!fences.length) {
+    if (!text.startsWith("{") && text.endsWith("}") && !text.includes("```")) {
+      let searchFrom = 0;
+      while (searchFrom < text.length) {
+        const idx = text.indexOf("{", searchFrom);
+        if (idx < 0) break;
+        const prefix = text.slice(0, idx).trim();
+        try {
+          const parsed = JSON.parse(text.slice(idx));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            // eslint-disable-next-line no-silent-catch -- Non-JSON prefix confirms the commentary before the JSON object is prose.
+            try { JSON.parse(prefix); break; } catch { return text.slice(idx); }
+          }
+        // eslint-disable-next-line no-silent-catch -- Probe continues scanning until the outer JSON object boundary is reached.
+        } catch { /* continue scanning for outer object start */ }
+        searchFrom = idx + 1;
+      }
+    }
+    return text;
+  }
   const [fence] = fences;
   if (fences.length !== 1 || !["", "json"].includes(fence[1].trim().toLowerCase()) || text.slice(fence.index + fence[0].length).trim()) {
     throw planJsonError("Architecture must return one unambiguous JSON object.", null);

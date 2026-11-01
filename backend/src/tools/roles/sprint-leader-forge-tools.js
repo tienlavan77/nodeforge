@@ -14,7 +14,7 @@ export function createSprintLeaderForgeTools({ projectRoot, fileService, codeCac
   if (!projectRoot || !fileService?.readForIndex || profile?.role !== "sprint_leader" || !profile.agent_id || !correlationId) throw new ConfigurationError("Sprint Leader Forge tools require a project, profile, and correlation ID.");
   const context = { task_id: correlationId, correlation_id: correlationId, execution_id: correlationId, project_root: projectRoot, allowed_prefixes: [...PREFIXES], exploration_enabled: false, agent_identity: { agent_id: profile.agent_id, agent_name: profile.agent_name, role: "sprint_leader", provider: profile.provider } };
   const base = createOwnerConversationTools({ role: "sprint_leader", projectRoot, fileService, codeCache, codeSearch, projectLogger: terminalAuditLogger(projectLogger), context });
-  const definitions = base.definitions.filter(({ name }) => ["search_tree", "list_files", "search_text", "read_file", "read_lines", "lookup_schema"].includes(name));
+  const definitions = base.definitions.filter(({ name }) => ["search_tree", "list_files", "search_text", "read_file", "Read", "lookup_schema"].includes(name));
   if (definitions.length !== 6) throw new ConfigurationError("Sprint Leader read and schema tools are unavailable.");
   context.capabilities = definitions.map(({ name }) => name);
   const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input) => {
@@ -26,11 +26,11 @@ export function createSprintLeaderForgeTools({ projectRoot, fileService, codeCac
         result.total = result.entries.length;
       }
       const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");
-      if (["read_file", "read_lines"].includes(name) && typeof result.path === "string" && /^sha256:[a-f0-9]{64}$/.test(result.sha256 ?? "")) readReceipts.set(result.path, { path: result.path, sha256: result.sha256 });
+      if (["read_file", "Read"].includes(name) && typeof result.path === "string" && /^sha256:[a-f0-9]{64}$/.test(result.sha256 ?? "")) readReceipts.set(result.path, { path: result.path, sha256: result.sha256 });
       if (name === "search_text") recordSearchPaths(result.stdout, discoveredPaths);
       if (name === "search_tree") for (const entry of result.entries) if (entry.type === "file" && typeof entry.path === "string") discoveredPaths.add(entry.path);
       if (name === "read_file" && typeof result.path === "string") discoveredPaths.add(result.path);
-      if (name === "read_lines" && result.exit_code === 0) discoveredPaths.add(input.path);
+      if (name === "Read" && typeof result.path === "string") discoveredPaths.add(input.file_path);
       if (name === "list_files") for (const path of result.stdout.split("\n").filter(Boolean)) discoveredPaths.add(path);
       projectLogger({ timestamp: new Date().toISOString(), event_name: "sprint_leader.tool_call", level: "info", status: "success", message: `Sprint Leader used ${name}.`, task_id: correlationId, correlation_id: correlationId, source: "sprint-leader-forge-tools", payload: { agent_id: profile.agent_id, agent_name: profile.agent_name, agent_role: profile.role, tool: name, duration_ms: Date.now() - started, output_bytes: bytes } });
       return result;

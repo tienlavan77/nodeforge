@@ -231,3 +231,21 @@ test("custom adapter delegates to codex for /responses URLs", async () => {
     assert.equal(result.payload.text, "via responses");
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("codex and anthropic adapters forward maxOutputTokens and surface max_output_tokens truncation", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedCodex;
+  globalThis.fetch = async (_url, options) => {
+    capturedCodex = JSON.parse(options.body);
+    const sse = 'data: {"type":"response.output_text.delta","delta":"{\\"a\\":"}\n\ndata: {"type":"response.incomplete","response":{"id":"r_inc","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}\n\n';
+    return new Response(new TextEncoder().encode(sse), { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  try {
+    const chunks = [];
+    await assert.rejects(async () => {
+      for await (const chunk of codex.stream({ url: "https://gateway.example.test/v1/responses", credential: "secret", payload: { text: "hi" }, maxOutputTokens: 2048, correlationId: "C-MAX" })) chunks.push(chunk);
+    }, { code: "SDK_MAX_OUTPUT_TOKENS" });
+    assert.equal(capturedCodex.max_output_tokens, 2048);
+    assert.equal(chunks.find((c) => c.incomplete_details)?.incomplete_details.reason, "max_output_tokens");
+  } finally { globalThis.fetch = originalFetch; }
+});

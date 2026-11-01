@@ -4,12 +4,13 @@ import { buildAnthropicMessages, buildAnthropicSystem, buildAnthropicToolChoice,
 import * as devquote from "./devquote-adapter.js";
 
 // Sends a non-streaming Anthropic request with optional Devquote routing.
-export async function request({ url, credential, payload, model, correlationId, signal }) {
+export async function request({ url, credential, payload, model, maxOutputTokens, correlationId, signal }) {
   // Profiles created as "anthropic" may point at the DevQuote-compatible gateway.
-  if (isDevquoteGateway(url)) return devquote.request({ url, credential, payload, model, correlationId, signal });
+  if (isDevquoteGateway(url)) return devquote.request({ url, credential, payload, model, maxOutputTokens, correlationId, signal });
+  const maxTokens = maxOutputTokens ?? payload?.max_output_tokens ?? payload?.max_tokens ?? 8192;
   const body = {
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
-    max_tokens: 8192,
+    max_tokens: Number.isSafeInteger(maxTokens) && maxTokens >= 1 ? maxTokens : 8192,
     system: buildAnthropicSystem(payload),
     messages: buildAnthropicMessages(payload),
     tools: toAnthropicTools(payload.tools),
@@ -23,22 +24,24 @@ export async function request({ url, credential, payload, model, correlationId, 
   });
   if (!response.ok) throw new ConfigurationError("Agent Gateway response is invalid.");
   const data = await response.json();
+  const incompleteDetails = data?.stop_reason === "max_tokens" ? { reason: "max_output_tokens" } : (data?.incomplete_details ?? null);
   const text = data?.content?.find((c) => typeof c?.text === "string")?.text ?? data?.output_text ?? extractText(data);
   const tool = data?.content?.find((c) => c?.type === "tool_use" && c?.input && typeof c.input === "object");
-  if (tool) return { status: data.status ?? "completed", payload: { tool_use: { id: tool.id, name: tool.name, input: tool.input }, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
+  if (tool) return { status: data.status ?? "completed", incomplete_details: incompleteDetails, payload: { tool_use: { id: tool.id, name: tool.name, input: tool.input }, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
   if (!text) throw new ConfigurationError("Agent Gateway response is invalid.");
-  return { status: data.status ?? "completed", payload: { text, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
+  return { status: data?.stop_reason === "max_tokens" ? "incomplete" : (data.status ?? "completed"), incomplete_details: incompleteDetails, payload: { text, response_id: data.id ?? data.response_id, usage: mapUsage(data.usage) } };
 }
 
 // Streams Anthropic deltas and tool use with Devquote fallback.
-export async function* stream({ url, credential, payload, model, correlationId, signal }) {
+export async function* stream({ url, credential, payload, model, maxOutputTokens, correlationId, signal }) {
   if (isDevquoteGateway(url)) {
-    yield* devquote.stream({ url, credential, payload, model, correlationId, signal });
+    yield* devquote.stream({ url, credential, payload, model, maxOutputTokens, correlationId, signal });
     return;
   }
+  const maxTokens = maxOutputTokens ?? payload?.max_output_tokens ?? payload?.max_tokens ?? 8192;
   const body = {
     model: model || process.env.CLAUDE_MODEL || process.env.NODE_AGENT_MODEL || "claude-sonnet-4-5-20251001",
-    max_tokens: 8192,
+    max_tokens: Number.isSafeInteger(maxTokens) && maxTokens >= 1 ? maxTokens : 8192,
     system: buildAnthropicSystem(payload),
     messages: buildAnthropicMessages(payload),
     tools: toAnthropicTools(payload.tools),

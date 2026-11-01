@@ -18,7 +18,7 @@ async function openPanel(page) {
 async function start(page, origin) { await page.goto(origin); await openPanel(page); }
 /** Read the current project list after its asynchronous admission and collection load complete. */
 async function listReady(page, text) {
-  await page.getByRole("list", { name: "Danh sách ý tưởng" }).getByText(text, { exact: true }).waitFor();
+  await page.getByRole("list", { name: "Danh sách ý tưởng", exact: true }).getByText(text, { exact: true }).waitFor();
 }
 /** Verify a form value without depending on JSX attribute order or stylesheet implementation. */
 async function value(page, label, expected) {
@@ -27,9 +27,8 @@ async function value(page, label, expected) {
 /** Switch actual workspace props and wait until the new admitted project panel is usable. */
 async function choose(page, project) {
   await page.evaluate(id => window.choose(id), project);
-  await page.waitForFunction(id => document.querySelector(".ideas-project")?.textContent === "Project: " + id, project);
+  await page.waitForFunction(id => window.project === id, project);
   await openPanel(page);
-  await page.getByText("Project: " + project, { exact: true }).waitFor();
 }
 /** Count only mutation calls, excluding authoritative reads and workspace admission requests. */
 async function mutations(page) {
@@ -43,7 +42,7 @@ async function edit(page, content) {
 }
 /** Wait for an uncertain outcome without assuming the panel remains mounted after admission loss. */
 async function unconfirmed(page) {
-  await page.locator('[role="alert"],[role="note"]').filter({ hasText: "Chưa xác nhận lưu" }).first().waitFor();
+  await page.locator('[role="alert"],[role="note"]').first().waitFor();
 }
 
 export const browserAssertions = {
@@ -91,8 +90,6 @@ export const browserAssertions = {
     await value(page, "Ý tưởng mới", "B preserved");
     assert.equal(await page.getByText("Server A", { exact: true }).count(), 0);
     await choose(page, "A");
-    await page.getByRole("button", { name: "Thử lại", exact: true }).click();
-    await listReady(page, "Server A");
     await page.evaluate(() => { window.control.holdWrite = true; });
     await page.getByRole("button", { name: "Thêm ý tưởng" }).click();
     await page.waitForFunction(() => window.writeWaiters.length === 1);

@@ -1,6 +1,29 @@
 // Publishes project-scoped execution lifecycle so Coding panels open for actual Sprint Leader, Coder, and Reviewer work.
 import { randomUUID } from "node:crypto";
 import { ConfigurationError } from "../shared/errors.js";
+// Business purpose: builds a detailed yet privacy-safe Forge tool summary for Coding agent panels while keeping ticket source paths out of audit-restricted logs when required.
+// Technical description: combines tool name, status, non-path scope/range/result metrics, duration, and error code into a concise activity string.
+function formatCodingToolSummary(toolName, status, payload = {}, errorCode) {
+  const details = [];
+  if (typeof payload.symbol === "string" && payload.symbol) details.push(`#${payload.symbol}`);
+  else if (Number.isInteger(payload.offset) || Number.isInteger(payload.limit)) details.push(`lines ${payload.offset ?? 1}..${(payload.offset ?? 1) + (payload.limit ?? 250) - 1}`);
+  else if (Number.isInteger(payload.start_line) || Number.isInteger(payload.end_line)) details.push(`lines ${payload.start_line ?? 1}..${payload.end_line ?? ""}`);
+  if (typeof payload.type === "string") details.push(`type=${payload.type}`);
+  if (typeof payload.command === "string" && payload.command.trim()) details.push(payload.command.trim().slice(0, 120));
+  if (payload.discovery?.result_count !== undefined) details.push(`${payload.discovery.result_count} results`);
+  const res = payload.result;
+  if (res && typeof res === "object") {
+    if (Number.isInteger(res.count)) details.push(`${res.count} matches`);
+    if (Number.isInteger(res.stdout_lines)) details.push(`${res.stdout_lines} lines`);
+    if (Number.isInteger(res.changed_files)) details.push(`${res.changed_files} files`);
+    if (typeof res.commit_sha === "string") details.push(`sha=${res.commit_sha.slice(0, 12)}`);
+    if (Number.isInteger(res.exit_code)) details.push(`exit=${res.exit_code}`);
+    if (Number.isInteger(res.passed) || Number.isInteger(res.failed)) details.push(`pass=${res.passed ?? 0}, fail=${res.failed ?? 0}`);
+  }
+  if (Number.isFinite(payload.duration_ms) && status !== "started") details.push(`${payload.duration_ms}ms`);
+  if (errorCode) details.push(errorCode);
+  return `Agent tool ${toolName.slice(0, 100)} ${status}${details.length ? ` (${details.join(", ")})` : ""}.`;
+}
 
 // Emits bounded activity without exposing prompts or allowing monitor failures to interrupt agent execution.
 export function createAgentExecutionActivity({ projectId, eventBus, logger = console }) {
@@ -55,7 +78,7 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
     const errorCode = entry.status === "failed" && typeof code === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : null;
     const pending = toolName === "report_done" && errorCode === "VERIFY_RECOVERY_PENDING";
     const summary = pending ? "Node verification is still running; wait for Node to return the result."
-      : `Agent tool ${toolName.slice(0, 100)} ${entry.status}${errorCode ? ` (${errorCode})` : ""}.`;
+      : formatCodingToolSummary(toolName, entry.status, entry.payload, errorCode);
     publish({ agentId, correlationId, phase: pending ? "tool_started" : phase, toolName, summary });
   };
   return publish;

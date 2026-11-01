@@ -6,7 +6,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { authorizeTool, isAgentPathAllowed } from "./governance/tool-authorization.js";
 import { assertExecutionFileAccess } from "./execution-file-access.js";
 import { assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
-import { ENGINEERING_CATALOG_VERSION, coderToolDefinitions, engineeringToolDefinitions, engineeringToolReadiness } from "./engineering-tool-catalog.js";
+import { ENGINEERING_CATALOG_VERSION, coderToolDefinitions, engineeringToolReadiness } from "./engineering-tool-catalog.js";
 
 // Advertises locked tools explicitly and validates every call against the same schema before scoped dispatch.
 export function bindEngineeringTools({ registry, context }) {
@@ -22,7 +22,7 @@ export function bindEngineeringTools({ registry, context }) {
   for (const key of ["file_access_policy", "file_access_version"]) Object.defineProperty(bound, key, { value: context[key], enumerable: true, writable: false, configurable: false });
   const definitions = coderToolDefinitions();
   const scopedRegistry = { ...registry };
-  for (const definition of engineeringToolDefinitions()) if (typeof scopedRegistry[definition.name]?.execute !== "function") scopedRegistry[definition.name] = lockedTool(definition.name, "A compatible scoped Node service is unavailable for this execution.");
+  for (const definition of coderToolDefinitions()) if (typeof scopedRegistry[definition.name]?.execute !== "function") scopedRegistry[definition.name] = lockedTool(definition.name, "A compatible scoped Node service is unavailable for this execution.");
   const ajv = new Ajv2020({ strict: false, allErrors: true, coerceTypes: false, removeAdditional: false });
   const validators = new Map(definitions.map((definition) => [definition.name, (definition.input_schema.$id && ajv.getSchema(definition.input_schema.$id)) || ajv.compile(definition.input_schema)]));
   const readiness = engineeringToolReadiness({ capabilities: bound.capabilities, registry,
@@ -33,7 +33,7 @@ export function bindEngineeringTools({ registry, context }) {
     if (!validate(input)) throw failure("TOOL_INPUT_INVALID", `Invalid ${definition.name} arguments.`, validate.errors);
     if (locked.has(definition.name) || typeof scopedRegistry[definition.name]?.execute !== "function") throw failure("TOOL_LOCKED", locked.get(definition.name) ?? "A compatible execution-scoped service is unavailable.");
     authorizeTool(definition.name, bound);
-    if (["read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name)) {
+    if (["read_file", "Read", "write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name)) {
       await assertMutationOrRead(definition.name, input, bound);
     }
     const result = await scopedRegistry[definition.name].execute(input, bound);
@@ -45,8 +45,8 @@ export function bindEngineeringTools({ registry, context }) {
 
 // Validates both move endpoints against the project boundary before dispatch.
 async function assertMutationOrRead(toolName, input, bound) {
-  if (["read_file", "read_lines"].includes(toolName)) {
-    await assertPath(input.path, bound, "read");
+  if (["read_file", "Read"].includes(toolName)) {
+    await assertPath(toolName === "Read" ? input.file_path : input.path, bound, "read");
     return;
   }
   const targets = toolName === "move_file"

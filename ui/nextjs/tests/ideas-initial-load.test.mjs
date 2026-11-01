@@ -179,3 +179,33 @@ test("IdeasPanel removes the error retry button and aligns the quick-entry submi
   assert.match(ideasStylesSource, /align-self:\s*flex-end/);
   assert.match(ideasStylesSource, /width:\s*fit-content/);
 });
+
+test("reorder mutation sends position and optional status while updating session item order", async () => {
+  const session = createSession("reorder-proj");
+  const calls = [];
+  const items = [
+    { id: "i1", project_id: "reorder-proj", content: "First", status: "open", position: 0, version: 1 },
+    { id: "i2", project_id: "reorder-proj", content: "Second", status: "open", position: 1, version: 1 },
+    { id: "i3", project_id: "reorder-proj", content: "Third", status: "open", position: 2, version: 1 }
+  ];
+  const client = {
+    listIdeas: async () => items,
+    updateIdea: async (opts) => {
+      calls.push(opts);
+      const found = items.find(entry => entry.id === opts.id);
+      return { ...found, ...opts, version: found.version + 1 };
+    }
+  };
+  await session.load(client);
+  assert.equal(await session.mutate(client, "reorder", { ...items[2], position: 0, status: "done" }), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].id, "i3");
+  assert.equal(calls[0].position, 0);
+  assert.equal(calls[0].status, "done");
+  assert.equal(calls[0].expected_version, 1);
+  assert.deepEqual(session.getSnapshot().items.map(i => ({ id: i.id, position: i.position, status: i.status })), [
+    { id: "i3", position: 0, status: "done" },
+    { id: "i1", position: 1, status: "open" },
+    { id: "i2", position: 2, status: "open" }
+  ]);
+});

@@ -21,7 +21,8 @@
     "reasoning": { "type": "object", "additionalProperties": false, "required": ["effort"], "properties": { "effort": { "type": "string", "enum": ["none", "low", "medium", "high", "max"] } } },
     "use_responses": { "type": "boolean" },
     "use_previous_response_id": { "type": "boolean" },
-    "tool_mode": { "type": "string", "enum": ["forge", "builtin"] }
+    "tool_mode": { "type": "string", "enum": ["forge", "builtin"] },
+    "max_output_tokens": { "type": "integer", "minimum": 1 }
   },
   "allOf": [{"if": {"properties": {"tool_mode": {"const": "builtin"}}, "required": ["tool_mode"]}, "then": {"properties": {"role": {"const": "system_engineer"}, "provider": {"enum": ["codex", "claude", "anthropic"]}}, "required": ["provider"]}}]
 }

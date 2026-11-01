@@ -29,7 +29,7 @@ test("Ideas CRUD preserves collection ownership and independent versioned item c
   await client.listIdeas({ status: "done" });
   await client.createIdea(options);
   await client.getIdea({ id: "id /1" });
-  await client.updateIdea({ id: "id /1", content: "Revised", status: "done", expected_version: 2, project_id: "B", project: "B" });
+  await client.updateIdea({ id: "id /1", content: "Revised", status: "done", position: 1, expected_version: 2, project_id: "B", project: "B" });
   await client.updateIdea({ id: "id /1", status: "open", expected_version: 3 });
   await client.deleteIdea({ id: "id /1", expected_version: 4 });
   assert.equal(options.projectId, "B");
@@ -40,7 +40,7 @@ test("Ideas CRUD preserves collection ownership and independent versioned item c
   assert.equal(calls[3].url, "/forge/v1/ideas/id%20%2F1");
   assert.equal(calls[4].url, calls[3].url);
   assert.equal(calls[4].method, "PATCH");
-  assert.deepEqual(JSON.parse(calls[4].body), { content: "Revised", status: "done", expected_version: 2 });
+  assert.deepEqual(JSON.parse(calls[4].body), { content: "Revised", status: "done", position: 1, expected_version: 2 });
   assert.deepEqual(JSON.parse(calls[5].body), { status: "open", expected_version: 3 });
   assert.equal(calls[6].url, "/forge/v1/ideas/id%20%2F1?expected_version=4");
   assert.equal(calls[6].method, "DELETE");

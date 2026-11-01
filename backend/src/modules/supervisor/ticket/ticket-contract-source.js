@@ -11,7 +11,7 @@ const hash = (content) => content === null ? null : typeof content === "string" 
 const conflict = (message) => Object.assign(new Error(message), { code: "TICKET_CONTRACT_SOURCE_CONFLICT" });
 
 // Creates a Node-only verifier pinned to the persisted workspace baseline, never an agent-selected Git revision.
-export function createTicketContractSource({ request, workspace, git }) {
+export function createTicketContractSource({ request, workspace, git, contractDelegation }) {
   const projectRoot = workspace.path ?? workspace.projectRoot;
   const files = workspace.root_only ? workspace.fileService : workspace.worktreeFileService ?? workspace.fileService;
   const rootGit = git ?? createTicketRootGit({ projectRoot });
@@ -41,6 +41,13 @@ export function createTicketContractSource({ request, workspace, git }) {
     if (original === null || hash(original) !== ref.sha256) {
       const integrated = await workspace.findIntegratedSource?.(ref.path, ref.sha256, baselineSha, baseline);
       const approvedCommit = integrated && await findTicketContractHistory({ rootGit, baseline, path: ref.path, sha256: ref.sha256 });
+      // A Node-authenticated AM decision can reconcile this exact read-only
+      // prerequisite without rewriting the historical Git baseline or ticket.
+      const reconciled = contractDelegation?.evidence?.some((entry) => entry.path === ref.path && entry.sha256 === ref.sha256);
+      if (!approvedCommit && reconciled && currentSha === ref.sha256) return {
+        path: ref.path, baseline_commit: baseline, baseline_sha256: baselineSha,
+        current_sha256: currentSha, reconciled_sha256: ref.sha256, provenance: "retained_architecture_decision"
+      };
       if (!approvedCommit) throw blockerValidationError("/contract_evidence", "contract_baseline_mismatch", "Approved contract checksum does not match the retained historical baseline; current edits cannot replace that approval.");
       inherited = { approved_commit: approvedCommit, integration: integrated };
       if (currentSha === baselineSha) return { path: ref.path, baseline_commit: baseline, ...inherited,

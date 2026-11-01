@@ -2,6 +2,7 @@
 import { createRequire } from "node:module";
 import { createRgFilesTool } from "../discovery/rg-files.js";
 import { createRgSearchTool } from "../discovery/rg-search.js";
+import { createSourceReadTool } from "../discovery/source-read.js";
 import { createSedLinesTool } from "../discovery/sed-lines.js";
 
 const require = createRequire(import.meta.url);
@@ -23,6 +24,6 @@ export function createAgentCommandTools({ projectRoot, fileService, codeSearch, 
     sed_lines: wrap(createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), logger }), "sed_lines", false),
     list_files: wrap(createRgFilesTool({ projectRoot, logger, toolName: "list_files" }), "list_files", false),
     search_text: wrap(createRgSearchTool({ projectRoot, codeCache, logger, toolName: "search_text" }), "search_text", false),
-    read_lines: wrap(createSedLinesTool({ projectRoot, fileService, codeCache, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch), logger, toolName: "read_lines" }), "read_lines", false)
+    Read: wrap(createSourceReadTool({ projectRoot, fileService, codeCache }), "Read", false)
   };
 }

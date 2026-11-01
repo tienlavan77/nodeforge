@@ -15,11 +15,14 @@ export async function reconcileBlockerResumeCheckpoint({ store, checkpoints, tic
       || !BLOCKER_RESUME_STATUSES.includes(projection?.status)) return checkpoint;
     const ledger = (await store.list("blocker.recovery")).find((entry) => entry.project_id === projectId
       && entry.task_id === ticketId && entry.execution_id === current.details.execution_id);
-    const job = ledger?.jobs.find((entry) => entry.id === projection.job_id);
-    if (!job || !["cancelled", "reconciliation_required"].includes(job.status) || job.status === projection.status
+    const job = ledger?.jobs.findLast((entry) => entry.id === projection.job_id && entry.failure_at === checkpoint.failure?.at)
+      ?? ledger?.jobs.findLast((entry) => entry.failure_at === checkpoint.failure?.at
+        && ["cancelled", "reconciliation_required"].includes(entry.status));
+    if (!job || !["cancelled", "reconciliation_required"].includes(job.status)
+      || (job.id === projection.job_id && job.status === projection.status)
       || checkpoint.failure?.at !== job.failure_at
       || !matchesTicketExecution(current, job.request.payload.execution_id, job.request.payload.sprint_basis)) return checkpoint;
     return checkpoints.save({ ...checkpoint, phase: job.status === "cancelled" ? "blocker_triage_cancelled" : "blocker_reconciliation_required",
-      blocker_recovery: { ...projection, status: job.status, reason: job.outcome_reason ?? projection.reason } });
+      blocker_recovery: { ...projection, job_id: job.id, stage: job.stage ?? projection.stage, status: job.status, reason: job.outcome_reason ?? projection.reason } });
   });
 }

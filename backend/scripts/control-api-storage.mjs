@@ -24,9 +24,15 @@ export async function createControlApiStorage({ config, onWrite, configureLogs =
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       version INTEGER NOT NULL DEFAULT 1 CHECK (typeof(version) = 'integer' AND version >= 1),
+      position INTEGER NOT NULL DEFAULT 0 CHECK (typeof(position) = 'integer' AND position >= 0),
       PRIMARY KEY (project_id, id)
     )`);
+    const hasPosition = controlDb.all("PRAGMA table_info(ideas)").some((col) => col.name === "position");
+    if (!hasPosition) {
+      controlDb.run("ALTER TABLE ideas ADD COLUMN position INTEGER NOT NULL DEFAULT 0 CHECK (typeof(position) = 'integer' AND position >= 0)");
+    }
     controlDb.run("CREATE INDEX IF NOT EXISTS ideas_by_project_status ON ideas (project_id, status, created_at, id)");
+    controlDb.run("CREATE INDEX IF NOT EXISTS ideas_by_project_position ON ideas (project_id, position, created_at, id)");
     controlDb.run(`CREATE TABLE IF NOT EXISTS idea_deletions (
       project_id TEXT NOT NULL,
       id TEXT NOT NULL,

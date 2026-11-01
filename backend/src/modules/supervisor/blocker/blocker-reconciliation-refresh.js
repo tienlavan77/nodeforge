@@ -13,6 +13,7 @@ import { currentBlockerCoordination, refreshBlockerCoordination } from "./blocke
 import { refreshBlockerReviewerEvidence } from "./blocker-reviewer-source.js";
 import { refreshBlockerRuntimeCapabilities } from "./blocker-runtime-capabilities.js";
 import { refreshDelegationEvidence } from "./blocker-delegation-evidence.js";
+import { assignContractConsultation } from "./blocker-contract-consultation.js";
 
 // Returns ordinary verification refresh plus a source-bound recovery for obsolete missing-denial errors.
 export function createBlockerReconciliationRefresh({ inspect, checkDelegation, fileService, clock = Date.now, projectLogger = () => {}, readFailureEvidence, sprintRegistry, ticketStatusStore, refreshOwnerInput, runtimeCapabilities }) {
@@ -24,6 +25,10 @@ export function createBlockerReconciliationRefresh({ inspect, checkDelegation, f
   const classify = createBlockerFailureClassification({ readFailureEvidence });
   const refreshHandoff = createBlockerHandoffRefresh({ inspect, fileService, clock, projectLogger });
   return async (job) => {
+    if (job.stage === "sprint_leader" && job.reason_code === "CONTRACT_DECISION_REQUIRED"
+      && job.validation_feedback?.some((entry) => entry.path === "/contract_evidence"
+        && ["contract_baseline_mismatch", "contract_baseline_missing"].includes(entry.reason))
+      && await inspect(job) && assignContractConsultation(job, job.validation_feedback, clock())) return true;
     if (await refreshDelegationEvidence(job, { checkDelegation, clock, projectLogger })) return true;
     if (await refreshOwnerInput?.(job)) return true;
     if (await refreshBlockerRuntimeCapabilities(job, { inspect, clock, projectLogger, runtimeCapabilities })) return true;

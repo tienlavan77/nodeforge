@@ -134,6 +134,19 @@ test("SL can retain typed criterion attribution and meaningful reference identit
   assert.equal(validate(native), false);
 });
 
+test("SL non-resolved decision branches omit unused authority, candidate and technical_result properties", () => {
+  const output = createAgentExchangeOutput({ kind: "consultation_request", recipient: { role: "sprint_leader" } });
+  assert.equal(output.schema.properties.payload.properties.consultation.anyOf[0].properties.structure_change_risk, undefined);
+  assert.equal(output.schema.properties.payload.properties.consultation.anyOf[0].properties.owner_boundary_risk, undefined);
+  const branches = output.schema.properties.payload.properties.decision.anyOf;
+  const archBranch = branches.find((b) => b.properties.action.enum[0] === "architecture_required");
+  assert.deepEqual(Object.keys(archBranch.properties).sort(), ["action", "guidance", "summary"]);
+  const reconBranch = branches.find((b) => b.properties.action.enum[0] === "reconciliation_required");
+  assert.deepEqual(Object.keys(reconBranch.properties).sort(), ["action", "evidence", "guidance", "reconciliation", "summary"]);
+  const coderBranch = branches.find((b) => b.properties.action.enum[0] === "coder_requested");
+  assert.deepEqual(Object.keys(coderBranch.properties).sort(), ["action", "coder_request", "guidance", "summary"]);
+});
+
 test("native Reviewer output preserves a typed verification request and normalizes unused nullable slots", () => {
   const output = createAgentExchangeOutput({ kind: "review_request", recipient: { role: "reviewer" }, payload: {} });
   const request = { finding_ids: ["REV-1"], criterion_ids: ["AC-1"], test_paths: ["backend/tests/unit/security.test.js"], scope: "ticket",

@@ -113,7 +113,7 @@ export function blockerExchangeDisplay(request) {
  * authority, identity or schema feedback can be applied without rediscovery. */
 export function blockerFormatCorrection(job) {
   return Boolean(job.validation_feedback?.length && job.validation_feedback.every((entry) =>
-    ["json_invalid", "structured_output_missing", "schema_invalid", "required", "additionalProperties", "type", "enum", "unexpected_field", "response_kind_mismatch", "binding_mismatch",
+    ["json_invalid", "response_truncated", "max_output_tokens", "structured_output_missing", "schema_invalid", "required", "additionalProperties", "type", "enum", "unexpected_field", "response_kind_mismatch", "binding_mismatch",
       "identity_mismatch", "identity_shape_invalid", "authority_not_grounded", "reference_invalid", "reference_unknown", "reference_scope_mismatch",
       "boundary_not_preserved", "assessment_invalid", "boundary_inflation_forbidden", "delegated_to_architecture", "escalation_boundary_mismatch",
       "dependency_target_invalid", "dependency_repair_no_progress", "technical_result_incomplete", "role_not_authorized", "role_action_mismatch", "action_mismatch", "owner_request_invalid", "const", "if"].includes(entry.reason)));

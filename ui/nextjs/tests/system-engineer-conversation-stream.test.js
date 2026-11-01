@@ -19,12 +19,12 @@ async function loadModule(path, react) {
 // Supplies a transcript-bearing event distinct from ordinary monitor notifications.
 function event(id, conversationId = "CHAT") {
   return { project_id: "PROJECT", event_id: id, event_type: "agent.activity", timestamp: "2026-10-22T00:00:00Z",
-    payload: { activity_id: id, agent_id: "SE", agent_role: "system_engineer", conversation_id: conversationId, correlation_id: "RUN",
-      sdk_event: { type: "command_execution", command: "printf" } } };
+    payload: { activity_id: id, agent_id: "SE", agent_role: "system_engineer", conversation_id: conversationId, correlation_id: `RUN-${id}`,
+      sdk_event: { type: "conversation_turn", entries: [{ id: `T-${id}`, type: "text", text: `Reply ${id}` }] } } };
 }
 
-// Tests actual hook wiring so full transcript entries reach chat as well as the existing monitor.
-test("SSE hook appends only matching project/conversation SE events and ignores replays", async () => {
+// Tests actual hook wiring so text transcript entries reach chat while command events stay in the activity monitor.
+test("SSE hook appends only matching project/conversation SE text events and keeps tool commands in activities", async () => {
   let listener;
   let messages = [];
   let activities = [];
@@ -37,42 +37,21 @@ test("SSE hook appends only matching project/conversation SE events and ignores 
   listener(event("ONE"));
   listener(event("OTHER-CHAT", "OTHER"));
   listener({ ...event("OTHER-PROJECT"), project_id: "OTHER" });
-  const ordinary = event("MONITOR"); delete ordinary.payload.agent_role;
-  listener(ordinary);
+  const commandOnly = event("CMD-ONLY");
+  commandOnly.payload.sdk_event = { type: "command_execution", command: "printf" };
+  listener(commandOnly);
   assert.equal(messages.length, 1);
-  assert.equal(messages[0].se_event.command, "printf");
+  assert.equal(messages[0].text, "Reply ONE");
   assert.equal(activities.length, 4);
-  const text = event("TEXT"); text.payload.sdk_event = { type: "agent_message", text: "Hello" };
-  listener(text);
-  listener({ project_id: "PROJECT", event_type: "conversation.message.delta", payload: { conversation_id: "CHAT", correlation_id: "RUN", chunk: "Hello", agent_id: "SE" } });
-  assert.equal(messages.length, 2);
-  assert.equal(messages.filter((message) => message.se_event).length, 1);
   cleanup();
 });
 
-// Commands and response text can arrive on separate SSE event types but share one event-time ordering.
-test("SSE orders System Engineer commands and response text by event timestamp", async () => {
-  let listener;
-  let messages = [];
-  let cleanup;
-  const { useProjectEventStream } = await loadModule("ui/nextjs/lib/home-page-event-stream.js", { useRef: (value) => ({ current: value }), useEffect: (effect) => { cleanup = effect(); } });
-  useProjectEventStream({ client: { connectProjectStream: (options) => { listener = options.onEvent; return { close() {} }; } }, projectId: "PROJECT",
-    activeConversationIdRef: { current: "CHAT" }, agentDirectoryRef: { current: [] }, agentDisplayName: () => "Engineer",
-    setMessages: (update) => { messages = update(messages); }, setAgentActivities() {}, setAgentTyping() {} });
-  const command = event("COMMAND"); command.timestamp = "2026-10-22T00:00:02Z";
-  listener(command);
-  listener({ project_id: "PROJECT", event_id: "TEXT", event_type: "conversation.message.delta", timestamp: "2026-10-22T00:00:01Z",
-    payload: { conversation_id: "CHAT", correlation_id: "RUN", chunk: "Inspecting the workspace", agent_id: "SE" } });
-  assert.deepEqual(messages.map((message) => message.text), ["Inspecting the workspace", "printf"]);
-  cleanup();
-});
-
-// Verifies history conversion retains the same SDK object and activity identity as live events.
-test("saved conversation hook restores full events and paginates earlier events", async () => {
+// Verifies history conversion retains text turns and paginates earlier events while omitting command-only events.
+test("saved conversation hook restores text turns and paginates earlier events", async () => {
   const states = [];
   let cursor = 0;
   const saved = [event("FIRST"), event("SECOND")].map((entry) => ({ id: `SAVED-${entry.event_id}`, type: "agent.activity", kind: "system", agent_id: "SE",
-    conversation_id: "CHAT", correlation_id: "RUN", timestamp: entry.timestamp, content: entry.payload }));
+    conversation_id: "CHAT", correlation_id: entry.payload.correlation_id, timestamp: entry.timestamp, content: entry.payload }));
   const { useConversationMessageHistory } = await loadModule("ui/nextjs/lib/use-conversation-message-history.js", {
     useRef: (value) => ({ current: value }), useLayoutEffect() {}, useState: (initial) => {
       const index = cursor++; states[index] = initial;
@@ -90,23 +69,12 @@ test("saved conversation hook restores full events and paginates earlier events"
   assert.deepEqual(states[0][0].se_event, saved[0].content.sdk_event);
 });
 
-// The renderer never displays command output, even when a historic record contains it.
-test("SE renderer shows only a command", async () => {
+// The renderer never displays command blocks or command output in chat.
+test("SE renderer omits command blocks and command output from chat", async () => {
   const { SystemEngineerEvent } = await loadModule("ui/nextjs/components/system-engineer-event.jsx");
   const output = `${"long output\n".repeat(5000)}<script>alert(1)</script>OUTPUT-END`;
   const html = renderToStaticMarkup(createElement(SystemEngineerEvent, { value: { type: "command_execution", command: "git diff --check", aggregated_output: output } }));
-  assert.match(html, /git diff --check/);
-  assert.doesNotMatch(html, /OUTPUT-END|long output|script/);
-});
-
-// Command events must read like the CLI, not expose the SDK envelope as a field tree.
-test("SE command renderer shows the command without output or event metadata", async () => {
-  const { SystemEngineerEvent } = await loadModule("ui/nextjs/components/system-engineer-event.jsx");
-  const command = "git status --short; sed -n '1,75p' ui/nextjs/components/system-engineer-event.jsx";
-  const value = { type: "item.completed", item: { type: "command_execution", command, aggregated_output: "first\nsecond\n", exit_code: 0 } };
-  const html = renderToStaticMarkup(createElement(SystemEngineerEvent, { value }));
-  assert.match(html, /git status --short; sed -n/);
-  assert.doesNotMatch(html, /first\nsecond\n|item.completed|command_execution|aggregated_output|exit_code|<dl|<dt|<dd/);
+  assert.equal(html, "");
 });
 
 // Launcher quotes are presentation syntax, while quoted arguments and environment values belong to the command.
@@ -129,17 +97,14 @@ test("SE command display unwraps quoted shell payloads without truncating bare c
   for (const [input, expected] of cases) assert.equal(systemEngineerCommandText(input), expected, input);
 });
 
-// Live and restored turns share an expanded, accessible command block and never mutate the saved SDK command.
-test("SE live and saved commands default open with a dot and RAN, preserving safe display", async () => {
+// Live and restored turns omit command blocks from chat while preserving the underlying command helper.
+test("SE live and saved turns hide command_execution entries in chat", async () => {
   const { SystemEngineerEvent, systemEngineerEventText } = await loadModule("ui/nextjs/components/system-engineer-event.jsx");
   const command = '/bin/bash -lc \'printf "<script>alert(1)</script>"\'';
   const entry = Object.freeze({ id: "COMMAND", type: "command_execution", command });
   for (const status of ["in_progress", "completed"]) {
     const html = renderToStaticMarkup(createElement(SystemEngineerEvent, { value: { type: "conversation_turn", status, entries: [entry] } }));
-    assert.match(html, /<details class="system-engineer-command" open="">/);
-    assert.match(html, /<summary><span class="system-engineer-command-dot" aria-hidden="true"><\/span>RAN<\/summary>/);
-    assert.match(html, /&lt;script&gt;/);
-    assert.doesNotMatch(html, /\/bin\/bash|<script>|<summary>Command/);
+    assert.equal(html, "");
     assert.equal(systemEngineerEventText(entry), command);
   }
 });
@@ -192,10 +157,12 @@ test("realtime text-command-text remains one assistant message and rejects stale
     activeConversationIdRef: { current: "CHAT" }, agentDirectoryRef: { current: [] }, agentDisplayName: () => "Real agent",
     setMessages: (update) => { messages = update(messages); }, setAgentActivities() {}, setAgentTyping() {} });
   const first = event("FIRST");
+  first.payload.correlation_id = "RUN";
   first.payload.sdk_sequence = 1;
   first.payload.sdk_event = { type: "conversation_turn", entries: [{ id: "TEXT-1", type: "text", text: "Checking" }] };
   listener(first);
   const second = event("SECOND");
+  second.payload.correlation_id = "RUN";
   second.payload.sdk_sequence = 2;
   second.payload.sdk_event = { type: "conversation_turn", entries: [...first.payload.sdk_event.entries,
     { id: "COMMAND", type: "command_execution", command: "git diff" }, { id: "TEXT-2", type: "text", text: "Done" }] };
@@ -205,15 +172,95 @@ test("realtime text-command-text remains one assistant message and rejects stale
   listener(first);
   assert.equal(messages.length, 1);
   assert.equal(messages[0].correlation_id, "RUN");
-  assert.equal(messages[0].se_event.entries.length, 3);
+  assert.equal(messages[0].se_event.entries.length, 2);
   const { SystemEngineerReply } = await loadModule("ui/nextjs/components/system-engineer-reply.jsx");
   const html = renderToStaticMarkup(createElement(SystemEngineerReply, { message: messages[0], displayMessageTime: () => "12:30" }));
   assert.equal((html.match(/class="claude-message is-agent"/g) ?? []).length, 1);
   assert.equal((html.match(/class="claude-message-meta"/g) ?? []).length, 1);
   assert.match(html, /Real agent/);
   assert.match(html, /12:30/);
-  assert.match(html, /<details class="system-engineer-command" open="">/);
-  assert.match(html, /<summary><span class="system-engineer-command-dot" aria-hidden="true"><\/span>RAN<\/summary>/);
-  assert.ok(html.indexOf("Checking") < html.indexOf("git diff"));
-  assert.ok(html.indexOf("git diff") < html.indexOf("Done"));
+  assert.doesNotMatch(html, /RAN|git diff/);
+  assert.ok(html.indexOf("Checking") < html.indexOf("Done"));
+});
+
+test("Dual-stream SE events project only conversation text to both Architecture and SE chat while keeping tool commands in Agent Activity", async () => {
+  let archListener;
+  let seListener;
+  let archMessages = [];
+  let seMessages = [];
+  const { useProjectEventStream } = await loadModule("ui/nextjs/lib/home-page-event-stream.js", { useRef: (value) => ({ current: value }), useEffect: (effect) => { effect(); } });
+  useProjectEventStream({
+    client: { connectProjectStream: (options) => { archListener = options.onEvent; return { close() {} }; } },
+    projectId: "PROJECT", activeConversationIdRef: { current: "CONV-ARCH-MAIN" }, agentDirectoryRef: { current: [] },
+    agentDisplayName: () => "Cú đêm (SE)", setMessages: (update) => { archMessages = update(archMessages); }, setAgentActivities() {}, setAgentTyping() {}
+  });
+  useProjectEventStream({
+    client: { connectProjectStream: (options) => { seListener = options.onEvent; return { close() {} }; } },
+    projectId: "PROJECT", activeConversationIdRef: { current: "CONV-SE-PLAN-1" }, agentDirectoryRef: { current: [] },
+    agentDisplayName: () => "Cú đêm (SE)", setMessages: (update) => { seMessages = update(seMessages); }, setAgentActivities() {}, setAgentTyping() {}
+  });
+
+  // Command-only turn does not create a chat bubble on either channel.
+  const toolOnlyEvent = event("DUAL-0", "CONV-SE-PLAN-1");
+  toolOnlyEvent.payload.linked_conversation_id = "CONV-ARCH-MAIN";
+  toolOnlyEvent.payload.sdk_sequence = 1;
+  toolOnlyEvent.payload.sdk_event = { type: "conversation_turn", entries: [{ id: "C0", type: "command_execution", command: "rg -n plan" }] };
+  archListener(toolOnlyEvent);
+  seListener(toolOnlyEvent);
+  assert.equal(archMessages.length, 0);
+  assert.equal(seMessages.length, 0);
+
+  // Mixed text + command turn projects only text to both channels.
+  const dualEvent = event("DUAL-1", "CONV-SE-PLAN-1");
+  dualEvent.payload.linked_conversation_id = "CONV-ARCH-MAIN";
+  dualEvent.payload.sdk_sequence = 2;
+  dualEvent.payload.sdk_event = {
+    type: "conversation_turn",
+    entries: [
+      { id: "T1", type: "text", text: "Đang phản biện và thực thi hạng mục O1" },
+      { id: "C1", type: "command_execution", command: "node --test backend/tests/unit/conversation-plan-handoff.test.js" }
+    ]
+  };
+  archListener(dualEvent);
+  seListener(dualEvent);
+
+  assert.equal(archMessages.length, 1);
+  assert.equal(archMessages[0].se_event.entries.length, 1);
+  assert.equal(archMessages[0].se_event.entries[0].type, "text");
+  assert.equal(seMessages.length, 1);
+  assert.equal(seMessages[0].se_event.entries.length, 1);
+  assert.equal(seMessages[0].se_event.entries[0].type, "text");
+
+  const { SystemEngineerReply } = await loadModule("ui/nextjs/components/system-engineer-reply.jsx");
+  const archHtml = renderToStaticMarkup(createElement(SystemEngineerReply, { message: archMessages[0], displayMessageTime: () => "14:00" }));
+  assert.match(archHtml, /Cú đêm \(SE\)/);
+  assert.match(archHtml, /Đang phản biện và thực thi hạng mục O1/);
+  assert.doesNotMatch(archHtml, /RAN/);
+  const seHtml = renderToStaticMarkup(createElement(SystemEngineerReply, { message: seMessages[0], displayMessageTime: () => "14:00" }));
+  assert.doesNotMatch(seHtml, /RAN/);
+});
+
+// Reproduces callback churn from chat renders: SSE stays connected while event
+// delivery uses the newest callback instead of reopening on every state update.
+test("project stream survives callback changes and delivers to the latest handler", async () => {
+  const refs = []; let refIndex = 0, previous, cleanup, listener, connections = 0;
+  const react = {
+    useRef: (value) => refs[refIndex++] ?? (refs[refIndex - 1] = { current: value }),
+    useEffect: (effect, deps) => {
+      if (!previous || deps.some((value, index) => value !== previous[index])) {
+        cleanup?.(); cleanup = effect(); previous = deps;
+      }
+    }
+  };
+  const { useProjectEventStream } = await loadModule("ui/nextjs/lib/home-page-event-stream.js", react);
+  const delivered = [];
+  const client = { connectProjectStream: (options) => { connections++; listener = options; return { close() {} }; } };
+  for (let render = 0; render < 5; render++) {
+    refIndex = 0;
+    useProjectEventStream({ client, projectId: "PROJECT", onProjectEvent: () => delivered.push(render), setWatcherState() {} });
+  }
+  listener.onOpen();
+  assert.equal(connections, 1);
+  assert.deepEqual(delivered, [4]);
+  cleanup();
 });

@@ -96,3 +96,29 @@ test("report_done cannot accept a Coder claim or passing build in place of appro
   await assert.rejects(tool.execute({ summary: "Done", acceptance_coverage: [{ criterion_id: "AC-1", status: "verified", command_kind: "test", test_path: "ui/nextjs/tests/example.test.js" }] }, { ticket: { id: "TICKET-1", acceptance_criteria: ["Behavior works"], verification_plan: [{ kind: "browser", criterion_ids: ["AC-1"], viewports: [1440], assertions: ["Behavior works"] }] } }), (error) => error.code === "CODER_EVIDENCE_PENDING" && error.details.missing_checks.some((check) => check.kind === "browser"));
   assert.equal(saved, false);
 });
+
+// Prevents UI test hints or poisoned draft missing_checks from overriding an aggregate backend_tests step.
+test("UI criterion test hints and supplemental backend_tests receipts satisfy aggregate backend_tests without poisoning missing_checks", () => {
+  const uiPath = "ui/nextjs/tests/ideas-draft-safety.test.js";
+  const backendPath = "backend/tests/integration/ideas-runtime-authorization.test.js";
+  const ticket = {
+    acceptance_criteria: ["UI draft safety works"],
+    verification_plan: [
+      { kind: "test", test_path: uiPath, criterion_ids: ["AC-1"] },
+      { kind: "backend_tests", criterion_ids: ["AC-1"] }
+    ]
+  };
+  const commands = [
+    { kind: "test", scope: "ticket", test_paths: [uiPath], argv: ["node", "--test", uiPath], exit_code: 0 },
+    { kind: "backend_tests", scope: "ticket", check_id: "CHECK-BACKEND-1", test_paths: [backendPath], argv: ["node", "--test", backendPath], exit_code: 0 }
+  ];
+  const poisonedSupply = [{
+    criterion_id: "AC-1",
+    command_kind: "test",
+    test_path: uiPath,
+    missing_checks: [{ kind: "backend_tests", test_path: uiPath }]
+  }];
+  const result = completeNodeReportEvidence({ acceptance_coverage: poisonedSupply }, ticket, { commands }).acceptance_coverage;
+  assert.equal(result[0].status, "verified");
+  assert.doesNotThrow(() => assertCoderCoverage(result));
+});

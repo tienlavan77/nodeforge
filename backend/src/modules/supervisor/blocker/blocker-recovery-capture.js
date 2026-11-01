@@ -52,9 +52,10 @@ export function createBlockerCapture({ ticketStatusStore, checkpoints, sprintReg
         correlation_id: checkpoint.correlation_id ?? `CORR-${taskId}`, execution_context: context,
         payload: { execution_id: current.details.execution_id, sprint_basis: basis, dependency_expectations: current.details.dependency_expectations } } }));
     const latest = await checkpoints.load(taskId);
-    if (job?.status === "pending" && latest?.failure?.at === checkpoint.failure.at) await checkpoints.save({ ...latest,
-      blocker_owner_decisions: ownerDecisions, phase: "blocker_triage_pending", blocker_recovery: { job_id: job.id, status: "pending", reason_code: reason } });
-    if (job) await recordTicketStage({ checkpoints, taskId, stage: job.approval_retry ? "coder" : "sprint_leader", status: job.status === "pending" ? "in_progress" : job.status, details: { job_id: job.id }, logger, clock });
+    if (job && latest?.failure?.at === checkpoint.failure.at && ["pending", "cancelled", "reconciliation_required"].includes(job.status)) await checkpoints.save({ ...latest,
+      blocker_owner_decisions: ownerDecisions, phase: job.status === "cancelled" ? "blocker_triage_cancelled" : job.status === "reconciliation_required" ? "blocker_reconciliation_required" : "blocker_triage_pending",
+      blocker_recovery: { ...latest.blocker_recovery, job_id: job.id, stage: job.stage ?? "sprint_leader", status: job.status, reason_code: reason, ...(job.outcome_reason ? { reason: job.outcome_reason } : {}) } });
+    if (job) await recordTicketStage({ checkpoints, taskId, stage: job.approval_retry ? "coder" : (job.stage ?? "sprint_leader"), status: job.status === "pending" ? "in_progress" : job.status, details: { job_id: job.id }, logger, clock });
     await notifyRetry(job);
     return job;
   }

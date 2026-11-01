@@ -112,8 +112,8 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
           result = name === "report_done" && input?.status !== "blocked"
             ? await executeReportVerificationWait({ tool, input, context, state, store, taskId, selected, correlationId, projectLogger, checkpointPayload })
             : await tool.execute(input, context);
-          if (selected?.role === "coder" && ["read_file", "read_lines", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "read_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
-          if (["read_file", "read_lines", "sed_lines"].includes(name)) rememberRead(state.readCache, input, result);
+          if (selected?.role === "coder" && ["read_file", "Read", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "Read" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
+          if (["read_file", "Read", "Read", "sed_lines"].includes(name)) rememberRead(state.readCache, input, result);
           if (["write_diff", "edit_diff", "delete_file", "move_file"].includes(name)) {
             recordMutationChecksum(state.readCache, { tool: name, input, result });
             state.emptyCommitSeen = false;
@@ -185,7 +185,7 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     : `Tools already completed successfully (do NOT call them again for the same inputs): ${(state.completedTools ?? []).join(", ") || "(none recorded)"}.`;
   return [
     `RESUMED RUN: a previous execution stopped after completing turn ${state.turnCount}.`,
-    "The current tool catalog replaces legacy rg_files/rg_search/sed_lines with list_files/search_text/read_lines. Historical search_code, run_test and check_test entries are receipts only; they are not available in the current Coder catalog. Use search_text for source discovery and run_check for focused checks. Do not repeat completed mutations.",
+    "The current tool catalog replaces legacy rg_files/rg_search/sed_lines with list_files/search_text/Read. Historical search_code, run_test and check_test entries are receipts only; they are not available in the current Coder catalog. Use search_text for source discovery and run_check for focused checks. Do not repeat completed mutations.",
     state.sessionId ? "Provider session resumed; earlier assistant context may be available, but the worktree is the source of truth." : "No provider session survived; the worktree below is the source of truth.",
     ...(state.resume.dependency_repair ? [`SPRINT DEPENDENCY REPAIR: ${JSON.stringify(state.resume.dependency_repair)}. SL has assigned this ticket's own Coder to implement the requested repair within its approved scope. Preserve completed work and continue from this checkpoint. The missing repair commit and passing verification/review are outputs to produce, not prerequisites for starting. Run focused checks, commit ticket changes and submit report_done; Node verifies and runs independent Reviewer. Do not ask AM to repeat the settled design or claim SL instructions are a Reviewer verdict.`] : []),
     ...(state.verificationWait ? [`Node retained verification/report checkpoint: ${JSON.stringify(state.verificationWait)}. Continue from this report draft. Call report_done once to reattach to Node verification; Node waits internally and returns terminal evidence. Do not recreate edits, recommit unchanged source or poll tools.`] : []),

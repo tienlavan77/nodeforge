@@ -58,7 +58,14 @@ export function agentDecisionBranches(decision) {
     branch.properties.action = { enum: [action] };
     for (const [field, allowed] of Object.entries({ contract_draft: ["governance_required"],
       reconciliation: ["reconciliation_required"], coder_request: ["coder_requested"], dependency_request: ["dependency_requested"],
-      technical_result: ["resolved"], escalation: ["owner_required"], proposal: ["owner_required"] })) {
+      technical_result: ["resolved"], escalation: ["owner_required"], proposal: ["owner_required"],
+      authority_scope: ["resolved", "sprint_required", "dependency_requested", "owner_required", "governance_required"],
+      authority_quote: ["resolved", "sprint_required", "dependency_requested", "owner_required", "governance_required"],
+      authority_reference: ["resolved", "sprint_required", "dependency_requested", "owner_required", "governance_required"],
+      architecture_basis: ["resolved", "sprint_required", "owner_required", "governance_required"],
+      boundary_assessment: ["resolved", "sprint_required", "owner_required", "governance_required"],
+      candidate_review: ["resolved"], criterion_updates: ["resolved"],
+      evidence: ["resolved", "sprint_required", "owner_required", "governance_required", "reconciliation_required"] })) {
       if (!allowed.includes(action)) delete branch.properties[field];
     }
     const required = { resolved: ["guidance", "evidence", "technical_result"], reconciliation_required: ["guidance", "reconciliation"],

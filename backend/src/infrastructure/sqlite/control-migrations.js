@@ -31,6 +31,14 @@ export function runControlMigrations(database) {
       )`);
       database.prepare("INSERT INTO control_schema_migrations (version) VALUES (?)").run(2);
     }
+    if (current < 3) {
+      const hasPosition = database.prepare("PRAGMA table_info(ideas)").all().some((col) => col.name === "position");
+      if (!hasPosition) {
+        database.exec("ALTER TABLE ideas ADD COLUMN position INTEGER NOT NULL DEFAULT 0 CHECK (typeof(position) = 'integer' AND position >= 0)");
+      }
+      database.exec("CREATE INDEX IF NOT EXISTS ideas_by_project_position ON ideas (project_id, position, created_at, id)");
+      database.prepare("INSERT INTO control_schema_migrations (version) VALUES (?)").run(3);
+    }
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");

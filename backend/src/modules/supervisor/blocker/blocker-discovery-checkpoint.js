@@ -7,12 +7,28 @@ export function discoveryAssignment(job) {
     job?.coder_exchange?.request_id, job?.coder_exchange?.candidate?.sha256, job?.stage === "coder" ? null : job?.history?.at(-1)?.completed_at])).digest("hex");
 }
 
+// Determines whether Sprint Leader discovery should be capped to one initial slice because the blocker requires Architecture authority.
+export function requiresArchitectureFastHandoff(job) {
+  if (!job || job.stage !== "sprint_leader") return false;
+  if (job.architecture_response || job.sprint_delegation || job.ticket_progress?.architecture_decision) return false;
+  const classification = job.ticket_progress?.failure_classification;
+  if (classification?.category === "technical_failure") return false;
+  if (job.reason_code === "CONTRACT_DECISION_REQUIRED" && !(job.request?.ticket?.execution_policy?.contract_evidence ?? []).length) return true;
+  if (job.reason_code === "SECURITY_RISK") return true;
+  if (job.reason_code === "ACCESS_REQUIRED" && classification?.requires_architecture_admission === true) return true;
+  return false;
+}
+
 // Records completed reads before returning their result and extends allowances inside the same SDK invocation.
-export function createDiscoveryProgress({ job, save = async () => {}, clock = Date.now, deadline = Infinity, abortSignal, onRenew = () => {} }) {
+export function createDiscoveryProgress({ job, save = async () => {}, clock = Date.now, deadline = Infinity, abortSignal, onRenew = () => {}, maxRenewals }) {
   const assignment_id = discoveryAssignment(job);
+  const fastHandoff = requiresArchitectureFastHandoff(job);
+  const renewalLimit = Number.isInteger(maxRenewals) && maxRenewals >= 0 ? maxRenewals : (fastHandoff ? 0 : Infinity);
+  const callSlice = fastHandoff ? 12 : 30;
+  const byteSlice = fastHandoff ? 48_000 : 120_000;
   const prior = job?.discovery_checkpoints?.[job.stage];
   const checkpoint = prior?.assignment_id === assignment_id ? structuredClone(prior)
-    : { assignment_id, role: job?.stage, sequence: 0, calls: 0, bytes: 0, call_allowance: 30, byte_allowance: 120_000, renewals: 0, receipts: [] };
+    : { assignment_id, role: job?.stage, sequence: 0, calls: 0, bytes: 0, call_allowance: callSlice, byte_allowance: byteSlice, renewals: 0, receipts: [] };
   let pending = Promise.resolve();
   let failure;
   return { assertActive, complete, snapshot: () => structuredClone(checkpoint) };
@@ -35,10 +51,14 @@ export function createDiscoveryProgress({ job, save = async () => {}, clock = Da
     assertActive();
     checkpoint.calls += 1;
     checkpoint.bytes += Buffer.byteLength(JSON.stringify(result));
-    const renewed = checkpoint.calls > checkpoint.call_allowance || checkpoint.bytes > checkpoint.byte_allowance;
+    const exceeded = checkpoint.calls > checkpoint.call_allowance || checkpoint.bytes > checkpoint.byte_allowance;
+    if (exceeded && checkpoint.renewals >= renewalLimit) {
+      throw Object.assign(new Error("Sprint Leader fast-handoff discovery allowance reached; submit architecture_required or reconciliation_required to Architecture Manager now without further reads."), { code: "BLOCKER_DISCOVERY_CAP_REACHED" });
+    }
+    const renewed = exceeded;
     if (renewed) {
-      checkpoint.call_allowance = Math.max(checkpoint.call_allowance, Math.ceil(checkpoint.calls / 30) * 30);
-      checkpoint.byte_allowance = Math.max(checkpoint.byte_allowance, Math.ceil(checkpoint.bytes / 120_000) * 120_000);
+      checkpoint.call_allowance = Math.max(checkpoint.call_allowance, Math.ceil(checkpoint.calls / callSlice) * callSlice);
+      checkpoint.byte_allowance = Math.max(checkpoint.byte_allowance, Math.ceil(checkpoint.bytes / byteSlice) * byteSlice);
       checkpoint.renewals += 1;
     }
     checkpoint.sequence += 1;

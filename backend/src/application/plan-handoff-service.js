@@ -17,12 +17,14 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
     if (active.has(key)) return { status: "handoff_in_progress", plan_handoff: true };
     active.add(key);
     try {
+      const priorReceipt = input.plan.format === "markdown" ? read(input.plan, "markdown_plan_handoffs") : null;
+      const hadLegacyDescription = /"description"\s*:/.test(priorReceipt?.generated_json ?? "");
       try { return await handoffAttempt(input); }
       catch (error) {
         const verification = error.code === "SPRINT_MARKDOWN_SCOPE" && /has an invalid verification plan:/.test(error.message);
         const representation = error.code === "SPRINT_PLAN_HANDOFF_FAILED" && /^Sprint Leader returned invalid sprint plan:/.test(error.message)
           && /\/tickets\/\d+\/verification_plan(?:\/|\s)/.test(error.message);
-        if (input.plan.format !== "markdown" || !(verification || representation)) throw error;
+        if (input.plan.format !== "markdown" || hadLegacyDescription || !(verification || representation)) throw error;
         const retained = read(input.plan, "markdown_plan_handoffs");
         if (!retained?.generated_json) throw error;
         return await handoffAttempt(input);
@@ -63,7 +65,7 @@ export function createPlanHandoffService({ projectId, database, planStore, markd
         if (!profile?.agent_id) throw fail("SPRINT_LEADER_UNAVAILABLE", "Configured Sprint Leader profile is unavailable.");
         const brief = markdown ? `Approved plan_id=${approved.plan_id} revision=${approved.revision} sha256=${approved.sha256}\n\n${approved.markdown}` : JSON.stringify({ plan_id: approved.plan_id, revision: approved.revision, sha256: approved.sha256, content: approved.content });
         const priorFailure = row.error_message ? ` Previous admission failure to correct: ${row.error_code ?? "SPRINT_PLAN_INVALID"}: ${row.error_message}` : "";
-        const verificationFeedback = markdown ? " Before numbering AC IDs, include the approved acceptance criteria verbatim: use the exact ordered criteria for numbered work groups; for outcomes include every approved criterion of each outcome assigned to the ticket, alongside any ticket-specific criteria. Build verification_plan against this final acceptance_criteria array, covering every positional AC ID with a relevant check. Do not use kind human in an already approved Architecture handoff; use executable test/browser evidence for behavior and retain independent Reviewer or deployment limitations in notes. Governance approval cannot substitute for missing behavioral proof. Do not assume backend-added criteria inherit coverage, invent test evidence, or weaken approved criteria." : "";
+        const verificationFeedback = markdown ? " Before numbering AC IDs, include the approved acceptance criteria verbatim for numbered work groups; for outcomes, assign positional outcome IDs (O<n>.AC-<i>, O<n>.G-<j>) in coverage[O<n>].criterion_refs and guardrail_refs (or include the approved criterion verbatim) so the Set Union across tickets covers 100% of each outcome, while keeping ticket.acceptance_criteria aligned 1-1 with verification_plan (AC-1, AC-2...). Build verification_plan against this final acceptance_criteria array, covering every positional AC ID with a relevant check. Do not use kind human in an already approved Architecture handoff; use executable test/browser evidence for behavior and retain independent Reviewer or deployment limitations in notes. Governance approval cannot substitute for missing behavioral proof. Do not assume backend-added criteria inherit coverage, invent test evidence, or weaken approved criteria." : "";
         const repairBrief = repairCandidate ? retryPriority
           ? `\n\nPreviously rejected Sprint draft for priority-only repair. Select schema-valid string priorities (${TICKET_PRIORITY_VALUES.join("|")}) for invalid priority fields; numeric ranks have no defined mapping. Preserve all IDs, ticket order, approved criteria, verification plans, dependencies and all other fields. Only invalid priority changes will be applied:\n${JSON.stringify(repairCandidate)}`
           : retryComponents

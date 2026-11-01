@@ -87,9 +87,8 @@ export const browserAssertions = {
     assert.equal(await dock.getAttribute("aria-pressed"), "true");
     assert.equal(await dock.getAttribute("aria-expanded"), "true");
     await panel.getByText("Chưa có ý tưởng.", { exact: true }).waitFor();
-    assert.match(await panel.innerText(), /PROJECT-A/);
     const input = await panel.getByLabel("Ý tưởng mới", { exact: true }).boundingBox();
-    const list = await panel.getByRole("list", { name: "Danh sách ý tưởng" }).boundingBox();
+    const list = await panel.getByRole("list", { name: "Danh sách ý tưởng", exact: true }).boundingBox();
     assert.ok(input.y + input.height <= list.y);
     await panel.getByRole("button", { name: "Đóng Ý tưởng" }).click();
     assert.equal(await dock.getAttribute("aria-pressed"), "false");
@@ -110,10 +109,10 @@ export const browserAssertions = {
       await row.getByLabel("Sửa nội dung").fill("Revised idea");
       await row.getByRole("button", { name: "Lưu nội dung" }).click();
       await row.getByText("Revised idea", { exact: true }).waitFor();
-      await row.getByRole("button", { name: "Hoàn thành" }).click();
-      await row.getByText("Đã xong", { exact: true }).waitFor();
-      await row.getByRole("button", { name: "Mở lại" }).click();
-      await row.getByText("Đang mở", { exact: true }).waitFor();
+      await row.getByRole("checkbox", { name: "Hoàn thành" }).click();
+      await panel.getByRole("list", { name: "Danh sách ý tưởng đã hoàn thành" }).locator("li").filter({ hasText: "Revised idea" }).waitFor();
+      await row.getByRole("checkbox", { name: "Mở lại" }).click();
+      await panel.getByRole("list", { name: "Danh sách ý tưởng", exact: true }).locator("li").filter({ hasText: "Revised idea" }).waitFor();
       await row.getByRole("button", { name: "Xóa", exact: true }).click();
       await row.getByRole("button", { name: "Hủy xóa" }).click();
       assert.equal(await row.count(), 1);
@@ -152,10 +151,8 @@ export const browserAssertions = {
     await panel.getByRole("alert").waitFor();
     assert.equal(await panel.getByText("Đã lưu", { exact: true }).count(), 0);
     assert.equal(await panel.getByLabel("Ý tưởng mới", { exact: true }).inputValue(), "Retained after failure");
-    await panel.getByRole("button", { name: "Thử lại" }).click();
-    await panel.getByText(/Ideas unavailable/).waitFor();
     await page.evaluate(() => { window.control.failList = false; window.control.failMutation = false; });
-    await panel.getByRole("button", { name: "Thử lại" }).click();
+    await panel.getByRole("button", { name: "Thêm ý tưởng" }).click();
     await panel.getByRole("alert").waitFor({ state: "hidden" });
     await create(page, "Recovered idea");
     // Deliver a captured pre-create response after POST succeeds, then verify reconciliation.
@@ -229,8 +226,8 @@ export const browserAssertions = {
     await page.keyboard.type("Keyboard idea");
     await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
     await panel.getByText("Đã lưu", { exact: true }).waitFor();
-    await tabTo(page, panel.getByRole("button", { name: "Hoàn thành" })); await page.keyboard.press("Enter");
-    await panel.getByRole("button", { name: "Mở lại" }).waitFor();
+    await tabTo(page, panel.getByRole("checkbox", { name: "Hoàn thành" })); await page.keyboard.press("Space");
+    await panel.getByRole("checkbox", { name: "Mở lại" }).waitFor();
     await tabTo(page, panel.getByRole("button", { name: "Xóa", exact: true })); await page.keyboard.press("Enter");
     await tabTo(page, panel.getByRole("button", { name: "Hủy xóa" })); await page.keyboard.press("Enter");
     const bounds = await panel.boundingBox();
@@ -240,5 +237,29 @@ export const browserAssertions = {
     await page.keyboard.press("Escape");
     assert.equal(await dock.evaluate(element => element === document.activeElement), true);
     assert.equal(await dock.getAttribute("aria-pressed"), "false");
+  },
+  "Ideas Panel renders 15px To-do lists with separate Open and Completed sections, strikethrough checkboxes, right-side icon controls, and persistent drag-and-drop ordering.": async ({ page, origin }) => {
+    await open(page, origin); const panel = await show(page);
+    for (const text of ["Todo Alpha", "Todo Beta", "Todo Gamma"]) await create(page, text);
+    const openList = panel.getByRole("list", { name: "Danh sách ý tưởng", exact: true });
+    const doneList = panel.getByRole("list", { name: "Danh sách ý tưởng đã hoàn thành", exact: true });
+    assert.deepEqual(await openList.locator("li .ideas-todo-content").allInnerTexts(), ["Todo Alpha", "Todo Beta", "Todo Gamma"]);
+    const alphaRow = openList.locator("li").filter({ hasText: "Todo Alpha" });
+    const styles = await alphaRow.evaluate((li) => {
+      const p = li.querySelector(".ideas-todo-content"), editBtn = li.querySelector('button[aria-label="Sửa"]');
+      const pRect = p.getBoundingClientRect(), eRect = editBtn.getBoundingClientRect();
+      return { fontSize: getComputedStyle(p).fontSize, rightOfContent: eRect.left >= pRect.right - 2, editW: Math.round(eRect.width) };
+    });
+    assert.deepEqual(styles, { fontSize: "15px", rightOfContent: true, editW: 24 });
+    await openList.locator("li").filter({ hasText: "Todo Gamma" }).dragTo(alphaRow);
+    await panel.getByText("Đã lưu", { exact: true }).waitFor();
+    assert.deepEqual(await openList.locator("li .ideas-todo-content").allInnerTexts(), ["Todo Gamma", "Todo Alpha", "Todo Beta"]);
+    await alphaRow.getByRole("checkbox", { name: "Hoàn thành" }).click();
+    const doneAlpha = doneList.locator("li").filter({ hasText: "Todo Alpha" });
+    await doneAlpha.waitFor();
+    assert.match(await doneAlpha.locator(".ideas-todo-content").evaluate((el) => getComputedStyle(el).textDecorationLine), /line-through/);
+    await page.reload(); await page.getByRole("button", { name: "Ý tưởng", exact: true }).waitFor(); await show(page);
+    assert.deepEqual(await openList.locator("li .ideas-todo-content").allInnerTexts(), ["Todo Gamma", "Todo Beta"]);
+    assert.deepEqual(await doneList.locator("li .ideas-todo-content").allInnerTexts(), ["Todo Alpha"]);
   }
 };

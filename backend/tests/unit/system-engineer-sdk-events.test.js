@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { withSystemEngineerEvents } from "../../src/application/system-engineer-sdk-events.js";
+import { formatForgeToolActivitySummary, formatForgeToolCommand } from "../../src/application/system-engineer-sdk-transcript.js";
 import { redactSystemEngineerEvent } from "../../src/shared/system-engineer-event-redaction.js";
 import { createClaudeSdkGateway } from "../../src/modules/agent/claude-sdk-gateway.js";
 import { createOwnerSdkStream } from "../../src/application/owner-sdk-stream.js";
@@ -95,4 +96,14 @@ test("saved SE SDK events are not included in the next owner SDK prompt", async 
   for await (const chunk of stream({ agentId: "SE", payload: { text: "Next request" }, conversationId: "CHAT", correlationId: "NEXT" })) assert.equal(chunk.text, "Done");
   assert.match(prompt, /Previous owner request/);
   assert.doesNotMatch(prompt, /RAW-EVENT-SHOULD-NOT-BE-CONTEXT|TOOL-OUTPUT-SHOULD-NOT-BE-CONTEXT/);
+});
+
+test("formatForgeToolCommand and formatForgeToolActivitySummary format detailed Forge tool inputs and result metrics", () => {
+  assert.equal(formatForgeToolCommand("read_file", { path: "backend/src/app.js" }), "read_file backend/src/app.js (index/full)");
+  assert.equal(formatForgeToolCommand("read_file", { path: "backend/src/app.js", offset: 10, limit: 30 }), "read_file backend/src/app.js:10..39");
+  assert.equal(formatForgeToolCommand("read_file", { path: "backend/src/app.js", symbol: "createServer" }), "read_file backend/src/app.js#createServer");
+  assert.equal(formatForgeToolCommand("run_check", { type: "test", command: "node --test backend/tests/unit/example.test.js" }), "run_check [test] node --test backend/tests/unit/example.test.js");
+  assert.equal(formatForgeToolCommand("edit_diff", { path: "backend/src/app.js", occurrence: "all" }), "edit_diff backend/src/app.js (occurrence=all)");
+  const summary = formatForgeToolActivitySummary("read_file", { path: "backend/src/app.js", offset: 1, limit: 80 }, "success", { total_lines: 120, sha256: "sha256:1234567890abcdef1234567890abcdef" }, 14);
+  assert.equal(summary, "Forge tool read_file success: read_file backend/src/app.js:1..80 (120 lines, sha256:1234567890ab, 14ms)");
 });

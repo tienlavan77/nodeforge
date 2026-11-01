@@ -22,7 +22,7 @@ import { createHumanPlanStore } from "../../src/modules/governance/human-plan-st
 import { createMarkdownPlanStore } from "../../src/modules/governance/markdown-plan-store.js";
 import { createOwnerChatCommandService } from "../../src/application/owner-chat-command-service.js";
 import { readMarkdownSprintScope } from "../../src/modules/governance/markdown-sprint-scope.js";
-import { assertNoMixedPlanningApproval, detectPlanApproveTrigger, detectPlanCreateTrigger, detectPlanUpdateTrigger, isConversationPlanMessage } from "../../src/modules/governance/conversation-plan-trigger.js";
+import { assertNoMixedPlanningApproval, detectPlanApproveTrigger, detectPlanCreateTrigger, detectPlanUpdateTrigger, isConversationPlanMessage, parseConversationPlanCreateTrigger } from "../../src/modules/governance/conversation-plan-trigger.js";
 
 const PLAN_JSON = JSON.stringify({
   title: "Conversation plan",
@@ -137,4 +137,34 @@ test("an approve phrase alone is never an approval and needs the exact slash com
     await assert.rejects(f.service.execute({ text: `/approve ${created.plan_id}`, conversationId: "CONV-A", project_id: "PROJECT-A", approvedOwnerId: "OWNER", approvalRevision: created.revision, approvalSha256: created.sha256 }), { code: "PLAN_APPROVAL_REQUIRED" });
     assert.equal(created.run_started, false);
   } finally { await f.close(); }
+});
+
+test("parseConversationPlanCreateTrigger parses all combinations of (conversation | markdown_file) x (none | sl | se) in Vietnamese and English", () => {
+  const cases = [
+    ["tạo kế hoạch từ cuộc trao đổi", { source_kind: "conversation", source_path: null, delivery_target: "none" }],
+    ["tạo kế hoạch từ cuộc trao đổi và giao việc cho SL", { source_kind: "conversation", source_path: null, delivery_target: "sl" }],
+    ["tạo kế hoạch kiến trúc, giao việc cho SE", { source_kind: "conversation", source_path: null, delivery_target: "se" }],
+    ["Create an architecture plan and hand off to Sprint Leader", { source_kind: "conversation", source_path: null, delivery_target: "sl" }],
+    ["Generate a plan from this conversation, delegate to System Engineer", { source_kind: "conversation", source_path: null, delivery_target: "se" }],
+    ["tạo kế hoạch từ docs/spec.md", { source_kind: "markdown_file", source_path: "docs/spec.md", delivery_target: "none" }],
+    ["tạo kế hoạch từ file `docs/spec.md`, giao việc cho SL", { source_kind: "markdown_file", source_path: "docs/spec.md", delivery_target: "sl" }],
+    ["tạo kế hoạch kiến trúc từ docs/architecture/plan.md và giao việc cho SE", { source_kind: "markdown_file", source_path: "docs/architecture/plan.md", delivery_target: "se" }],
+    ["Create the architecture plan from docs/spec.md and hand off to SL", { source_kind: "markdown_file", source_path: "docs/spec.md", delivery_target: "sl" }],
+    ['Draft a plan from file "docs/spec.md", assign to SE.', { source_kind: "markdown_file", source_path: "docs/spec.md", delivery_target: "se" }]
+  ];
+  for (const [input, expected] of cases) {
+    const parsed = parseConversationPlanCreateTrigger(input);
+    assert.ok(parsed, `Expected trigger match for: ${input}`);
+    assert.equal(parsed.source_kind, expected.source_kind, input);
+    assert.equal(parsed.source_path, expected.source_path, input);
+    assert.equal(parsed.delivery_target, expected.delivery_target, input);
+    assertNoMixedPlanningApproval(input);
+  }
+  for (const ignored of [
+    "tạo kế hoạch từ docs/spec.md, giao việc cho SE?",
+    "> tạo kế hoạch từ docs/spec.md, giao việc cho SE",
+    "```\ntạo kế hoạch từ docs/spec.md, giao việc cho SE\n```"
+  ]) {
+    assert.equal(parseConversationPlanCreateTrigger(ignored), null, ignored);
+  }
 });

@@ -45,7 +45,16 @@ window.fetch=async(input,init={})=>{
   }
   const version=method==="PATCH"?body.expected_version:Number(url.searchParams.get("expected_version"));
   if(!item||item.version!==version)return Response.json({error:{message:"Idea version conflict"}},{status:409});
-  if(method==="PATCH"){Object.assign(item,body,{version:item.version+1});delete item.expected_version;window.persist();return Response.json(item);}
+  if(method==="PATCH"){
+   Object.assign(item,body,{version:item.version+1});delete item.expected_version;
+   if(typeof body.position==="number"){
+    const rest=window.records.filter(entry=>entry.id!==item.id);
+    const bounded=Math.max(0,Math.min(body.position,rest.length));
+    rest.splice(bounded,0,item);
+    window.records=rest.map((entry,idx)=>({...entry,position:idx}));
+   }
+   window.persist();return Response.json(item);
+  }
   if(method==="DELETE"){window.records=window.records.filter(entry=>entry!==item);window.persist();return Response.json({deleted:true,id});}
  }
  return Response.json({items:[],requests:[],status:"idle"});

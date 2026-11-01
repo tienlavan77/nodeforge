@@ -46,9 +46,9 @@ export const selectCodeGraphCandidatesDefinition = Object.freeze({ name: "select
 export const searchCodeDefinition = Object.freeze({ name: "search_code", description: "Search Forge Code Search by file, symbol, or content (kind=\"content\" returns text snippets from FTS with matching lines) and return scoped metadata.", input_schema: searchCodeInputSchema });
 export const readCodeDefinition = Object.freeze({ name: "read_code", description: "Read exactly one Node-approved file or symbol through Forge File Service.", input_schema: readCodeInputSchema });
 // read_file validates its input schema; the tool registry does not apply a strict result schema.
-export const readFileDefinition = Object.freeze({ name: "read_file", description: "Read Markdown content and whole-file sha256 (up to 250 lines) with path only; use offset/limit for more Markdown. Symbol is ignored for Markdown. For source files, path only returns indexed metadata and graph; pass symbol or offset/limit to receive up to 250 source lines.", input_schema: readFileInputSchema });
+export const readFileDefinition = Object.freeze({ name: "read_file", description: "Read file metadata, symbol map and graph with path only. Source content is never returned; use Read with symbol or start_line/end_line. Markdown includes its first 250 lines.", input_schema: readFileInputSchema });
 export const writeDiffDefinition = Object.freeze({ name: "write_diff", description: "Write a complete file through Node File Service after checksum validation. Content is limited to 250 lines; for localized changes use edit_diff.", input_schema: writeDiffInputSchema });
-export const editDiffDefinition = Object.freeze({ name: "edit_diff", description: "Replace an exact anchor string in one approved file after checksum validation. Use read_file {offset,limit} to find the anchor; anchor must be unique unless occurrence=\"all\".", input_schema: editDiffInputSchema });
+export const editDiffDefinition = Object.freeze({ name: "edit_diff", description: "Replace an exact anchor string in one approved file after checksum validation. Use Read with file_path and symbol or start_line/end_line to find the anchor; anchor must be unique unless occurrence=\"all\".", input_schema: editDiffInputSchema });
 export const runTestDefinition = Object.freeze({ name: "run_test", description: "Start the Node-owned test suite and return a job_id immediately; poll check_test with that job_id for the result.", input_schema: runTestInputSchema });
 export const checkTestDefinition = Object.freeze({ name: "check_test", description: "Poll a started test job by job_id until it reports passed or failed.", input_schema: checkTestInputSchema });
 export const commitChangesDefinition = Object.freeze({ name: "commit_changes", description: "Ask Node to commit ticket ledger paths; supply a message, not file paths.", input_schema: commitChangesInputSchema });
@@ -65,7 +65,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   const retrievalBudgets = new Map();
   const lifecycle = {};
   Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, codeCache, projectLogger: terminalAuditLogger(projectLogger), wrap }));
-  Object.assign(lifecycle, engineeringToolImplementations({ registry: lifecycle, fileService, projectRoot, wrap }));
+  Object.assign(lifecycle, engineeringToolImplementations({ registry: lifecycle, fileService, projectRoot, codeCache, wrap }));
   if (fileService?.readForIndex && fileService?.listFiles && fileService?.readFile && fileService?.atomicWrite && fileService?.deleteFile && projectRoot) {
     const scopedFiles = createRoleFileService({ fileService, role: "coder", projectRoot });
     const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => { await scopedFiles.assertReadPath(path); return codeCache.read({ path }); } };

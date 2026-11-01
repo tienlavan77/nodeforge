@@ -1,14 +1,15 @@
 // Distinguishes rejected SDK requests from ambiguous provider timeouts before allowing Coder recovery.
 const TRANSIENT_CODES = new Set(["ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "SERVICE_UNAVAILABLE"]);
+const STREAM_DISCONNECT = /\b(?:stream disconnected before completion|stream closed before response\.completed)\b/i;
 
 // Adds retry evidence only for structured service rejection or a confirmed ended transient turn.
 export function sdkFailureEvidence(failure, cause, { ended = false, aborted = false } = {}) {
   const status = Number(cause?.status ?? cause?.statusCode);
-  const code = cause?.code ?? cause?.cause?.code;
+  const code = cause?.code ?? cause?.cause?.code ?? (ended && STREAM_DISCONNECT.test(String(cause?.message ?? failure?.message ?? "")) ? "ECONNRESET" : undefined);
   if (Number.isInteger(status) && status >= 400 && status <= 599) failure.status = status;
   const modelUnavailable = temporaryModelFailure(cause, { ended });
   if (!aborted && !["unknown", "active"].includes(cause?.provider_outcome)
-    && ([429, 503].includes(status) || modelUnavailable || ended && TRANSIENT_CODES.has(code))) {
+    && ([429, 502, 503, 504].includes(status) || modelUnavailable || ended && TRANSIENT_CODES.has(code))) {
     return Object.assign(failure, { provider_outcome: "failed", retry_safe: true,
       ...(modelUnavailable ? { status: 400 } : {}),
       cause: { code: TRANSIENT_CODES.has(code) ? code : "SERVICE_UNAVAILABLE" } });

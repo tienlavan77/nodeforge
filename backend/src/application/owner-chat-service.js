@@ -119,7 +119,19 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     bus.send(ownerMessage);
     try {
       if (typeof commandService?.execute !== "function") throw Object.assign(new ConfigurationError("Planning command service is unavailable; the command was not sent to agent chat."), { code: "OWNER_COMMAND_UNAVAILABLE", statusCode: 503 }); const isPlanCommand = /^\/(?:plan|plan-continue)\s+\S+\s*$/i.test(input.payload.text.trim()) || isConversationPlanMessage(input.payload.text);
-      const result = await commandService.execute({ text: input.payload.text, conversationId: input.conversation_id, project_id: input.project_id, approvedOwnerId: input.approved_owner_id, planningVersion: input.payload.planning_version, planningSourceSha256: input.payload.planning_source_sha256, approvalRevision: input.payload.approval_revision, approvalSha256: input.payload.approval_sha256, approvalComments: input.payload.approval_comments, requestArchitecture: (prompt, conversationId, options = {}) => streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType: options.responseContentType, exposeText: !isPlanCommand }) });
+      const result = await commandService.execute({
+        text: input.payload.text,
+        conversationId: input.conversation_id,
+        project_id: input.project_id,
+        approvedOwnerId: input.approved_owner_id ?? input.sender_id ?? "project-owner",
+        planningVersion: input.payload.planning_version,
+        planningSourceSha256: input.payload.planning_source_sha256,
+        approvalRevision: input.payload.approval_revision,
+        approvalSha256: input.payload.approval_sha256,
+        approvalComments: input.payload.approval_comments,
+        requestArchitecture: (prompt, conversationId, options = {}) => streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType: options.responseContentType, exposeText: options.exposeText ?? !isPlanCommand }),
+        requestSystemEngineer: ({ agentId: seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId }) => streamHandoffSystemEngineer({ seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId })
+      });
       const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.result", result, `COMMAND-${input.message_id}`);
       bus.send(response);
       messages.set(input.message_id, Object.freeze(structuredClone(response)));
@@ -145,6 +157,16 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
     const response = responseMessage(message, "architecture.message.received", { text, content_type: contentType, agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
     if (exposeText) bus.send(response);
+    return text;
+  }
+  // Business purpose: streams one System Engineer implementation turn during an automatic AM to SE plan handoff while linking live SDK events back to the Architecture conversation.
+  // Technical description: invokes agentStream with response_content_type set to text/markdown and linked_conversation_id bound to the originating Architecture conversation, returning the accumulated reply text.
+  async function streamHandoffSystemEngineer({ seAgentId, prompt, conversationId, linkedConversationId, correlationId }) {
+    if (typeof agentStream !== "function") throw new ConfigurationError("Configured System Engineer agent stream is unavailable.");
+    let text = "";
+    for await (const chunk of agentStream({ agentId: seAgentId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null }, correlationId, conversationId })) {
+      if (typeof chunk?.text === "string" && chunk.text) text += chunk.text;
+    }
     return text;
   }
   // Adds available project context to agent requests.
