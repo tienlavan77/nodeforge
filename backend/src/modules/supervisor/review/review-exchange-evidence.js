@@ -59,7 +59,7 @@ export function attachReviewExchangeTools(tools, evidence, { job, reviewer, proj
           duration_ms: Date.now() - started, evidence_scope: "ticket_review_history", ...payload } });
     }
   } } };
-  for (const name of ["read_file", "read_lines"]) {
+  for (const name of ["read_file", "Read"]) {
     const original = registry[name];
     if (!original?.execute) continue;
     registry[name] = { ...original, execute: async (input = {}, context = {}) => {

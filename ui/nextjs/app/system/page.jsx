@@ -91,15 +91,16 @@ export default function SystemPage({ sectionTitle = "System", projectId: propPro
   activeConversationIdRef.current = activeConversationId ?? selectedAgent?.conversation_id ?? selectedAgent?.conversationId ?? null;
   agentDirectoryRef.current = agentDirectory;
   const [systemInterruption, setSystemInterruption] = useState(0);
-  // Counts terminal conversation failures so recovery controls re-read the durable checkpoint without a page reload.
-  const noteStreamInterruption = useCallback((event) => {
-    const failed = (event?.event_type === "agent.activity" && event?.payload?.activity_type === "failed") || event?.event_type === "conversation.message.failed";
-    if (failed && event?.payload?.conversation_id === activeConversationIdRef.current) setSystemInterruption((current) => current + 1);
-  }, []);
   const { messages, setMessages, messagesLoading, setMessagesLoading, olderLoading, hasOlder, historyError,
     loadConversationMessages, loadEarlierMessages, handleMessageScroll, followLatest } = useConversationMessageHistory({
     client, projectId: PROJECT_ID, chatMessagesRef, agentDirectoryRef, agentDisplayName
   });
+  // Refresh recovery controls for terminal failures while preserving the conversation selected by the owner.
+  const noteStreamInterruption = useCallback((event) => {
+    const failed = (event?.event_type === "agent.activity" && event?.payload?.activity_type === "failed") || event?.event_type === "conversation.message.failed";
+    if (failed && event?.payload?.conversation_id === activeConversationIdRef.current) setSystemInterruption((current) => current + 1);
+
+  }, []);
 
   useEffect(() => {
     setConversations([]); setActiveConversationId(null); activeConversationIdRef.current = null;
@@ -135,7 +136,8 @@ export default function SystemPage({ sectionTitle = "System", projectId: propPro
         if (activeConversationIdRef.current === "") return;
         const saved = readChatState(CODING_CHAT_STATE_KEY);
         const savedId = saved?.agent_id === selectedAgent.id ? saved.conversation_id : null;
-        const selected = items.find((item) => (item.id ?? item.conversation_id) === savedId) ?? items[0] ?? null;
+        const savedItem = items.find((item) => (item.id ?? item.conversation_id) === savedId) ?? null;
+        const selected = savedItem ?? items[0] ?? null;
         const conversationId = selected?.id ?? selected?.conversation_id ?? null;
         setActiveConversationId(conversationId);
         if (conversationId) { writeChatState(CODING_CHAT_STATE_KEY, selectedAgent.id, conversationId); void loadConversationMessages(conversationId); }

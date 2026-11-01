@@ -2,8 +2,14 @@
 import { ConfigurationError } from "../../../shared/errors.js";
 import { buildCacheOptions, buildResponsesInput, buildToolConfig, mapOpenAIUsage } from "./openai-request-builder.js";
 
+// Enforces configured agent output token budgets on Codex Responses API calls by resolving a validated positive integer max_output_tokens parameter from explicit options, prepared request bodies, or payload fields.
+function maxOutputTokensOption(payload, requestBody = {}, maxOutputTokens) {
+  const limit = maxOutputTokens ?? requestBody.max_output_tokens ?? payload?.max_output_tokens ?? payload?.max_tokens;
+  return Number.isSafeInteger(limit) && limit >= 1 ? { max_output_tokens: limit } : {};
+}
+
 // Sends a Responses API request with retry and polls until a terminal status.
-export async function request({ url, credential, payload, preparedRequest, model, correlationId, signal }) {
+export async function request({ url, credential, payload, preparedRequest, model, maxOutputTokens, correlationId, signal }) {
   url = responsesUrl(url);
   const isResponses = true;
   const requestBody = isResponses
@@ -12,7 +18,7 @@ export async function request({ url, credential, payload, preparedRequest, model
   let response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify({ ...requestBody, ...responseToolOptions(payload, requestBody) }),
+    body: JSON.stringify({ ...requestBody, ...maxOutputTokensOption(payload, requestBody, maxOutputTokens), ...responseToolOptions(payload, requestBody) }),
     signal
   }, "Codex Responses");
   if (!response.ok) throw await gatewayError(response, "Codex Responses");
@@ -33,12 +39,12 @@ export async function request({ url, credential, payload, preparedRequest, model
 }
 
 // Streams Responses deltas and assembles incremental tool-call arguments.
-export async function* stream({ url, credential, payload, model, correlationId, signal }) {
+export async function* stream({ url, credential, payload, model, maxOutputTokens, correlationId, signal }) {
   url = responsesUrl(url);
   const response = await fetchWithRetry(url, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${credential}`, "x-correlation-id": correlationId },
-    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), ...responseToolOptions(payload), stream: true }),
+    body: JSON.stringify({ model: model || process.env.NODE_AGENT_MODEL || "gpt-5.6-terra", input: buildResponsesInput(payload), ...buildCacheOptions(payload), ...maxOutputTokensOption(payload, {}, maxOutputTokens), ...responseToolOptions(payload), stream: true }),
     signal
   }, "Codex Responses stream");
   if (!response.ok) throw await gatewayError(response, "Codex Responses stream");
@@ -62,7 +68,14 @@ export async function* stream({ url, credential, payload, model, correlationId, 
         try { input = JSON.parse(event.arguments ?? "{}"); } catch { throw new ConfigurationError("Codex tool input is invalid."); }
         yield { tool_use: { id: event.call_id ?? event.item_id, name: event.name ?? "terminal.run", input } };
       }
-      if (event.type === "response.completed") yield { response_id: event.response?.id ?? event.response?.response_id, usage: mapOpenAIUsage(event.response?.usage ?? event.usage) };
+      if (event.type === "response.incomplete" || (event.type === "response.completed" && event.response?.status === "incomplete")) {
+        const incompleteDetails = event.response?.incomplete_details ?? event.incomplete_details ?? { reason: "max_output_tokens" };
+        yield { status: "incomplete", incomplete_details: incompleteDetails, response_id: event.response?.id ?? event.response?.response_id, usage: mapOpenAIUsage(event.response?.usage ?? event.usage) };
+        if (incompleteDetails?.reason === "max_output_tokens") {
+          throw Object.assign(new ConfigurationError("Codex Responses stream truncated at max_output_tokens."), { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: incompleteDetails });
+        }
+      }
+      if (event.type === "response.completed") yield { response_id: event.response?.id ?? event.response?.response_id, usage: mapOpenAIUsage(event.response?.usage ?? event.usage), ...(event.response?.incomplete_details ? { incomplete_details: event.response.incomplete_details } : {}) };
       if (event.type === "error") throw new ConfigurationError("Agent Gateway stream failed.");
     }
   }

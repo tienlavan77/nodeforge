@@ -26,10 +26,13 @@ export function createIdeasStore({ controlDb, projectId, clock = () => new Date(
   function get(id) {
     return controlDb.all("SELECT * FROM ideas WHERE project_id = ? AND id = ?", [projectId, id])[0];
   }
-  /** Rejects invalid content or workflow values before they reach durable storage. */
-  function validate(content, status) {
+  /** Rejects invalid content, workflow status, or position values before they reach durable storage. */
+  function validate(content, status, position = 0) {
     if (typeof content !== "string" || !content.trim() || !["open", "done"].includes(status)) {
       throw ideaError("Invalid Idea content or status.", 400);
+    }
+    if (!Number.isSafeInteger(position) || position < 0) {
+      throw ideaError("Invalid Idea position.", 400);
     }
   }
   /** Classifies a failed conditional write while retaining the writer lock. */
@@ -42,35 +45,53 @@ export function createIdeasStore({ controlDb, projectId, clock = () => new Date(
     projectId,
     locate,
     get,
-    /** Lists the project's notebook deterministically, optionally filtering workflow status. */
+    /** Lists the project's notebook deterministically by saved position with created_at and id fallback. */
     list({ status = "all" } = {}) {
       if (!["all", "open", "done"].includes(status)) throw ideaError("Invalid Idea status.", 400);
-      return controlDb.all(`SELECT * FROM ideas WHERE project_id = ?${status === "all" ? "" : " AND status = ?"} ORDER BY created_at, id`,
+      return controlDb.all(`SELECT * FROM ideas WHERE project_id = ?${status === "all" ? "" : " AND status = ?"} ORDER BY position ASC, created_at ASC, id ASC`,
         status === "all" ? [projectId] : [projectId, status]);
     },
-    /** Saves a new Idea with a server-owned identity, timestamps and initial version. */
+    /** Saves a new Idea with a server-owned identity, next position, timestamps and initial version. */
     create({ content, status = "open" } = {}) {
-      validate(content, status);
+      validate(content, status, 0);
       const id = createId();
       const now = clock().toISOString();
       return controlDb.transaction(() => {
-        controlDb.run("INSERT INTO ideas (id, project_id, content, status, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, 1)",
-          [id, projectId, content, status, now, now]);
+        const nextRow = controlDb.all("SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM ideas WHERE project_id = ?", [projectId])[0];
+        const position = Number.isSafeInteger(nextRow?.next_pos) && nextRow.next_pos >= 0 ? nextRow.next_pos : 0;
+        controlDb.run("INSERT INTO ideas (id, project_id, content, status, created_at, updated_at, version, position) VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
+          [id, projectId, content, status, now, now, position]);
         return get(id);
       });
     },
-    /** Applies partial notebook edits only when the caller still owns the saved version. */
-    update(id, { version, content, status } = {}) {
+    /** Applies partial notebook edits and optional reordering only when the caller still owns the saved version. */
+    update(id, { version, content, status, position } = {}) {
       if (!Number.isSafeInteger(version) || version < 1) throw ideaError("Invalid Idea version.", 400);
+      if (position !== undefined && (!Number.isSafeInteger(position) || position < 0)) throw ideaError("Invalid Idea position.", 400);
       return controlDb.transaction(() => {
         const current = get(id);
         if (!current) return missing(id);
         const nextContent = content === undefined ? current.content : content;
         const nextStatus = status === undefined ? current.status : status;
-        validate(nextContent, nextStatus);
-        const result = controlDb.run(`UPDATE ideas SET content = ?, status = ?, updated_at = ?, version = version + 1
+        const currentPos = Number.isSafeInteger(current.position) ? current.position : 0;
+        const nextPos = position === undefined ? currentPos : position;
+        validate(nextContent, nextStatus, nextPos);
+        let assignedPos = nextPos;
+        if (position !== undefined) {
+          const allRows = controlDb.all("SELECT id FROM ideas WHERE project_id = ? ORDER BY position ASC, created_at ASC, id ASC", [projectId]);
+          const others = allRows.map((r) => r.id).filter((rowId) => rowId !== id);
+          const bounded = Math.max(0, Math.min(nextPos, others.length));
+          others.splice(bounded, 0, id);
+          assignedPos = bounded;
+          for (let idx = 0; idx < others.length; idx++) {
+            if (others[idx] !== id) {
+              controlDb.run("UPDATE ideas SET position = ? WHERE project_id = ? AND id = ?", [idx, projectId, others[idx]]);
+            }
+          }
+        }
+        const result = controlDb.run(`UPDATE ideas SET content = ?, status = ?, position = ?, updated_at = ?, version = version + 1
           WHERE project_id = ? AND id = ? AND version = ?`,
-          [nextContent, nextStatus, clock().toISOString(), projectId, id, version]);
+          [nextContent, nextStatus, assignedPos, clock().toISOString(), projectId, id, version]);
         if (!Number(result.changes)) return missing(id);
         return get(id);
       });

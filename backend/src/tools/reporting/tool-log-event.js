@@ -41,6 +41,18 @@ export function formatToolLogEvent(status, tool, input, context, extra) {
     ...(context.agent_identity?.role ? { agent_role: context.agent_identity.role } : {}),
     ...(context.agent_identity?.provider ? { provider: context.agent_identity.provider } : {}),
     ...(typeof input?.path === "string" ? { path: input.path } : {}),
+    ...(typeof input?.symbol === "string" ? { symbol: input.symbol } : {}),
+    ...(Number.isInteger(input?.offset) ? { offset: input.offset } : {}),
+    ...(Number.isInteger(input?.limit) ? { limit: input.limit } : {}),
+    ...(Number.isInteger(input?.start_line) ? { start_line: input.start_line } : {}),
+    ...(Number.isInteger(input?.end_line) ? { end_line: input.end_line } : {}),
+    ...(Number.isInteger(input?.max_depth) ? { max_depth: input.max_depth } : {}),
+    ...(typeof input?.pattern === "string" ? { pattern: input.pattern.slice(0, 80) } : {}),
+    ...(Array.isArray(input?.paths) ? { paths: input.paths.slice(0, 6) } : {}),
+    ...(Array.isArray(input?.flags) ? { flags: input.flags.slice(0, 6) } : {}),
+    ...(typeof input?.command === "string" ? { command: input.command.slice(0, 180) } : {}),
+    ...(typeof input?.type === "string" ? { type: input.type } : {}),
+    ...(typeof input?.message === "string" ? { commit_message: input.message.slice(0, 120) } : {}),
     ...(context.session_id ? { session_id: context.session_id } : {}),
     ...(extra.duration_ms !== undefined ? { duration_ms: extra.duration_ms } : {})
   };

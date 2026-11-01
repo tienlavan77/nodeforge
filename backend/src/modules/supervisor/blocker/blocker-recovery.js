@@ -10,6 +10,7 @@ import { repeatedDispositionCorrection, salvagePersistedDisposition } from "./bl
 import { isBlockerSourceRetry } from "./blocker-source-retry.js";
 import { createBlockerWaitingRefresh } from "./blocker-recovery-errors.js";
 import { assignDelegationEvidenceReview } from "./blocker-delegation-evidence.js";
+import { assignContractConsultation } from "./blocker-contract-consultation.js";
 
 import { restoreBlockerAgentWait, scheduleBlockerAgentWait } from "./blocker-agent-wait.js";
 import { completeBlockedResume, previousBlockedHandoff, restoreBlockedHandoff } from "./blocker-resume-outcome.js";
@@ -41,8 +42,8 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
         ?? { id, project_id: request.project_id, task_id: request.task_id, execution_id: request.payload.execution_id,
           calls: 0, resumes: 0, deadline_at: clock() + deadlineMs, policy: {}, jobs: [] };
       const existing = ledger.jobs.find((job) => job.id === jobId);
-      if (ledger.cancelled) return existing ?? null;
-      if (existing) { if (scheduleApprovalRetry(existing, input.approval_retry, clock())) await store.save(STORE, ledger); return existing; }
+      if (existing) { if (!ledger.cancelled && scheduleApprovalRetry(existing, input.approval_retry, clock())) await store.save(STORE, ledger); return existing; }
+      if (ledger.cancelled) ledger.cancelled = false;
       const job = { ...structuredClone(input), id: jobId, stage: "sprint_leader", status: "pending", created_at: clock(), history: [],
         previous_handoff: previousBlockedHandoff(ledger, input) };
       ledger.deadline_at = job.created_at + deadlineMs;
@@ -207,6 +208,8 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
         if (error.not_started && operation === "pending") { current.status = "pending"; current.last_error = error.message; current.role_retry_at = clock() + 30_000; ledger.calls -= 1; }
         else {
           const feedback = error.validation_errors ?? [{ path: "/", reason: error.code ?? "BLOCKER_RECOVERY_FAILED", message: error.message }];
+          const consultFeedback = error.truncated_json || error.incomplete_details?.reason === "max_output_tokens"
+            ? [...feedback, { path: "/", reason: "response_truncated", message: error.message }] : feedback;
           if (operation === "notification_pending" && current.resolution?.action === "governance_required") {
             current.failed_governance_disposition = current.resolution;
             delete current.resolution;
@@ -217,7 +220,7 @@ export function createBlockerRecovery({ store, validate, investigate, checkDispo
             const attempt = current.disposition_attempts.at(-1);
             if (attempt?.status === "received") Object.assign(attempt, { status: "rejected", validation_errors: feedback });
           }
-          if (assignDelegationEvidenceReview(current, error, clock())) {
+          if (assignContractConsultation(current, consultFeedback, clock()) || assignDelegationEvidenceReview(current, error, clock())) {
             ledger.deadline_at = clock() + deadlineMs;
             logger.info?.("Changed Architecture citations assigned to AM; Sprint handoff and Coder checkpoint preserved.", { task_id: job.request.task_id, code: error.code, validation_errors: feedback });
             return;

@@ -16,15 +16,16 @@
 // stays restricted to normal_chat/ticket_create because routing here is Node-side text
 // classification, never a new intent value. Prompt prefixes keep the existing
 // "Architecture clarification discovery" contract so streaming content types are unchanged.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { architectureSessionFromRecord, canonicalArchitecturePlanSha256, canonicalizeArchitecturePlanJSON, mergeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../modules/governance/architecture-plan-json.js";
 import { readConversationPlanSource, readRetainedConversationPlanSource, retainConversationIntakeSource, retainConversationPlanSource } from "../modules/governance/conversation-plan-source.js";
-import { assertNoMixedPlanningApproval, detectPlanCreateTrigger, detectPlanUpdateTrigger, isConversationPlanMessage } from "../modules/governance/conversation-plan-trigger.js";
+import { assertNoMixedPlanningApproval, detectPlanUpdateTrigger, isConversationPlanMessage, parseConversationPlanCreateTrigger } from "../modules/governance/conversation-plan-trigger.js";
 import { appendArchitectureDecisions, architectureSelections, decisionError, readArchitectureDecisions } from "../modules/governance/architecture-owner-decisions.js";
 import { parseArchitectureQuestions } from "../modules/governance/architecture-question-response.js";
 
 const INTAKE_PATH_RE = /\/plans\/(PLAN-[A-Za-z0-9._-]+)\/conversation-intake\.json$/;
 const ANCHOR_PATH_RE = /\/plans\/(PLAN-[A-Za-z0-9._-]+)\/plan-source-r(\d+)\.json$/;
+const SAFE_MD_PATH_RE = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*[\\\0])[A-Za-z0-9._/-]+\.md$/i;
 
 // Recovers the Node-owned plan identity embedded in a conversation intake anchor path.
 export function planIdFromIntakePath(sourcePath) { return String(sourcePath ?? "").match(INTAKE_PATH_RE)?.[1] ?? null; }
@@ -42,17 +43,54 @@ function carriedSession(previousMarkdown) {
 export function createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture } = {}) {
   if (!projectId || !fileService?.readFile || !markdownPlanStore?.createRevision || typeof validateMarkdown !== "function" || !sessions?.create || typeof requestArchitecture !== "function") throw decisionError("CONVERSATION_PLANNING_UNAVAILABLE", "Conversation planning needs File Service, the Markdown plan store, gates, sessions and Architecture.");
 
-  // Generates revision r1 from conversation context and its Node-generated source anchor.
+  // Generates revision r1 from conversation context or a specified Markdown file and its Node-generated source anchor.
   async function createFromConversation({ text, conversationId }) {
     assertNoMixedPlanningApproval(text);
-    const trigger = detectPlanCreateTrigger(text);
-    if (!trigger) throw decisionError("PLAN_TRIGGER_REQUIRED", "No standalone plan create trigger is present; the message stays normal conversation.");
+    const parsed = parseConversationPlanCreateTrigger(text);
+    if (!parsed) throw decisionError("PLAN_TRIGGER_REQUIRED", "No standalone plan create trigger is present; the message stays normal conversation.");
+    let combinedSourceText = String(text ?? "");
+    let sourceFileSha256 = null;
+    if (parsed.source_kind === "markdown_file") {
+      if (!SAFE_MD_PATH_RE.test(parsed.source_path ?? "")) {
+        throw Object.assign(decisionError("PLAN_SOURCE_PATH_INVALID", `Plan source path is invalid: ${parsed.source_path ?? ""}.`), { statusCode: 400 });
+      }
+      let fileContent;
+      try { fileContent = await fileService.readFile({ path: parsed.source_path }); }
+      catch (error) {
+        if (error.code === "ENOENT") throw Object.assign(decisionError("PLAN_SOURCE_MISSING", `Plan source Markdown file does not exist: ${parsed.source_path}.`), { statusCode: 409 });
+        throw error;
+      }
+      if (typeof fileContent !== "string" || !fileContent.trim()) {
+        throw Object.assign(decisionError("PLAN_SOURCE_MISSING", `Plan source Markdown file is empty: ${parsed.source_path}.`), { statusCode: 409 });
+      }
+      sourceFileSha256 = createHash("sha256").update(fileContent, "utf8").digest("hex");
+      combinedSourceText = `${combinedSourceText.trim()}\n\n--- Markdown Source (${parsed.source_path}) ---\n${fileContent}`;
+    }
     const planId = `PLAN-${projectId}-${randomUUID()}`;
-    const intake = await retainConversationIntakeSource({ fileService, planId, intake: { schema_version: 1, project_id: projectId, conversation_id: conversationId, trigger, text: String(text ?? "") } });
-    const questions = parseArchitectureQuestions(String(await requestArchitecture(clarificationPrompt(text), conversationId, { responseContentType: "text/plain" }) ?? "").trim());
+    const intakeRecord = {
+      schema_version: 1,
+      project_id: projectId,
+      conversation_id: conversationId,
+      trigger: parsed.line,
+      source_kind: parsed.source_kind,
+      ...(parsed.source_path ? { source_file_path: parsed.source_path, source_file_sha256: sourceFileSha256 } : {}),
+      delivery_target: parsed.delivery_target,
+      text: combinedSourceText
+    };
+    const intake = await retainConversationIntakeSource({ fileService, planId, intake: intakeRecord });
+    const rawClarification = String(await requestArchitecture(clarificationPrompt(combinedSourceText), conversationId, { responseContentType: "text/plain" }) ?? "").trim();
+    let questions = [];
+    let pregeneratedPlan = null;
+    try {
+      questions = parseArchitectureQuestions(rawClarification);
+    } catch (clarifyErr) {
+      // eslint-disable-next-line no-silent-catch -- Rethrows clarifyErr when the response is not a pregenerated Architecture Plan JSON object.
+      try { pregeneratedPlan = parseArchitecturePlanJSON(rawClarification); }
+      catch { throw clarifyErr; }
+    }
     const session = await sessions.create({ sourcePath: intake.path, sourceSha256: intake.sha256, conversationId, questions, generating: !questions.length });
-    if (questions.length) return waitingForOwner(session);
-    return sessions.claim(session.session_id, (current, save) => generate({ session: current, sourceText: text, planId, save }));
+    if (questions.length) return waitingForOwner(session, intakeRecord);
+    return sessions.claim(session.session_id, (current, save) => generate({ session: current, sourceText: combinedSourceText, planId, save, intake: intakeRecord, pregeneratedPlan }));
   }
 
   // Merges one RFC 7396 update into the retained canonical base and locks the next revision.
@@ -133,12 +171,18 @@ export function createConversationPlanningService({ projectId, fileService, mark
   }
 
   // Locks one revision: Node renders, appends authoritative decisions, then stores anchor-bound bytes.
-  async function generate({ session, sourceText, planId, save }) {
+  async function generate({ session, sourceText, planId, save, intake: suppliedIntake, pregeneratedPlan = null }) {
+    let intake = suppliedIntake;
+    if (!intake && typeof sourceText === "string" && sourceText.trim().startsWith("{")) {
+      // eslint-disable-next-line no-silent-catch -- Non-JSON sourceText remains plain conversation text.
+      try { intake = JSON.parse(sourceText); } catch { intake = null; }
+    }
+    const effectiveSourceText = typeof intake?.text === "string" ? intake.text : sourceText;
     try {
       const existing = markdownPlanStore.list().find((entry) => entry.plan_id === planId);
       if (existing) {
         const plan = await markdownPlanStore.getRevision({ planId, revision: existing.revision });
-        const result = createdResult(plan, session);
+        const result = createdResult(plan, session, intake);
         await save({ status: "completed", result });
         return result;
       }
@@ -146,13 +190,13 @@ export function createConversationPlanningService({ projectId, fileService, mark
       await save({ status: "generating", process_pid: process.pid, error_code: null });
       const decisions = (session.questions ?? []).map((question) => ({ question: question.title, reason: question.reason, selected: question.options.find((option) => option.id === (session.selections ?? {})[question.id]), owner_note: session.notes?.[question.id] ?? "" }));
       const retained = await readRetainedConversationPlanSource({ fileService, planId, revision: 1 });
-      const plan = retained ?? parseArchitecturePlanJSON(String(await requestArchitecture(generationPrompt(sourceText, decisions), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim());
+      const plan = retained ?? pregeneratedPlan ?? parseArchitecturePlanJSON(String(await requestArchitecture(generationPrompt(effectiveSourceText, decisions), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim());
       await sessions.source(session);
       const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: canonicalArchitecturePlanSha256(plan) });
       await validateMarkdown(baseMarkdown);
       const anchor = await retainConversationPlanSource({ fileService, planId, revision: 1, canonicalBytes: canonicalizeArchitecturePlanJSON(plan) });
       const stored = await markdownPlanStore.createRevision({ planId, expectedRevision: 0, markdown: appendArchitectureDecisions(baseMarkdown, session), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId: session.conversation_id ?? null });
-      const result = createdResult(stored, session);
+      const result = createdResult(stored, session, intake);
       await save({ status: "completed", result });
       return result;
     } catch (error) {
@@ -170,25 +214,31 @@ export function createConversationPlanningService({ projectId, fileService, mark
 }
 
 // Presents a clarification pause as a successful non-creation with no plan revision.
-function waitingForOwner(session) {
-  return { command: "/plan", status: "awaiting_owner_decisions", session_id: session.session_id, conversation_id: session.conversation_id, source_summary_path: session.source_path, source_summary_sha256: session.source_sha256, plan_id: planIdFromIntakePath(session.source_path), text: `Architecture cần owner chốt ${session.questions.length} quyết định trước khi tạo plan. Chưa lưu revision.`, run_started: false, revision_created: false };
+function waitingForOwner(session, intake) {
+  const extra = intake && (intake.delivery_target !== "none" || intake.source_kind === "markdown_file")
+    ? { delivery_target: intake.delivery_target ?? "none", source_kind: intake.source_kind ?? "conversation", ...(intake.source_file_path ? { source_file_path: intake.source_file_path, source_file_sha256: intake.source_file_sha256 } : {}) }
+    : {};
+  return { command: "/plan", status: "awaiting_owner_decisions", session_id: session.session_id, conversation_id: session.conversation_id, source_summary_path: session.source_path, source_summary_sha256: session.source_sha256, plan_id: planIdFromIntakePath(session.source_path), ...extra, text: `Architecture cần owner chốt ${session.questions.length} quyết định trước khi tạo plan. Chưa lưu revision.`, run_started: false, revision_created: false };
 }
 
 // Returns the authoritative identity, rendered Markdown and review status for one locked revision.
-function createdResult(plan, session) {
-  return { command: "/plan", status: plan.status ?? "awaiting_human_approval", session_id: session?.session_id ?? null, plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, file_id: plan.plan_id, path: plan.file_path, source_summary_path: plan.source_path, source_summary_sha256: plan.source_sha256, conversation_id: plan.conversation_id, markdown: plan.markdown, text: `Đã tạo plan ${plan.plan_id} r${plan.revision}. Vào trang Coding để xem và approve plan. Chưa RUN.`, run_started: false, revision_created: true };
+function createdResult(plan, session, intake) {
+  const extra = intake && (intake.delivery_target !== "none" || intake.source_kind === "markdown_file")
+    ? { delivery_target: intake.delivery_target ?? "none", source_kind: intake.source_kind ?? "conversation", ...(intake.source_file_path ? { source_file_path: intake.source_file_path, source_file_sha256: intake.source_file_sha256 } : {}) }
+    : {};
+  return { command: "/plan", status: plan.status ?? "awaiting_human_approval", session_id: session?.session_id ?? null, plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, file_id: plan.plan_id, path: plan.file_path, source_summary_path: plan.source_path, source_summary_sha256: plan.source_sha256, conversation_id: plan.conversation_id, markdown: plan.markdown, ...extra, text: `Đã tạo plan ${plan.plan_id} r${plan.revision}. Vào trang Coding để xem và approve plan. Chưa RUN.`, run_started: false, revision_created: true };
 }
 
 const PLAN_JSON_SHAPE = '{"title":"","objective":"","background":"","scope":["In scope: ...","Out of scope: ..."],"outcomes":[{"id":"O1","outcome":"","acceptance_criteria":[""],"guardrails":[""]}],"evidence":[{"path":"backend/src/example.js","location":"L1-L10","fact":""}],"assumptions":[""],"constraints":[""],"risks":[""],"verification":""}';
 
 // Builds the owner-decision discovery instruction that keeps the existing prompt contract.
 function clarificationPrompt(sourceText) {
-  return `Architecture clarification discovery, not plan generation. Read the conversation and inspect the repository before deciding what actually needs owner authority. Respect decisions already stated: never ask them again. Ask only unresolved owner-level changes to system boundaries, business scope, security/data policy or explicit owner guardrails. Return ONLY JSON {"questions":[{"id":"STORAGE","title":"Question","reason":"Why the owner must decide","options":[{"id":"LOCAL","label":"Local storage","description":"Device-local persistence"},{"id":"SERVER","label":"Server storage","description":"Server persistence with access control"}],"recommended_option_id":"LOCAL"}]}, 2-10 alternatives each, or {"questions":[]} when none are needed. Do not draft a plan, persist files, claim approval or dispatch work.\n\nOwner conversation:\n${sourceText}`;
+  return `Architecture clarification discovery, not plan generation. Read the conversation and inspect the repository before deciding what actually needs owner authority. Respect decisions already stated: never ask them again. Ask only unresolved owner-level changes to system boundaries, business scope, security/data policy or explicit owner guardrails. Return ONLY JSON {"questions":[{"id":"STORAGE","title":"Question","reason":"Why the owner must decide","options":[{"id":"LOCAL","label":"Local storage","description":"Device-local persistence"},{"id":"SERVER","label":"Server storage","description":"Server persistence with access control"}],"recommended_option_id":"LOCAL"}]}, 2-10 alternatives each, or {"questions":[]} when none are needed. Do not draft a plan, persist files, claim approval or dispatch work.\n\nOwner conversation:\n${sourceText}\n\n--- End of Owner Conversation ---\nIMPORTANT: This step is Phase 1 (Clarification Discovery ONLY). Return ONLY valid JSON {"questions":[]} (when no owner-level policy decisions are needed) or {"questions":[...]} with no surrounding prose.`;
 }
 
 // Builds the strict full-plan JSON instruction so only AM supplies plan content.
 function generationPrompt(sourceText, decisions) {
-  return `Architecture plan generation. Call lookup_schema({"schema_id":"architecture_manager.architecture_plan.v1"}) (or lookup_schema({"task":"architecture_plan"})) to inspect the contract, complete repository discovery, then return ONLY one JSON object matching this shape: ${PLAN_JSON_SHAPE}. Include all 10 required fields with no extra keys and no null values; scope, outcomes, evidence, assumptions, outcomes[].acceptance_criteria and outcomes[].guardrails must each contain at least 1 non-empty string (record prerequisite outcome IDs like "O1" as separate items in guardrails; constraints and risks allow 0..40 items). Do not return Markdown, prose, comments, approval claims, file writes or RUN claims. Every repository fact needs an evidence entry with a real path under backend/, schemas/, ui/, web/, docs/ or workflows/, and assumptions stay explicit. Evidence location is optional; when present use positive source lines such as L17-L75 or L17-L75; L98-L106, never descriptive prose. Apply ALL confirmed owner policies consistently and never re-ask them. Node alone validates, locks the revision and appends the authoritative owner decision record.${decisions?.length ? `\n\nConfirmed owner decisions:\n${JSON.stringify(decisions)}` : ""}\n\nOwner conversation:\n${sourceText}`;
+  return `Architecture plan generation. Call lookup_schema({"schema_id":"architecture_manager.architecture_plan.v1"}) (or lookup_schema({"task":"architecture_plan"})) to inspect the contract, complete repository discovery, then return ONLY one JSON object matching this shape: ${PLAN_JSON_SHAPE}. Include all 10 required fields with no extra keys and no null values; scope, outcomes, evidence, assumptions, outcomes[].acceptance_criteria and outcomes[].guardrails must each contain at least 1 non-empty string (record prerequisite outcome IDs like "O1" as separate items in guardrails; constraints and risks allow 0..40 items). Do not return Markdown, prose, comments, approval claims, file writes or RUN claims. Every repository fact needs an evidence entry with a real path under backend/, schemas/, ui/, web/, docs/ or workflows/, and assumptions stay explicit. Evidence location is optional; when present use positive source lines such as L17-L75 or L17-L75; L98-L106, never descriptive prose. Apply ALL confirmed owner policies consistently and never re-ask them. Node alone validates, locks the revision and appends the authoritative owner decision record.${decisions?.length ? `\n\nConfirmed owner decisions:\n${JSON.stringify(decisions)}` : ""}\n\nOwner conversation:\n${sourceText}\n\n--- End of Owner Conversation ---\nIMPORTANT: Return ONLY one valid JSON object matching architecture_manager.architecture_plan.v1 with no surrounding prose.`;
 }
 
 // Builds the RFC 7396 merge-patch instruction against the retained canonical base.

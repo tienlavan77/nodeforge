@@ -208,3 +208,32 @@ for (const provider of ["codex", "claude"]) test(`${provider} SL corrects an AM-
     assert.equal(f.base.integrations, 1);
   } finally { await f.close(); }
 });
+
+test("SL max_output_tokens truncation recovers via compact retry or AM routing without parking in WAIT", async () => {
+  const f = await blockerRecoveryFixture();
+  const calls = [];
+  try {
+    const profile = { agent_id: "SL", role: "sprint_leader", provider: "codex", enabled: true, status: "ready", max_output_tokens: 4096 };
+    const worker = createBlockerRecoveryAgent({ clock: () => 1000, agentResolver: { resolveAvailable: () => profile },
+      agentOccupancy: { claim: async () => ({ claim_id: "C" }), release: async () => {} },
+      resolveTicketWorkspace: async () => f.base.workspace,
+      gateways: { codexSdkGateway: { execute: async ({ prompt, options }) => {
+        calls.push(options.forgeTools.definitions.map(({ name }) => name));
+        if (calls.length === 1) {
+          throw Object.assign(new Error("Codex SDK output truncated at max_output_tokens."), { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: { reason: "max_output_tokens" }, response_text: "{\"kind\":\"consultation_response\"" });
+        }
+        assert.deepEqual(options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
+        assert.match(prompt, /COMPACT JSON RESPONSE CORRECTION/);
+        return { text: JSON.stringify(response({ ...f.resolution, authority_scope: "sprint" })) };
+      } } }
+    });
+    f.recreate({ investigate: worker });
+    await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
+    for (let turn = 0; turn < 3; turn++) await f.recovery.tick();
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[1], ["lookup_schema"]);
+    const job = (await f.ledger()).jobs[0];
+    assert.equal(job.status, "resumed");
+    assert.equal(job.disposition_attempts[0].validation_errors[0].reason, "max_output_tokens");
+  } finally { await f.close(); }
+});

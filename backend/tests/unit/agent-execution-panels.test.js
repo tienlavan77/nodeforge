@@ -220,6 +220,9 @@ test("report activity distinguishes pending verification from a failed check wit
   activity.recordToolEvent({ ...entry, error_code: "PRIVATE-CONTENT\nINVALID" });
   assert.equal(received.at(-1).summary, "Agent tool report_done failed.");
   assert(!JSON.stringify(received).includes("PRIVATE-CONTENT"));
+  activity.recordToolEvent(formatToolLogEvent("success", "read_lines", { path: "backend/src/app.js", start_line: 10, end_line: 40 }, { task_id: "TICKET-1", correlation_id: "RUN-REPORT", agent_identity: { agent_id: "CODER-1" } }, { duration_ms: 15, result: { stdout: "a\nb\nc" } }));
+  assert.match(received.at(-1).summary, /Agent tool read_lines success \(lines 10\.\.40, 3 lines, 15ms\)\./);
+  assert(!received.at(-1).summary.includes("backend/src/app.js"));
 });
 
 

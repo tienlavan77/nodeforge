@@ -15,5 +15,5 @@ export async function inspectReviewResponseReadiness(workspace, taskId) {
   if (!report) return null;
   return { status: "available", tool: "respond_to_review", commit_sha: artifact.commit_sha, artifact_id: artifact.artifact_id,
     source_revision: artifact.source_revision, report_id: report.idempotency_key,
-    instruction: "The existing completed report is preserved. Resume Coder at its checkpoint and call respond_to_review with the retained artifact/commit/source identity and complete REV responses. Do not rewrite report_done fields or demand new edits/checks/commits solely for this delivery. Node supplies complete history to independent Reviewer using read_file/read_lines." };
+    instruction: "The existing completed report is preserved. Resume Coder at its checkpoint and call respond_to_review with the retained artifact/commit/source identity and complete REV responses. Do not rewrite report_done fields or demand new edits/checks/commits solely for this delivery. Node supplies complete history to independent Reviewer using read_file/Read." };
 }

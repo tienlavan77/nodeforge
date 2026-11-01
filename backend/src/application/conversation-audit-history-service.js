@@ -28,15 +28,24 @@ export function createConversationAuditHistoryService({ communications, eventSto
     if (cursor !== undefined && (!Number.isInteger(Number(cursor)) || Number(cursor) < 0)) throw new ConfigurationError("History cursor must be a non-negative integer.");
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ConfigurationError("History limit must be between 1 and 100.");
     if (order !== "asc" && order !== "desc") throw new ConfigurationError("History order must be asc or desc.");
-    const conversationMessages = (conversationId !== undefined && typeof communications?.getByConversationId === "function")
+    const directMessages = (conversationId !== undefined && typeof communications?.getByConversationId === "function")
       ? communications.getByConversationId(conversationId)
       : communications.getAll().filter((message) => projectId === undefined || message.project_id === projectId || message.project_id === undefined);
-    const records = [
+    const linkedMessages = (conversationId !== undefined && typeof communications?.getByLinkedConversationId === "function")
+      ? communications.getByLinkedConversationId(conversationId).filter((message) => !directMessages.some((item) => item.id === message.id || (item.correlation_id && item.correlation_id === message.correlation_id)))
+      : [];
+    const conversationMessages = [...directMessages, ...linkedMessages];
+    const mappedRecords = [
       ...conversationMessages.filter((message) => projectId === undefined || message.project_id === projectId || message.project_id === undefined).map(messageRecord),
-    ...(eventStore?.getAll() ?? []).filter((event) => projectId === undefined || (event.project_id ?? event.metadata?.project_id) === projectId).map(eventRecord),
-      ...(projectId === undefined ? [] : (history?.getByProject(projectId) ?? []).map(historyRecord))
+      ...((chatOnly ? [] : (eventStore?.getAll() ?? [])).filter((event) => (projectId === undefined || (event.project_id ?? event.metadata?.project_id) === projectId) && (!conversationId || event.metadata?.conversation_id === conversationId)).map(eventRecord)),
+      ...(projectId === undefined || conversationId !== undefined || chatOnly ? [] : (history?.getByProject(projectId) ?? []).map(historyRecord))
     ].filter((record) => matches(record, { agentId, conversationId, correlationId, type }) && (!chatOnly || record.kind === "owner" || record.kind === "failure" || record.type === "owner.command.result" || record.type.endsWith(".message.received")
       || record.type === "agent.activity" && record.content?.agent_role === "system_engineer" && record.content?.sdk_event))
+      .map((record) => projectLinkedRecord(record, conversationId))
+      .filter(Boolean);
+    const seTurnCorrelations = new Set(mappedRecords.filter((r) => r.type === "agent.activity" && r.content?.sdk_event?.type === "conversation_turn" && r.correlation_id).map((r) => r.correlation_id));
+    const records = mappedRecords
+      .filter((r) => !(r.type === "system_engineer.message.received" && r.correlation_id && seTurnCorrelations.has(r.correlation_id)))
       .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.sequence - right.sequence);
     const ordered = order === "desc" ? [...records].reverse() : records;
     const start = cursor === undefined ? 0 : Number(cursor);
@@ -74,10 +83,26 @@ function historyRecord(record, index) {
   };
 }
 
+// Business purpose: preserves full tool and text history on a conversation's primary channel while filtering linked-channel SE activity to conversation text only.
+// Technical description: when a record matches via linked_conversation_id rather than conversation_id, omits command_execution events and retains only text entries in conversation_turn.
+function projectLinkedRecord(record, conversationId) {
+  if (!conversationId || record.conversation_id === conversationId || record.content?.linked_conversation_id !== conversationId) return record;
+  if (record.type === "agent.activity" && record.content?.agent_role === "system_engineer" && record.content?.sdk_event) {
+    const sdkEvent = record.content.sdk_event;
+    if (sdkEvent.type === "command_execution") return null;
+    if (sdkEvent.type === "conversation_turn" && Array.isArray(sdkEvent.entries)) {
+      const textEntries = sdkEvent.entries.filter((entry) => entry.type === "text");
+      if (!textEntries.length) return null;
+      return { ...record, content: { ...record.content, sdk_event: { ...sdkEvent, entries: textEntries } } };
+    }
+  }
+  return record;
+}
+
 // Checks whether a record matches the requested audit filters.
 function matches(record, { agentId, conversationId, correlationId, type }) {
   return (!agentId || record.agent_id === agentId || record.sender === agentId || record.receiver === agentId)
-    && (!conversationId || record.conversation_id === conversationId)
+    && (!conversationId || record.conversation_id === conversationId || record.content?.linked_conversation_id === conversationId)
     && (!correlationId || record.correlation_id === correlationId)
     && (!type || record.type === type);
 }

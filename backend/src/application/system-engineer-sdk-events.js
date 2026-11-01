@@ -7,7 +7,7 @@ import { createSystemEngineerSdkTranscript } from "./system-engineer-sdk-transcr
 
 // Adapts public provider events only for the SE's owner execution, retaining original
 // callbacks and policy checks while publishing ordered, redacted reply snapshots.
-export function withSystemEngineerEvents(sdk, { profile, conversationId, correlationId, eventSink, contentType = "text/plain" }) {
+export function withSystemEngineerEvents(sdk, { profile, conversationId, linkedConversationId = null, correlationId, eventSink, contentType = "text/plain" }) {
   if (!sdk || profile?.role !== "system_engineer") return sdk;
   return { ...sdk, execute: async (request) => {
     const runId = `SE-RUN-${randomUUID()}`;
@@ -20,7 +20,7 @@ export function withSystemEngineerEvents(sdk, { profile, conversationId, correla
       const activityId = `SE-EVENT-${randomUUID()}`;
       return eventSink?.({ event_id: activityId, event_type: "agent.activity", timestamp: new Date().toISOString(), task_id: correlationId, conversation_id: conversationId, correlation_id: correlationId,
         payload: { activity_id: activityId, agent_id: profile.agent_id, agent_role: "system_engineer", provider: profile.provider,
-          conversation_id: conversationId, correlation_id: correlationId, sdk_run_id: runId, sdk_sequence: clean.revision,
+          conversation_id: conversationId, ...(linkedConversationId ? { linked_conversation_id: linkedConversationId } : {}), correlation_id: correlationId, sdk_run_id: runId, sdk_sequence: clean.revision,
           activity_type: clean.status === "failed" ? "failed" : clean.status === "success" ? "completed" : "progress",
           status: clean.status, summary: "System Engineer reply", sdk_event: clean } });
     };

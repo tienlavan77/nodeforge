@@ -122,3 +122,16 @@ test("parallel completions cannot return output past a failed checkpoint renewal
   assert.equal(saves, 1);
   assert.equal(progress.snapshot().sequence, 1);
 });
+
+test("SL fast-handoff caps discovery allowance when blocker requires AM contract or security authority", async () => {
+  const contractJob = { id: "J-FAST", stage: "sprint_leader", reason_code: "CONTRACT_DECISION_REQUIRED", request: { payload: { execution_id: "E" }, ticket: {} }, history: [] };
+  const progress = createDiscoveryProgress({ job: contractJob });
+  assert.equal(progress.snapshot().call_allowance, 12);
+  assert.equal(progress.snapshot().byte_allowance, 48_000);
+  await assert.rejects(progress.complete("read_file", { path: "large.js" }, { content: "x".repeat(50_000) }, new Set()), { code: "BLOCKER_DISCOVERY_CAP_REACHED" });
+  const technicalJob = { ...contractJob, ticket_progress: { failure_classification: { category: "technical_failure", effective_reason_code: "VERIFY_ATTRIBUTION_REQUIRED" } } };
+  const techProgress = createDiscoveryProgress({ job: technicalJob });
+  assert.equal(techProgress.snapshot().call_allowance, 30);
+  await techProgress.complete("read_file", { path: "large.js" }, { content: "x".repeat(125_000) }, new Set());
+  assert.equal(techProgress.snapshot().renewals, 1);
+});

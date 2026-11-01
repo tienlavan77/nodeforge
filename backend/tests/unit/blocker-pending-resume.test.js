@@ -88,3 +88,33 @@ test("RUN reconciles an orphaned resume_pending projection with its cancelled jo
     assert.deepEqual(f.calls, ["sprint_leader"]);
   } finally { await f.close(); }
 });
+
+test("RUN reconciles a checkpoint whose job_id still points to a prior resumed job when the latest failure job is cancelled", async () => {
+  const f = await blockerRecoveryFixture({ investigate: async (_job, resolution) => resolution });
+  try {
+    await assert.rejects(f.base.run(), { code: "CODER_BLOCKED" });
+    await f.recovery.tick();
+    await f.base.store.withLock("blocker.recovery", async () => {
+      const ledger = await f.ledger();
+      const first = ledger.jobs[0];
+      first.status = "resumed";
+      const second = { ...structuredClone(first), id: "JOB-2", failure_at: "2026-10-31T13:41:58.524Z",
+        status: "cancelled", outcome_reason: "stale_execution_or_source", stage: "sprint_leader" };
+      delete second.resolution;
+      ledger.cancelled = true;
+      ledger.jobs.push(second);
+      await f.base.store.save("blocker.recovery", ledger);
+    });
+    const checkpoint = await f.base.checkpoints.load("TASK");
+    await f.base.checkpoints.save({ ...checkpoint, status: "blocked", phase: "blocker_triage_pending",
+      failure: { ...checkpoint.failure, at: "2026-10-31T13:41:58.524Z" },
+      blocker_recovery: { job_id: checkpoint.blocker_recovery.job_id, status: "resume_pending", stage: "sprint_leader" } });
+    const dispatch = createTicketRunDispatch({ blockerRecovery: f.recovery, checkpoints: f.base.checkpoints,
+      ticketStatusStore: f.base.statusStore, disposition: { get: async () => null },
+      intake: { open: async () => ({ ticket: f.ticket }) }, sprintRegistry: f.base.registry });
+    const result = await dispatch({ projectId: "P", ticketId: "TASK", dependencyExpectations: [] });
+    assert.equal(result.status, "accepted");
+    assert.equal(result.job_id, "JOB-2");
+    assert.equal(result.resumed_stage, "sprint_leader");
+  } finally { await f.close(); }
+});

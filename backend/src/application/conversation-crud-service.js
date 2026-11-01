@@ -13,8 +13,8 @@ export function createConversationCrudService({ database, clock = () => new Date
   // Defines ensure function behavior for conversation-crud-service.js.
   function ensure({ id, project_id: projectId, agent_id: agentId, title } = {}) {
     const existing = get(id);
-    if (existing) return existing;
-    return create({ id, project_id: projectId, agent_id: agentId, title });
+    if (existing) return update(id, { title: title ?? existing.title });
+    return create({ id, project_id: projectId, agent_id: agentId, title, allowSafeId: true });
   }
   // Defines list function behavior for conversation-crud-service.js.
   function list({ projectId, agentId } = {}) {
@@ -22,7 +22,8 @@ export function createConversationCrudService({ database, clock = () => new Date
     if (projectId !== undefined) { requireId(projectId, "project_id"); where.push("project_id = ?"); params.push(projectId); }
     if (agentId !== undefined) { requireId(agentId, "agent_id"); where.push("agent_id = ?"); params.push(agentId); }
     const rows = database.all(`SELECT id, project_id, agent_id, title, status, pinned, created_at, updated_at FROM conversations${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY pinned DESC, updated_at DESC, id ASC`, params);
-    return rows.map(toConversationRow);
+    // Internal handoff sessions remain readable for audit but are not owner conversations.
+    return rows.filter((row) => !row.id.startsWith("CONV-SE-PLAN-")).map(toConversationRow);
   }
   // Defines create function behavior for conversation-crud-service.js.
   function create(input = {}) {
@@ -30,7 +31,7 @@ export function createConversationCrudService({ database, clock = () => new Date
     const agentId = requireId(input.agent_id, "agent_id");
     const now = clock().toISOString();
     let conversationId;
-    if (input.id !== undefined && input.id !== null) conversationId = requireUuid(String(input.id), "id");
+    if (input.id !== undefined && input.id !== null) conversationId = input.allowSafeId ? requireId(String(input.id), "id") : requireUuid(String(input.id), "id");
     else conversationId = randomUUID();
     const title = typeof input.title === "string" ? input.title.trim() : "";
     if (!title) throw Object.assign(new ConfigurationError("title is required."), { statusCode: 400 });
@@ -73,7 +74,7 @@ export function createConversationCrudService({ database, clock = () => new Date
   }
 }
 
-// Ensures the conversations table and indexes exist.
+// Ensures the conversations table and indexes exist, and backfills any CONV-SE-* handoff conversations recorded in agent_communications.
 function ensureTable(database) {
   database.run(`CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, agent_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
   try { database.run("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"); }
@@ -82,6 +83,7 @@ function ensureTable(database) {
   database.run("CREATE INDEX IF NOT EXISTS conversations_project_agent ON conversations (project_id, agent_id, updated_at)");
   database.run("CREATE INDEX IF NOT EXISTS conversations_project ON conversations (project_id, updated_at)");
   database.run("CREATE INDEX IF NOT EXISTS conversations_pinned ON conversations (pinned, updated_at)");
+
 }
 
 // Normalizes a conversation row so pinned is always a boolean with a safe default of false.

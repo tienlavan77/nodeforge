@@ -145,4 +145,11 @@ test("temporary model retry requires a rejected request or a confirmed failed tu
   const failure = sdkFailureEvidence(Object.assign(new Error(message), { code: "CONFIGURATION_ERROR" }), { status: "400", message });
   assert.equal(failure.status, 400);
   assert.equal(classifyCoderFailure(failure), "transient");
+  const disconnectMsg = "Codex SDK turn failed for agent-1: stream disconnected before completion: stream closed before response.completed";
+  const disconnect = sdkFailureEvidence(Object.assign(new Error(disconnectMsg), { code: "CONFIGURATION_ERROR" }), { message: "stream disconnected before completion: stream closed before response.completed" }, { ended: true });
+  assert.equal(disconnect.provider_outcome, "failed");
+  assert.equal(disconnect.retry_safe, true);
+  assert.equal(disconnect.cause.code, "ECONNRESET");
+  assert.equal(classifyCoderFailure(disconnect), "transient");
+  assert.equal(reviewOperationalFailure(disconnect).retryable, true);
 });

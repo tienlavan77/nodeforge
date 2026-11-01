@@ -1,4 +1,5 @@
 // Supplies scoped tree discovery alongside the canonical Node-owned engineering services.
+import { createSourceReadTool } from "./discovery/source-read.js";
 import { createOwnerSearchTreeTool } from "./roles/owner-search-tree.js";
 import { createLookupSchemaTool } from "./discovery/lookup-schema-tool.js";
 import { isAgentPathAllowed } from "./governance/tool-authorization.js";
@@ -8,8 +9,8 @@ import { executionReadScope } from "./execution-file-access.js";
 import { assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
 
 // Filters directory listings to the Node-issued ticket scope without widening repository authority.
-export function engineeringToolImplementations({ fileService, projectRoot, wrap }) {
-  const tools = { lookup_schema: wrap(createLookupSchemaTool(), "lookup_schema") };
+export function engineeringToolImplementations({ fileService, projectRoot, codeCache, wrap }) {
+  const tools = { Read: wrap(createSourceReadTool({ fileService, projectRoot, codeCache }), "Read", false), lookup_schema: wrap(createLookupSchemaTool(), "lookup_schema") };
   if (fileService?.listFiles && fileService?.listDirectories) {
     tools.search_tree = wrap({ execute: async (input, context) => {
       if (projectRoot && (context.agent_identity?.role === "coder" || isDependencyPath(input?.path))) {

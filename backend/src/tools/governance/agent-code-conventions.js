@@ -11,20 +11,69 @@ export function extractFileHeaderComment(content) {
   return purposeComments(content, /^\s*<!--/.test(content) ? "markup" : "php").header?.raw ?? "";
 }
 
+// Business purpose: strips quoted string literals and template literals from source code before scanning for function declarations so multi-line source strings (such as embedded esbuild fixture strings in browser tests) are never mistaken for real top-level functions.
+// Technical description: replaces the interior characters of single-quoted, double-quoted, and backtick strings with spaces while preserving newline characters so line numbers remain identical to the original source.
+function stripStringLiteralsKeepNewlines(source) {
+  let out = "";
+  let quote = null;
+  let escaped = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (!quote && ch === "/" && source[i + 1] === "/") {
+      const end = source.indexOf("\n", i);
+      if (end < 0) { out += source.slice(i); break; }
+      out += source.slice(i, end);
+      i = end - 1;
+      continue;
+    }
+    if (!quote && ch === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const slice = end < 0 ? source.slice(i) : source.slice(i, end + 2);
+      out += slice.replace(/[^\n]/g, " ");
+      if (end < 0) break;
+      i = end + 1;
+      continue;
+    }
+    if (quote) {
+      if (escaped) { escaped = false; out += ch === "\n" ? "\n" : " "; continue; }
+      if (ch === "\\") { escaped = true; out += " "; continue; }
+      if (ch === quote) { quote = null; out += ch; continue; }
+      out += ch === "\n" ? "\n" : " ";
+      continue;
+    }
+    if (ch === "\"" || ch === "'" || ch === "`") {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 // Finds declared function names before and after an agent edit.
 export function extractFunctionSignatures(content) {
   const out = new Set();
   if (!content || typeof content !== "string") return out;
+  const cleaned = stripStringLiteralsKeepNewlines(content);
   const re = /(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/g;
   let match;
-  while ((match = re.exec(content))) out.add(match[1]);
+  while ((match = re.exec(cleaned))) out.add(match[1]);
   return out;
+}
+
+// Business purpose: locates the 0-based line index of a real function declaration while ignoring string/template literals and nested helper declarations when a top-level declaration exists.
+// Technical description: scans stripped source lines for `fnName`, preferring unindented (top-level) declarations over indented nested declarations so comments before top-level functions are matched accurately.
+export function findFunctionDeclarationLine(content, fnName) {
+  const lines = stripStringLiteralsKeepNewlines(content).split("\n");
+  const topLevelIdx = lines.findIndex((line) => /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/.exec(line)?.[1] === fnName);
+  if (topLevelIdx >= 0) return topLevelIdx;
+  return lines.findIndex((line) => /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/.exec(line)?.[1] === fnName);
 }
 
 // Checks that a new function has a purpose comment immediately above it.
 export function hasPrecedingComment(content, fnName) {
-  const lines = content.split("\n");
-  const idx = lines.findIndex((line) => extractFunctionSignatures(line).has(fnName));
+  const idx = findFunctionDeclarationLine(content, fnName);
   if (idx <= 0) return false;
   return Boolean(extractPrecedingCommentBlock(content, idx));
 }

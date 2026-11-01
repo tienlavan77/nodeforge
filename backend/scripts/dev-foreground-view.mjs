@@ -15,7 +15,7 @@ export function createForegroundView({ children, serviceState, logLines, suggest
   const readEmbeddingProgress = getEmbeddingProgress ?? embeddingProgressLine;
 // Summary: Redraws the log area, status bar, and boxed prompt like the Claude Code CLI.
 function render(state) {
-  if (!isActive() || !state || state.copyMode) return;
+  if (!isActive() || !state || state.copyMode || state.selecting) return;
   const rows = Math.max(10, output.rows ?? 24);
   const width = Math.max(40, output.columns ?? 80);
   // Reserve the bottom rows once; suggestions take space only from the log viewport.
@@ -36,6 +36,7 @@ function render(state) {
   const back = state?.scrollBack ?? 0;
   const visible = logLines.slice(Math.max(0, logLines.length - logCapacity - back), logLines.length - back);
   state.layout = { logCapacity, back, width };
+  state.screenLines = Array.from({ length: logCapacity }, (_, index) => visible[index] ? formatForegroundLine(visible[index], { width, color: false }) : "");
   for (let row = 1; row <= logCapacity; row += 1) {
     const entry = visible[row - 1];
     output.write("\x1b[2K");

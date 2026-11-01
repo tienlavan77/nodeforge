@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertRuntimeAvailable } from "../src/infrastructure/filesystem/runtime-layout.js";
 
@@ -16,7 +16,11 @@ export function acquireProcessLock(dataDir, role, { fileService, projectRoot = p
       // recorded owner is definitely gone; a live owner remains protected.
       let ownerPid = null;
       // eslint-disable-next-line no-silent-catch -- Lock-owner probe: unreadable lock means unknown owner, handled below.
-      try { ownerPid = Number.parseInt(readFileSync(path, "utf8").trim(), 10); } catch { /* Unknown lock owner remains protected. */ }
+      try {
+        const recordedPid = readFileSync(path, "utf8").trim();
+        if (recordedPid) ownerPid = Number.parseInt(recordedPid, 10);
+      // eslint-disable-next-line no-silent-catch -- Unknown lock owner remains protected.
+      } catch { /* Unknown lock owner remains protected. */ }
       if (Number.isInteger(ownerPid) && ownerPid > 0) {
         try { process.kill(ownerPid, 0); } catch (probe) {
           if (probe.code === "ESRCH") {
@@ -24,6 +28,22 @@ export function acquireProcessLock(dataDir, role, { fileService, projectRoot = p
             const retry = fileService.createLockSync({ path: relative });
             return protectRuntimeLock(projectRoot, { path, release: retry.release });
           }
+        }
+      }
+      // A process can die after creating the file but before writing its PID.
+      // Reclaim only an empty lock that has aged past the startup race window.
+      if (ownerPid === null) {
+        let emptyLockIsStale = false;
+        try {
+          const metadata = statSync(path);
+          emptyLockIsStale = metadata.size === 0 && Date.now() - metadata.mtimeMs > 1000;
+        } catch (probe) {
+          if (probe.code !== "ENOENT") throw probe;
+        }
+        if (emptyLockIsStale) {
+          try { unlinkSync(path); } catch (removeError) { if (removeError.code !== "ENOENT") throw removeError; }
+          const retry = fileService.createLockSync({ path: relative });
+          return protectRuntimeLock(projectRoot, { path, release: retry.release });
         }
       }
       throw new Error(`${role} process already running (lock: ${path}).`);

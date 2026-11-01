@@ -2,7 +2,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { mergeConversationRevisions } from "./conversation-message-revisions.js";
 import { reconcileConversationHistory } from "./conversation-history-reconciliation.js";
-import { systemEngineerConversationEvent } from "./system-engineer-conversation-events.js";
+import { systemEngineerConversationEvent, withoutSystemEngineerReplyDuplicates } from "./system-engineer-conversation-events.js";
 
 const PAGE_SIZE = 50;
 
@@ -58,8 +58,8 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
         setHasOlder(Boolean(cursorRef.current));
       }
       setMessages((current) => {
-        const history = mergeConversationRevisions(items.slice().reverse().map(toMessage));
-        return reconcileConversationHistory(current, history);
+        const history = withoutSystemEngineerReplyDuplicates(mergeConversationRevisions(items.slice().reverse().map(toMessage).filter(Boolean)));
+        return withoutSystemEngineerReplyDuplicates(reconcileConversationHistory(current, history));
       });
     } catch (error) {
       if (conversationRef.current === conversationId && loadRevisionRef.current === revision) { if (!preserve) setMessages([]); setHistoryError(error.message); }
@@ -88,7 +88,7 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
       if (items.length) {
         restoreRef.current = anchor;
         setMessages((current) => {
-          return mergeConversationRevisions([...items.slice().reverse().map(toMessage), ...current]);
+          return withoutSystemEngineerReplyDuplicates(mergeConversationRevisions([...items.slice().reverse().map(toMessage).filter(Boolean), ...current]));
         });
       }
     } catch (error) {
@@ -120,19 +120,20 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
   function toMessage(record) {
     const content = record.content ?? {};
     if (record.type === "agent.activity") {
-      const event = systemEngineerConversationEvent({ id: record.id, timestamp: record.timestamp,
-        payload: { ...content, conversation_id: record.conversation_id, correlation_id: record.correlation_id } }, agentDisplayName(record.agent_id, agentDirectoryRef.current));
-      if (event) return event;
+      return systemEngineerConversationEvent({ id: record.id, timestamp: record.timestamp,
+        payload: { ...content, conversation_id: record.conversation_id, correlation_id: record.correlation_id } }, agentDisplayName(record.agent_id, agentDirectoryRef.current), conversationRef.current);
     }
     const text = typeof content === "string" ? content : content.text ?? content.content ?? "";
     const isOwner = record.kind === "owner";
     const originalId = isOwner && typeof content.supersedes_message_id === "string" ? content.supersedes_message_id : record.id;
-    const isAgent = !isOwner && !["failure", "system"].includes(record.kind);
+    const isCommandResult = record.type === "owner.command.result";
+    const isAgent = !isOwner && (isCommandResult || !["failure", "system"].includes(record.kind));
     const declaredType = content && typeof content === "object" ? content.content_type : undefined;
     const contentType = !isAgent ? "text/plain" : declaredType === "text/markdown" || declaredType === "text/plain"
       ? declaredType : declaredType === undefined && content.markdown_provenance === "owner-markdown-opt-in-v1" ? "text/markdown" : "text/plain";
     return { id: originalId, source_message_id: record.id, correlation_id: record.correlation_id, conversation_id: record.conversation_id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
-      text: String(text ?? ""), content_type: contentType, response_content_type: isOwner && content.response_content_type === "text/markdown" ? "text/markdown" : "text/plain", from: isOwner ? "owner" : record.kind === "failure" || record.kind === "system" ? "system" : "agent",
+      text: String(text ?? ""), content_type: contentType, response_content_type: isOwner && content.response_content_type === "text/markdown" ? "text/markdown" : "text/plain", from: isOwner ? "owner" : isAgent ? "agent" : "system",
+      ...(isCommandResult ? { retryable: false } : {}),
       nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
       timestamp: record.timestamp ?? new Date().toISOString() };
   }

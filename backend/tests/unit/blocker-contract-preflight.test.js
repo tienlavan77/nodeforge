@@ -7,12 +7,13 @@ import { preflightBlockerContract } from "../../src/modules/supervisor/blocker/b
 import { coderProductionRecoveryFixture, TICKET } from "../fixtures/coder-production-recovery-fixture.js";
 import { createProductionBlockerRecovery } from "../../src/modules/supervisor/blocker/blocker-recovery-runtime.js";
 import { createHash } from "node:crypto";
+import { createTicketRootGit } from "../../src/modules/supervisor/ticket/ticket-root-git.js";
 
 const basis = { plan_id: "ARCH", revision: 1, sha256: "a".repeat(64) };
 const quote = "Implement the approved feature within existing project and security boundaries.";
 
 // Creates a real immutable AM receipt and persisted checkpoint while leaving the original ticket evidence empty.
-async function retainedFixture(t) {
+async function retainedFixture(t, { reconciled = false } = {}) {
   const f = await fixture(t);
   f.ticket.execution_policy.contract_evidence = [];
   Object.assign(f.plan, { proposal_id: `ARCH-R1-${basis.sha256}`, source_path: "approved.md", source_sha256: basis.sha256 });
@@ -22,6 +23,12 @@ async function retainedFixture(t) {
     summary: "Implement the fail-closed adapter within the approved scope.", guidance: "Use explicit injected permission ports; do not introduce an account policy.",
     evidence: [], boundary_assessment: { rationale: "The approved scope remains unchanged.", changes_structure: false,
       changes_owner_scope: false, changes_security_policy: false, changes_data_semantics: false, overrides_guardrails: false, changes_ticket_contract: false } };
+  if (reconciled) {
+    await f.files.atomicWrite({ path: f.path, content: f.updated, replace: true });
+    f.ref.sha256 = createHash("sha256").update(f.updated).digest("hex");
+    f.ticket.execution_policy.contract_evidence = [f.ref];
+    decision.evidence = [{ path: f.path, sha256: f.ref.sha256 }];
+  }
   const job = { id: "RESOLVED", request: f.request, history: [{ stage: "architecture_manager", completed_at: 1000,
     actor: { agent_id: "AM", role: "architecture_manager" }, disposition: decision }] };
   const receipts = await retainBlockerContract({ job, checkpoint: f.checkpoint(), fileService: f.files });
@@ -109,17 +116,28 @@ test("preflight inspection leaves a stopped recovery checkpoint paused", async (
   assert.deepEqual(f.events, []);
 });
 
-test("production dispatch resumes after AM and SL resolve an empty-evidence contract without creating another recovery job", async (t) => {
-  const ticket = { ...TICKET, objective: quote, execution_policy: { ...TICKET.execution_policy, requires_existing_contract: true, contract_evidence: [] } };
+for (const declared of [false, true]) test(`production dispatch resumes after AM and SL resolution with ${declared ? "retained mismatched" : "empty"} static evidence`, async (t) => {
+  const source = "export const permission = false;\n";
+  const evidence = { path: "backend/src/permission.js", sha256: createHash("sha256").update(source).digest("hex") };
+  const ticket = { ...TICKET, objective: quote, execution_policy: { ...TICKET.execution_policy, requires_existing_contract: true,
+    contract_evidence: declared ? [{ ...evidence, authority_quote: quote }] : [] } };
   const f = await coderProductionRecoveryFixture({ ticket, behavior: async ({ onEvent }) => {
     for (const tool of ["write_diff", "commit_changes", "report_done"]) await onEvent({ type: "item.completed",
       item: { id: tool, type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
     return { text: "Reported" };
   } });
   t.after(() => f.close());
-  const source = "export const permission = false;\n";
-  const evidence = { path: "backend/src/permission.js", sha256: createHash("sha256").update(source).digest("hex") };
-  await f.fileService.atomicWrite({ path: evidence.path, content: source, replace: false });
+  await f.fileService.atomicWrite({ path: evidence.path, content: declared ? "export const permission = null;\n" : source, replace: false });
+  if (declared) {
+    const git = createTicketRootGit({ projectRoot: f.workspace.projectRoot });
+    await git.run(["init", "--initial-branch=main"]);
+    await git.run(["add", evidence.path]);
+    await git.run(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-m", "Historical prerequisite"]);
+    const base = (await git.run(["rev-parse", "HEAD"])).trim();
+    f.workspace.base_commit = base;
+    await f.workspace.executionContexts.update("TASK", 1, { base_sha: base });
+    await f.fileService.atomicWrite({ path: evidence.path, content: source, replace: true });
+  }
   const assertReady = f.registry.assertReady;
   f.registry.assertReady = async (...args) => {
     const ready = await assertReady(...args);
@@ -153,4 +171,39 @@ test("production dispatch resumes after AM and SL resolve an empty-evidence cont
   assert.equal(ledger.jobs.length, 1);
   assert.equal(ledger.jobs[0].status, "resumed");
   assert.equal((await f.checkpoints.load("TASK")).contract_decisions.length, 1);
+});
+
+
+// Reproduces a persisted AM resolution whose approved bytes are absent from the
+// original Git baseline, while preserving the ticket's immutable evidence.
+test("AM reconciliation admits exact declared evidence repeatedly across a baseline mismatch", async (t) => {
+  const f = await retainedFixture(t, { reconciled: true });
+  const checkpoint = structuredClone(f.checkpoint());
+  const policy = structuredClone(f.ticket.execution_policy);
+  for (let attempt = 0; attempt < 3; attempt++) assert.equal(await preflightBlockerContract(f.request, f.options), false);
+  assert.deepEqual(f.events, []);
+  assert.deepEqual(f.checkpoint(), checkpoint);
+  assert.deepEqual(f.ticket.execution_policy, policy);
+  assert.equal(f.logs.at(-1).payload.receipts[0].provenance, "retained_architecture_decision");
+});
+
+// Rejects receipt reuse for another prerequisite, changed source, a forged
+// record or obsolete execution/Architecture, even when the old policy remains.
+test("retained evidence cannot authorize unrelated or changed declared prerequisites", async (t) => {
+  for (const mutation of ["source", "declared_checksum", "unrelated_path", "tampered_receipt", "execution", "architecture"]) {
+    await t.test(mutation, async (t) => {
+      const f = await retainedFixture(t, { reconciled: true });
+      if (mutation === "source") await f.files.atomicWrite({ path: f.path, content: "export const drift = true;\n", replace: true });
+      if (mutation === "declared_checksum") f.ref.sha256 = "0".repeat(64);
+      if (mutation === "unrelated_path") {
+        await f.files.atomicWrite({ path: "backend/other.js", content: f.updated, replace: false });
+        f.ref.path = "backend/other.js";
+      }
+      if (mutation === "tampered_receipt") await f.files.atomicWrite({ path: f.receipts[0].path, content: "tampered", replace: true });
+      if (mutation === "execution") f.request.payload.execution_id = "OTHER";
+      if (mutation === "architecture") f.options.architecturePlans.assertApproved = async () => ({ ...basis, revision: 2, project_id: "P", markdown: quote });
+      assert.equal(await preflightBlockerContract(f.request, f.options), true);
+      assert.equal(f.events.at(-1).type, "task.needs_human_review");
+    });
+  }
 });

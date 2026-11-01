@@ -107,6 +107,10 @@ export function agentExchangeResponseSchema(request) {
   const payload = inline(payloads.$defs[kind], payloads);
   if (kind === "consultation_response") {
     payload.required.push("decision");
+    if (request.recipient?.role === "sprint_leader" && payload.properties.consultation?.properties) {
+      delete payload.properties.consultation.properties.structure_change_risk;
+      delete payload.properties.consultation.properties.owner_boundary_risk;
+    }
     const decision = inline(agentDecisionSchema(request.recipient.role), decisions);
     for (const key of ["findings", "implementation_steps", "verification_steps"]) decision.properties.technical_result.properties[key].minItems = 1;
     decision.properties.technical_result.description = "Provide completed findings, remaining Coder implementation steps, focused verification steps and admission for every resolved technical handoff.";

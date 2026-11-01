@@ -24,6 +24,6 @@ export async function readReviewPromptPatch({ baseCommit, source, paths }) {
     patches.push(patch);
     bytes += size;
   }
-  if (omitted.length) patches.push(`Patches omitted from initial prompt: ${JSON.stringify(omitted)}. Use review_diff for each file and read_lines for source windows before deciding.`);
+  if (omitted.length) patches.push(`Patches omitted from initial prompt: ${JSON.stringify(omitted)}. Use review_diff for each file and Read for source windows before deciding.`);
   return patches.join("\n");
 }

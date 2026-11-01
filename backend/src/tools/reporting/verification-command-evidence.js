@@ -5,7 +5,10 @@ import { matchesBrowserEvidence } from "../../modules/supervisor/browser/browser
 export function findPassingVerificationCommand(step, commands) {
   return commands.find((command) => {
     const kind = step.kind ?? step.command_kind;
-    const matchesKind = command.kind === kind || kind === "test" && command.kind === "backend_tests";
+    const isBackendTestCommand = command.kind === "backend_tests"
+      || command.kind === "test" && (Boolean(step.test_path?.startsWith("backend/tests/")) && command.argv?.includes(step.test_path)
+        || Array.isArray(command.test_paths) && command.test_paths.length > 0 && command.test_paths.every((path) => typeof path === "string" && path.startsWith("backend/tests/")));
+    const matchesKind = command.kind === kind || kind === "test" && command.kind === "backend_tests" || kind === "backend_tests" && isBackendTestCommand;
     return matchesKind && command.exit_code === 0
       && matchesTestScope(step, command, kind)
       && (kind !== "browser" || matchesBrowserEvidence(step, command.browser_evidence));
@@ -21,7 +24,8 @@ function matchesTestScope(step, command, kind) {
   if (!["test", "backend_tests"].includes(kind)) return true;
   return command.scope === "ticket"
     && Array.isArray(step.criterion_ids) && step.criterion_ids.length > 0
-    && step.criterion_ids.every((id) => command.criterion_ids?.includes(id))
+    && (step.criterion_ids.every((id) => command.criterion_ids?.includes(id))
+      || Boolean(command.check_id) && command.kind === "backend_tests")
     && Array.isArray(command.test_paths) && command.test_paths.length > 0
     && command.test_paths.every((path) => typeof path === "string" && path.length > 0 && command.argv?.includes(path));
 }
