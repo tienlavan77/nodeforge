@@ -11,6 +11,7 @@ import { blockerContractPrompt } from "../blocker/blocker-contract-evidence.js";
 import { engineeringToolName } from "../../../tools/engineering-tool-names.js";
 import { resumeRecovery, reviewRepairInstructions } from "../review/review-repair-handoff.js";
 import { activeFileChecksums, assertReadNotRepeated, recordMutationChecksum, rememberRead, sanitizeReadCache, snapshotReadCache } from "./ticket-read-cache.js";
+import { formatActiveReceiptDigest } from "./ticket-context-compaction.js";
 import { formatMidFlightDirectives, sanitizeDeliveredDirectives } from "./ticket-directive-inbox.js";
 
 const MAX_HISTORY_TURNS = 12;
@@ -108,12 +109,12 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
             throw Object.assign(new ConfigurationError("Read workflows/agents/coder/README.md with a Forge file tool before editing code."), { code: "CODER_RULES_REQUIRED" });
           }
           if (name === "report_done" && input?.status !== "blocked") await assertCommitBeforeReport(state, context, labMode, tool);
-          if (name === "read_file") assertReadNotRepeated(state.readCache, input);
+          if (name === "read_file" || name === "Read") assertReadNotRepeated(state.readCache, input);
           result = name === "report_done" && input?.status !== "blocked"
             ? await executeReportVerificationWait({ tool, input, context, state, store, taskId, selected, correlationId, projectLogger, checkpointPayload })
             : await tool.execute(input, context);
-          if (selected?.role === "coder" && ["read_file", "Read", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" || name === "Read" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
-          if (["read_file", "Read", "Read", "sed_lines"].includes(name)) rememberRead(state.readCache, input, result);
+          if (selected?.role === "coder" && ["read_file", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
+          if (["read_file", "Read", "sed_lines"].includes(name)) rememberRead(state.readCache, input, result);
           if (["write_diff", "edit_diff", "delete_file", "move_file"].includes(name)) {
             recordMutationChecksum(state.readCache, { tool: name, input, result });
             state.emptyCommitSeen = false;
@@ -202,6 +203,7 @@ export function buildResumePrompt(prompt, state, meta = {}) {
     ...(recovery?.owner_decision ? [`Project owner decided blocker option "${recovery.owner_decision.option_id}" (${recovery.owner_decision.option_description ?? ""})${recovery.owner_decision.reason ? ` — Reason: ${recovery.owner_decision.reason}` : ""}. Continue implementation strictly within this chosen option.`] : []),
     blockerContractPrompt(state.resume.contract_decisions),
     history,
+    `Compact receipt digest: ${formatActiveReceiptDigest(state)}.`,
     ...(Object.keys(activeFileChecksums(state.readCache)).length ? [`Active file checksums (reuse as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged windows): ${JSON.stringify(activeFileChecksums(state.readCache))}.`] : []),
     `Files already changed in the worktree: ${[...new Set([...state.changedPaths, ...(meta.changedPaths ?? [])])].join(", ") || "(none)"} — verify with read_file if needed, then continue with the next unfinished step.`,
     ...(state.deliveredDirectives?.length ? [formatMidFlightDirectives(state.deliveredDirectives)] : []),
@@ -216,12 +218,19 @@ export function buildResumePrompt(prompt, state, meta = {}) {
 }
 
 // summarizeTarget - picks the stable address (path/symbol/query) of a tool call.
-function summarizeTarget(name, input) {
+export function summarizeTarget(name, input) {
   if (!input || typeof input !== "object") return "";
   if (name === "move_file" && input.from_path && input.to_path) return `${input.from_path} -> ${input.to_path}`.slice(0, 160);
-  const raw = input.path ?? input.query ?? input.symbol ?? input.message ?? input.job_id ?? "";
+  const filePath = input.path ?? input.file_path;
+  if (typeof filePath === "string" && filePath) {
+    const suffix = typeof input.symbol === "string" && input.symbol ? `#${input.symbol}`
+      : Number.isInteger(input.start_line) || Number.isInteger(input.end_line) ? `#L${input.start_line ?? 1}-${input.end_line ?? ""}`
+        : "";
+    return `${filePath}${suffix}`.slice(0, 160);
+  }
+  const raw = input.query ?? input.pattern ?? input.symbol ?? input.message ?? input.job_id ?? "";
   const text = String(raw ?? "").slice(0, 160);
-  if (name === "search_code" && input.query) return `"${text}"`;
+  if ((name === "search_code" || name === "search_text") && (input.query || input.pattern)) return `"${text}"`;
   return text;
 }
 

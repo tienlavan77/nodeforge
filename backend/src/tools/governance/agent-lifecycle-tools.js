@@ -8,6 +8,7 @@ import { isAgentPathAllowed } from "./tool-authorization.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { loadAgentContextConventions } from "../../modules/supervisor/agent-context-conventions.js";
 import { scopedGraph } from "../discovery/agent-file-index-view.js";
+import { recordSourceMetadata } from "../discovery/source-metadata-receipts.js";
 import { extractorRegistry } from "../../modules/index/parser/index.js";
 import { hasFileHeaderComment, extractFunctionSignatures, findFunctionDeclarationLine, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage } from "./agent-code-conventions.js";
 import { discoveryNotice, recordRead, resetExploration } from "../discovery/exploration-state.js";
@@ -67,7 +68,8 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
         notice: lines.length > DOCUMENT_LINE_LIMIT ? "Document continues; use Read with start_line/end_line for the remainder." : "Complete Markdown document content." };
     }
     recordRead(context, { path, window: "metadata" });
-    return { ...metadata, notice: "Metadata only. Use Read with file_path and symbol or start_line/end_line (maximum 80 lines) for source." };
+    recordSourceMetadata(context, metadata);
+    return { ...metadata, notice: "Metadata only. Inspect code_graph and symbol_map, then use Read with file_path and symbol for code. Line windows are allowed only for .md files." };
   }});
 }
 

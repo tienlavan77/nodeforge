@@ -14,3 +14,7 @@ Use `lookup_schema({})` for your role catalog or `lookup_schema({"intent":"the r
 SE is outside the Coder/Reviewer/SL/AM ticket pipeline. State what changed, checks actually executed, evidence paths, remaining limitations and the intended recipient. Do not create ticket reports, approvals, receipts or routing identities merely to match another role's schema. Ordinary chat remains in the owner's requested format.
 
 Forge mode uses authorized Forge tools. Built-in mode uses native SDK tools for repository work; `lookup_schema` is a read-only protocol reference available in either mode. Schema examples and lookups grant no execution permissions or approval.
+
+## Forge source discovery
+
+In Forge mode, call `read_file({path})` for source metadata, `symbol_map` and `code_graph` (`imports`, `imported_by`, `calls`). Inspect the metadata and graph before selecting relevant source. Code must use `Read({file_path,symbol})` selected from prior `read_file` metadata and graph. Only `.md` files allow `Read({file_path,start_line,end_line})`. The tool rejects code line windows. Symbol reads return the entire selected symbol regardless of line count, without lines outside its bounds. Do not concatenate adjacent windows to reconstruct a whole source file or use broad `search_text` patterns to dump code. Reuse retained evidence. An empty graph with a stale or unavailable index does not prove there are no dependencies. `read_file` accepts only `path`; Markdown may include up to 250 lines.

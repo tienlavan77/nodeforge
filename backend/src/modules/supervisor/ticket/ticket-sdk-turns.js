@@ -7,7 +7,7 @@ import { createAgentExchangeStorage } from "../../governance/agent-exchange-stor
 import { assertTicketExecutionCompleted } from "../nodeforge-task-sdk-events.js";
 import { saveProgressCheckpoint } from "./ticket-checkpoint-writer.js";
 import { parseTicketWorkProgress, ticketWorkContinuationPrompt, TICKET_WORK_PROGRESS_PROMPT } from "./ticket-work-progress.js";
-import { buildCompactedRolloverPrompt, extractTurnInputTokens, shouldRolloverSdkSession } from "./ticket-context-compaction.js";
+import { buildCompactedRolloverPrompt, extractTurnInputTokens, formatActiveReceiptDigest, shouldRolloverSdkSession } from "./ticket-context-compaction.js";
 import { createTicketDirectiveInbox, sanitizeDeliveredDirectives } from "./ticket-directive-inbox.js";
 
 /** Resumes after typed phase yields or a legacy narrative final answer. Unknown
@@ -84,14 +84,15 @@ export async function runTicketSdkTurns({ executeTurn, readToolEvents, prompt, s
     await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id,
       agent_id: selected.agent_id, provider: selected.provider, changed_paths: [...resumeState.changedPaths], ...(rollover ? { session_id: null, thread_id: null } : {}) });
     request.abortSignal?.throwIfAborted();
+    const receiptDigest = formatActiveReceiptDigest(resumeState);
     if (rollover) {
       projectLogger({ event_name: "supervisor.sdk_context_compacted", level: "info", status: "success", task_id: request.task_id, correlation_id: request.correlation_id,
         message: "Rolled over SDK session at phase boundary with compacted receipt digest.",
-        payload: { agent_id: selected.agent_id, provider: selected.provider, mode: "session_rollover", previous_session_id: previousSessionId, input_tokens: extractTurnInputTokens(result), receipt_position: receipts, compaction_rollover_count: rolloverCount } });
+        payload: { agent_id: selected.agent_id, provider: selected.provider, mode: "session_rollover", previous_session_id: previousSessionId, input_tokens: extractTurnInputTokens(result), receipt_position: receipts, compaction_rollover_count: rolloverCount, receipt_digest: receiptDigest } });
     }
     projectLogger({ event_name: "supervisor.sdk_turn_continuing", level: "info", status: "started", task_id: request.task_id, correlation_id: request.correlation_id,
       message: progress ? "Agent reported phase progress; continuing the same SDK session from its checkpoint." : "Agent turn ended before ticket completion; requesting structured progress in the same SDK session.",
-      payload: { agent_id: selected.agent_id, provider: selected.provider, ...resumeState.sdkTurnProgress, ...(correction ? { correction } : {}) } });
+      payload: { agent_id: selected.agent_id, provider: selected.provider, ...resumeState.sdkTurnProgress, receipt_digest: receiptDigest, ...(correction ? { correction } : {}) } });
     nextPrompt = rollover
       ? buildCompactedRolloverPrompt({ basePrompt, progress, resumeState, directives: drained.directives })
       : ticketWorkContinuationPrompt(progress, resumeState, drained.directives);

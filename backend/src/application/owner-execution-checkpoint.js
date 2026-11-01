@@ -5,6 +5,7 @@ import { acquireTicketFileLock } from "../modules/supervisor/ticket/ticket-file-
 import { prepareArchitectureMutation, verifyArchitectureMutation } from "./architecture-reconciliation.js";
 import { ownerExecutionRolePolicy } from "./owner-execution-role-policy.js";
 import { assertOwnerExecutionRecord, assertOwnerExecutionIdentity } from "./owner-execution-record-guards.js";
+import { extractOwnerResultChecksum, extractOwnerToolPathMeta, updateActiveFileChecksums } from "./owner-context-compaction.js";
 
 const LEASE_MS = 30_000;
 const MAX_STEPS = 80;
@@ -83,7 +84,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
       if (resumeOf && (!parent || parent.role !== role || !await reconcile(parent))) throw Object.assign(new ConfigurationError("Previous execution requires manual reconciliation before restart."), { code: "EXECUTION_RECONCILIATION_REQUIRED", statusCode: 409 });
       const started = await update(conversationId, executionId, (current) => {
         if (current) throw Object.assign(new ConfigurationError("Execution already exists."), { statusCode: 409 });
-        return { status: "running", role, provider, tool_mode: toolMode, checkpoint_kind: toolMode === "builtin" ? "sdk_session" : "forge_receipts", message_id: messageId, user_prompt_hash: promptHash, provider_thread_id: null, completed_tool_calls: [...(parent?.completed_tool_calls ?? [])], failed_tool_calls: [...(parent?.failed_tool_calls ?? [])], pending_tool_calls: [...(parent?.pending_tool_calls ?? [])], next_sequence: parent?.next_sequence ?? 1, changed_paths: [...(parent?.changed_paths ?? [])], last_completed_step: parent?.last_completed_step ?? 0, receipts_truncated: parent?.receipts_truncated ?? false, lineage_id: parent?.lineage_id ?? resumeOf ?? executionId, attempt_number: (parent?.attempt_number ?? 0) + 1, resume_of: resumeOf, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
+        return { status: "running", role, provider, tool_mode: toolMode, checkpoint_kind: toolMode === "builtin" ? "sdk_session" : "forge_receipts", message_id: messageId, user_prompt_hash: promptHash, provider_thread_id: null, completed_tool_calls: [...(parent?.completed_tool_calls ?? [])], failed_tool_calls: [...(parent?.failed_tool_calls ?? [])], pending_tool_calls: [...(parent?.pending_tool_calls ?? [])], next_sequence: parent?.next_sequence ?? 1, changed_paths: [...(parent?.changed_paths ?? [])], active_file_checksums: { ...(parent?.active_file_checksums ?? {}) }, last_completed_step: parent?.last_completed_step ?? 0, receipts_truncated: parent?.receipts_truncated ?? false, lineage_id: parent?.lineage_id ?? resumeOf ?? executionId, attempt_number: (parent?.attempt_number ?? 0) + 1, resume_of: resumeOf, owner_instance_id: ownerInstanceId, lease_started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString() };
       });
       if (resumeOf) await close(conversationId, resumeOf, "restarted");
       return started;
@@ -124,7 +125,7 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
       if (ownerExecutionRolePolicy(current.role).architectureMutations && MUTATING.has(name) && !["write_diff", "edit_diff", "delete_file"].includes(name)) throw Object.assign(new ConfigurationError("Architecture recovery cannot execute System Engineer mutations."), { code: "TOOL_FORBIDDEN" });
       if ((current.resume_count || current.resume_of) && current.completed_tool_calls.some((receipt) => receipt.tool_name === name && (["commit_changes", "push_commit"].includes(name) || (MUTATING.has(name) && receipt.input_hash === executionDigest(input))))) throw Object.assign(new ConfigurationError("Side effect already completed; cannot replay after recovery."), { code: "EXECUTION_RECONCILIATION_REQUIRED" });
       const evidence = ownerExecutionRolePolicy(current.role).architectureMutations && MUTATING.has(name) ? await prepareArchitectureMutation(fileService, name, input) : {};
-      const pathMeta = name === "move_file" ? { ...(typeof input?.from_path === "string" ? { from_path: input.from_path } : {}), ...(typeof input?.to_path === "string" ? { to_path: input.to_path, path: input.to_path } : {}) } : typeof input?.path === "string" ? { path: input.path } : {};
+      const pathMeta = extractOwnerToolPathMeta(name, input);
       step = { sequence: current.next_sequence, tool_name: name, input_hash: executionDigest(input), mutating: MUTATING.has(name), ...pathMeta, ...(typeof input?.before_checksum === "string" ? { before_checksum: input.before_checksum } : {}), ...evidence, started_at: new Date().toISOString() };
       return { ...current, next_sequence: current.next_sequence + 1, active_mutations: (current.active_mutations ?? 0) + (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0), pending_tool_calls: [...current.pending_tool_calls, step], heartbeat_at: new Date().toISOString() };
     });
@@ -133,12 +134,16 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
 
   // Stores a bounded receipt after a Forge tool returns successfully.
   async function afterTool(conversationId, executionId, step, result, changedPaths = []) {
-    const stepPaths = [step.from_path, step.to_path, step.path, ...(Array.isArray(changedPaths) ? changedPaths : [])].filter((item) => typeof item === "string" && item);
-    const receipt = { ...step, completed_at: new Date().toISOString(), result_hash: executionDigest(result), ...(step.tool_name === "delete_file" ? { after_checksum: null } : {}), ...(typeof result?.sha256 === "string" ? { after_checksum: result.sha256 } : {}), ...(checksumFromResult(step, result) ? { after_checksum: checksumFromResult(step, result) } : {}), ...(step.tool_name === "commit_changes" && typeof result?.sha === "string" ? { commit_sha: result.sha } : {}) };
+    const isMutatingFile = ["write_diff", "edit_diff", "delete_file", "move_file"].includes(step.tool_name);
+    const stepPaths = isMutatingFile ? [step.from_path, step.to_path, step.path, ...(Array.isArray(changedPaths) ? changedPaths : [])].filter((item) => typeof item === "string" && item) : (Array.isArray(changedPaths) ? changedPaths.filter((item) => typeof item === "string" && item) : []);
+    const { sha256: resultSha, totalLines } = extractOwnerResultChecksum(step, result);
+    const isRead = ["read_file", "Read", "sed_lines"].includes(step.tool_name);
+    const receipt = { ...step, ...(result?.path && !step.path ? { path: result.path } : {}), completed_at: new Date().toISOString(), result_hash: executionDigest(result), ...(step.tool_name === "delete_file" ? { after_checksum: null } : resultSha ? { after_checksum: resultSha, ...(isRead ? { read_checksum: resultSha } : {}) } : {}), ...(Number.isInteger(totalLines) ? { total_lines: totalLines } : {}), ...(step.tool_name === "commit_changes" && typeof result?.sha === "string" ? { commit_sha: result.sha } : {}) };
     return update(conversationId, executionId, (current) => {
       if (current?.owner_instance_id !== ownerInstanceId || current.status !== "running") throw Object.assign(new ConfigurationError("Execution lease has ended."), { code: "EXECUTION_INTERRUPTED" });
       const previous = current.completed_tool_calls ?? [];
-      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...stepPaths])].slice(-MAX_STEPS), heartbeat_at: new Date().toISOString() };
+      const activeFileChecksums = updateActiveFileChecksums(current.active_file_checksums, { toolName: step.tool_name, step: receipt, result });
+      return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), pending_tool_calls: current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), completed_tool_calls: [...previous, receipt].slice(-MAX_STEPS), receipts_truncated: current.receipts_truncated || previous.length >= MAX_STEPS, last_completed_step: Math.max(current.last_completed_step ?? 0, receipt.sequence), changed_paths: [...new Set([...current.changed_paths, ...stepPaths])].slice(-MAX_STEPS), active_file_checksums: activeFileChecksums, heartbeat_at: new Date().toISOString() };
     });
   }
 
@@ -151,13 +156,6 @@ export function createOwnerExecutionCheckpoint({ fileService, gitService, role, 
       const uncertainMutation = step.mutating && !safelyCancelledCheck && !safelyRejectedWrite;
       return { ...current, active_mutations: Math.max(0, (current.active_mutations ?? 0) - (ownerExecutionRolePolicy(current.role).architectureMutations && step.mutating ? 1 : 0)), status: ownerExecutionRolePolicy(current.role).architectureMutations && uncertainMutation ? "manual_required" : current.status, pending_tool_calls: uncertainMutation ? current.pending_tool_calls : current.pending_tool_calls.filter((pending) => pending.sequence !== step.sequence), failed_tool_calls: [...current.failed_tool_calls, { sequence: step.sequence, tool_name: step.tool_name, error_code: String(error?.code ?? "TOOL_FAILED").slice(0, 80) }].slice(-MAX_STEPS) };
     });
-  }
-
-  // Extracts the resulting file checksum from a confirmed Forge write receipt.
-  function checksumFromResult(step, result) {
-    if (step.tool_name !== "write_diff") return null;
-    const text = result?.content?.find?.((item) => item.type === "text")?.text ?? "";
-    return text.match(/\(sha256:[a-f0-9]{64}\)/)?.[0]?.slice(1, -1) ?? null;
   }
 
   // Settles an old run_check boundary only when a later tool sequence proves its call returned.

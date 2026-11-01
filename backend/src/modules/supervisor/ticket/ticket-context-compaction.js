@@ -82,8 +82,10 @@ function inspectHistoryToolItem(item) {
     // eslint-disable-next-line no-silent-catch -- Non-JSON tool output strings remain plain text for length checking.
     try { parsed = JSON.parse(raw); } catch { parsed = null; }
   }
-  const path = typeof parsed?.path === "string" ? parsed.path : typeof item.path === "string" ? item.path : null;
-  const tool = typeof item.name === "string" ? item.name : typeof item.tool === "string" ? item.tool : parsed?.code_index ? "read_file" : parsed?.stdout !== undefined ? "search_text" : "tool";
+  const path = typeof (parsed?.path ?? parsed?.file_path ?? item.path ?? item.file_path) === "string"
+    ? (parsed?.path ?? parsed?.file_path ?? item.path ?? item.file_path)
+    : null;
+  const tool = typeof item.name === "string" ? item.name : typeof item.tool === "string" ? item.tool : parsed?.code_index ? "read_file" : parsed?.file_path ? "Read" : parsed?.stdout !== undefined ? "search_text" : "tool";
   return { field, raw, text, parsed, path, tool };
 }
 
@@ -111,13 +113,20 @@ function compactHistoryItem(item, checksums, changedSet) {
 }
 
 // Business purpose: measures total input token consumption of an SDK turn so the supervisor knows when a provider session is approaching context limits.
-// Technical description: sums input_tokens, cache_creation_input_tokens, and cache_read_input_tokens across Claude and Codex usage formats.
+// Technical description: sums input_tokens, cache_creation_input_tokens, and cache_read_input_tokens / cached_input_tokens / cached_tokens across Claude and Codex usage formats.
 export function extractTurnInputTokens(result) {
-  const usage = result?.usage;
+  const usage = result?.usage ?? result?.payload?.usage;
   if (!usage || typeof usage !== "object") return 0;
   const base = Number(usage.input_tokens ?? usage.inputTokens ?? 0);
   const cacheCreate = Number(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens ?? 0);
-  const cacheRead = Number(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens ?? 0);
+  const cacheRead = Number(
+    usage.cache_read_input_tokens
+    ?? usage.cacheReadInputTokens
+    ?? usage.cached_input_tokens
+    ?? usage.cachedInputTokens
+    ?? usage.cached_tokens
+    ?? 0
+  );
   const total = (Number.isFinite(base) ? base : 0) + (Number.isFinite(cacheCreate) ? cacheCreate : 0) + (Number.isFinite(cacheRead) ? cacheRead : 0);
   return total > 0 ? total : 0;
 }
@@ -133,9 +142,10 @@ export function shouldRolloverSdkSession({ result, progress, resumeState, thresh
 }
 
 // Business purpose: constructs the self-contained handoff prompt for a newly rolled-over SDK session so the Coder continues seamlessly without re-reading unchanged files or losing mid-flight directives.
-// Technical description: combines the original ticket assignment basePrompt with the accepted work_progress payload, active file checksums, compact turn history, delivered directives, and the work_progress schema contract.
+// Technical description: combines the original ticket assignment basePrompt with the accepted work_progress payload, active file checksums, compact receipt digest, compact turn history, delivered directives, and the work_progress schema contract.
 export function buildCompactedRolloverPrompt({ basePrompt, progress, resumeState, directives = [] } = {}) {
   const checksums = activeFileChecksums(resumeState?.readCache);
+  const receiptDigest = formatActiveReceiptDigest(resumeState);
   const directiveBlock = formatMidFlightDirectives(
     directives.length ? directives : (resumeState?.deliveredDirectives ?? [])
   );
@@ -148,6 +158,7 @@ export function buildCompactedRolloverPrompt({ basePrompt, progress, resumeState
     "=== COMPACTED SESSION HANDOFF (Session rolled over at phase boundary to preserve context budget) ===",
     `Accepted phase progress: ${JSON.stringify(progress?.payload ?? {})}.`,
     `Continue at tool turn ${resumeState?.turnCount ?? 0}. Rolled over from session: ${resumeState?.sdkTurnProgress?.rolled_over_from ?? "previous"}.`,
+    `Compact receipt digest: ${receiptDigest}.`,
     `Active file checksums (reuse as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged windows): ${JSON.stringify(checksums)}.`,
     `Files already changed in the worktree: ${JSON.stringify(resumeState?.changedPaths ?? [])}.`,
     "Completed turn receipts (do NOT repeat completed mutations or re-read unchanged windows):",

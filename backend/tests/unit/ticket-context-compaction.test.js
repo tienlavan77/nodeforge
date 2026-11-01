@@ -75,6 +75,22 @@ test("Piece A: read cache retains active file checksums across reads and mutatio
   recordMutationChecksum(cache, { tool: "delete_file", input: { path: "backend/src/moved.js" } });
   assert.equal(activeFileChecksums(cache)["backend/src/moved.js"], undefined);
 
+  // Read tool with file_path + symbol / start_line / end_line is cached and deduplicated in activeFileChecksums.
+  rememberRead(cache, { file_path: "backend/src/symbol.js", symbol: "runTask", start_line: 10, end_line: 30 }, {
+    file_path: "backend/src/symbol.js",
+    content: "export function runTask() {}\n",
+    sha256: SHA_A,
+    total_lines: 60
+  });
+  assert.throws(
+    () => assertReadNotRepeated(cache, { file_path: "backend/src/symbol.js", symbol: "runTask", start_line: 10, end_line: 30 }),
+    { code: "READ_REPEATED" }
+  );
+  assert.doesNotThrow(
+    () => assertReadNotRepeated(cache, { file_path: "backend/src/symbol.js", symbol: "otherSymbol", start_line: 31, end_line: 50 })
+  );
+  assert.equal(activeFileChecksums(cache)["backend/src/symbol.js"].sha256, SHA_A);
+
   const sanitized = sanitizeReadCache(cache);
   assert.equal(activeFileChecksums(sanitized)["backend/src/service.js"].sha256, SHA_B);
 });
@@ -88,9 +104,11 @@ test("Piece A: continuation and resume prompts embed Active file checksums and f
     coder_rules_read: true
   });
   const saved = [];
+  state.coderRulesRead = false;
   const wrapped = checkpointedRegistry({
     store: { save: async (p) => saved.push(p), complete: async (_id, p) => saved.push(p) },
     registry: {
+      Read: { execute: async (input) => ({ file_path: input.file_path, content: "# Coder rules", sha256: SHA_A, total_lines: 25 }) },
       read_file: { execute: async () => ({ path: "backend/src/service.js", content: "code", sha256: SHA_A, total_lines: 25 }) },
       edit_diff: { execute: async () => ({ path: "backend/src/service.js", sha256: SHA_B }) }
     },
@@ -99,14 +117,19 @@ test("Piece A: continuation and resume prompts embed Active file checksums and f
     correlationId: "CORR-A",
     resumeState: state
   });
+  await wrapped.Read.execute({ file_path: "workflows/agents/coder/README.md", start_line: 1, end_line: 25 }, {});
+  assert.equal(state.coderRulesRead, true);
+  assert.match(state.turnHistory.at(-1).target, /workflows\/agents\/coder\/README\.md#L1-25/);
   await wrapped.read_file.execute({ path: "backend/src/service.js", offset: 1, limit: 25 }, {});
   await wrapped.edit_diff.execute({ path: "backend/src/service.js", before_checksum: SHA_A, anchor: "a", replacement: "b" }, { changed_paths: ["backend/src/service.js"] });
 
   const continuation = ticketWorkContinuationPrompt({ payload: { status: "discovery_complete", next_action: "implement" } }, state);
+  assert.match(continuation, /Compact receipt digest:/);
   assert.match(continuation, /Active file checksums/);
   assert.match(continuation, new RegExp(SHA_B));
 
   const resumed = buildResumePrompt("Implement feature", state, { agentId: "CODER", provider: "claude" });
+  assert.match(resumed, /Compact receipt digest:/);
   assert.match(resumed, /Active file checksums/);
   assert.match(resumed, new RegExp(SHA_B));
 
@@ -154,6 +177,8 @@ test("Piece B: compactFunctionCallingHistory replaces oversized intermediate too
 
 test("Piece C: shouldRolloverSdkSession and runTicketSdkTurns roll over sessionId/threadId at phase boundary when input_tokens reach threshold", async () => {
   assert.equal(extractTurnInputTokens({ usage: { input_tokens: 20000, cache_read_input_tokens: 105000 } }), 125000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 15000, cached_input_tokens: 110000 } }), 125000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 10000, cached_tokens: 115000 } }), 125000);
   const dummyState = createResumeState({ status: "in_progress", session_id: "SESS-1" });
   assert.equal(shouldRolloverSdkSession({
     result: { usage: { input_tokens: DEFAULT_ROLLOVER_INPUT_TOKENS } },
@@ -242,4 +267,5 @@ test("Piece C: shouldRolloverSdkSession and runTicketSdkTurns roll over sessionI
     resumeState: state
   });
   assert.match(handoff, /COMPACTED SESSION HANDOFF/);
+  assert.match(handoff, /Compact receipt digest:/);
 });
