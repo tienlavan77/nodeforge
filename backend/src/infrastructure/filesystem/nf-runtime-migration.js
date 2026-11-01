@@ -37,7 +37,7 @@ export async function previewNfMigration(projectRoot) {
 
 /** Checks project ownership locks, leaving opaque SDK locks to the mandatory stopped-SDK assertion. */
 async function assertOffline(root, report) {
-  const paths = report.moves.filter(move => !move.from.startsWith(NF_RUNTIME_ROOT + "/codex-homes") && !move.from.startsWith(NF_RUNTIME_ROOT + "/sdk-cache"))
+  const paths = report.moves.filter(move => ![NF_RUNTIME_ROOT + "/claude-homes", NF_RUNTIME_ROOT + "/codex-homes", NF_RUNTIME_ROOT + "/sdk-cache"].some(sdk => move.from.startsWith(sdk)))
     .flatMap(move => [resolve(root, move.from), resolve(root, move.to)]);
   await assertMigrationOffline(resolve(root, ".forge/runtime"), paths);
 }

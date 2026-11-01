@@ -175,69 +175,42 @@ test("Piece B: compactFunctionCallingHistory replaces oversized intermediate too
   assert.equal(stub1.status, "retained_in_active_checksum_digest");
 });
 
-test("Piece C: shouldRolloverSdkSession and runTicketSdkTurns roll over sessionId/threadId at phase boundary when input_tokens reach threshold", async () => {
+test("Piece C: shouldRolloverSdkSession and runTicketSdkTurns roll over sessionId/threadId and function-calling history at phase boundary", async () => {
   assert.equal(extractTurnInputTokens({ usage: { input_tokens: 20000, cache_read_input_tokens: 105000 } }), 125000);
-  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 15000, cached_input_tokens: 110000 } }), 125000);
-  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 10000, cached_tokens: 115000 } }), 125000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 10000, cache_creation_input_tokens: 15000, cache_read_input_tokens: 100000 } }), 125000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 125000, cached_input_tokens: 110000 } }), 125000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 90000, cached_tokens: 70000 } }), 90000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 500000, cache_read_input_tokens: 1500000, context_input_tokens: 85000 } }), 85000);
+  // Parallel tool calls in a single round count as 1 tool round (2 model invocations), whereas tool calls separated by reasoning/message count as 2 tool rounds (3 invocations).
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 240000, cached_input_tokens: 200000 }, items: [{ type: "mcp_tool_call" }, { type: "mcp_tool_call" }, { type: "agent_message" }] }), 120000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 240000, cached_input_tokens: 200000 }, items: [{ type: "mcp_tool_call" }, { type: "reasoning" }, { type: "mcp_tool_call" }, { type: "agent_message" }] }), 80000);
+  assert.equal(extractTurnInputTokens({ usage: { input_tokens: 240000, cached_input_tokens: 180000, requests: 3 } }), 80000);
   const dummyState = createResumeState({ status: "in_progress", session_id: "SESS-1" });
-  assert.equal(shouldRolloverSdkSession({
-    result: { usage: { input_tokens: DEFAULT_ROLLOVER_INPUT_TOKENS } },
-    progress: { payload: { status: "discovery_complete" } },
-    resumeState: dummyState
-  }), true);
-  // Never rolls over on schema correction (when progress is undefined).
-  assert.equal(shouldRolloverSdkSession({
-    result: { usage: { input_tokens: DEFAULT_ROLLOVER_INPUT_TOKENS + 50000 } },
-    progress: undefined,
-    resumeState: dummyState
-  }), false);
+  assert.equal(shouldRolloverSdkSession({ result: { usage: { input_tokens: 450000, cache_read_input_tokens: 900000, context_input_tokens: 95000 } }, progress: { payload: { status: "discovery_complete" } }, resumeState: dummyState }), false);
+  assert.equal(shouldRolloverSdkSession({ result: { usage: { input_tokens: DEFAULT_ROLLOVER_INPUT_TOKENS } }, progress: { payload: { status: "discovery_complete" } }, resumeState: dummyState }), true);
+  assert.equal(shouldRolloverSdkSession({ result: { usage: { input_tokens: DEFAULT_ROLLOVER_INPUT_TOKENS + 50000 } }, progress: undefined, resumeState: dummyState }), false);
 
-  const state = createResumeState({
-    status: "in_progress",
-    session_id: "CLAUDE-OLD-SESSION",
-    last_completed_turn: 4,
-    completed_tools: ["read_file"],
-    changed_paths: ["backend/src/target.js"],
-    coder_rules_read: true
-  });
-  rememberRead(state.readCache, { path: "backend/src/target.js", offset: 1, limit: 50 }, {
-    path: "backend/src/target.js",
-    content: "const a = 1;\n",
-    sha256: SHA_A,
-    total_lines: 50
-  });
+  const state = createResumeState({ status: "in_progress", session_id: "CLAUDE-OLD-SESSION", last_completed_turn: 4, completed_tools: ["read_file"], changed_paths: ["backend/src/target.js"], coder_rules_read: true });
+  rememberRead(state.readCache, { path: "backend/src/target.js", offset: 1, limit: 50 }, { path: "backend/src/target.js", content: "const a = 1;\n", sha256: SHA_A, total_lines: 50 });
 
-  const calls = [];
-  const saved = [];
-  const logs = [];
+  const calls = []; const saved = []; const logs = [];
   const turns = [
     {
-      text: JSON.stringify({
-        kind: "work_progress",
-        subject: "Discovery complete",
-        payload: { status: "discovery_complete", next_action: "implement", summary: "Found target", remaining_work: ["Edit target"] },
-        evidence: []
-      }),
+      text: JSON.stringify({ kind: "work_progress", subject: "Discovery complete", payload: { status: "discovery_complete", next_action: "implement", summary: "Found target", remaining_work: ["Edit target"] }, evidence: [] }),
       usage: { input_tokens: 30000, cache_read_input_tokens: 95000 },
       events: [{ tool: "read_file", status: "success" }]
     },
     {
       text: "Completed ticket",
       usage: { input_tokens: 15000 },
-      events: [
-        { tool: "edit_diff", status: "success" },
-        { tool: "commit_changes", status: "success" },
-        { tool: "report_done", status: "success" }
-      ]
+      events: [{ tool: "edit_diff", status: "success" }, { tool: "commit_changes", status: "success" }, { tool: "report_done", status: "success" }]
     }
   ];
 
   await runTicketSdkTurns({
     selected: { agent_id: "CODER-1", role: "coder", provider: "claude" },
     request: { task_id: "TASK-ROLLOVER", correlation_id: "CORR-ROLLOVER", payload: { compaction_token_threshold: 120000 } },
-    resumeState: state,
-    prompt: "Original ticket assignment prompt",
-    priorTools: ["read_file"],
+    resumeState: state, prompt: "Original ticket assignment prompt", priorTools: ["read_file"],
     checkpoints: { save: async (snapshot) => saved.push(structuredClone(snapshot)) },
     projectLogger: (entry) => logs.push(entry),
     readToolEvents: (result) => result.events ?? [],
@@ -251,21 +224,18 @@ test("Piece C: shouldRolloverSdkSession and runTicketSdkTurns roll over sessionI
 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].sessionId, "CLAUDE-OLD-SESSION");
-  // Second turn runs with a fresh null sessionId after rollover and receives the compacted rollover handoff prompt.
   assert.equal(calls[1].sessionId, null);
   assert.match(calls[1].prompt, /COMPACTED SESSION HANDOFF/);
   assert.match(calls[1].prompt, /Original ticket assignment prompt/);
   assert.match(calls[1].prompt, new RegExp(SHA_A));
   assert.equal(saved[0].session_id, null);
+  assert.equal(saved[0].sdk_turn_progress.rolled_over, true);
   assert.equal(saved[0].sdk_turn_progress.rolled_over_from, "CLAUDE-OLD-SESSION");
   assert.equal(saved[0].sdk_turn_progress.compaction_rollover_count, 1);
+  assert.equal(createResumeState(saved[0]).sessionRolledOver, true);
   assert.ok(logs.some((entry) => entry.event_name === "supervisor.sdk_context_compacted" && entry.payload?.mode === "session_rollover"));
 
-  const handoff = buildCompactedRolloverPrompt({
-    basePrompt: "Base prompt",
-    progress: { payload: { status: "discovery_complete", next_action: "implement" } },
-    resumeState: state
-  });
-  assert.match(handoff, /COMPACTED SESSION HANDOFF/);
+  const handoff = buildCompactedRolloverPrompt({ basePrompt: "Base prompt", progress: { payload: { status: "discovery_complete", next_action: "implement" } }, resumeState: createResumeState({ status: "in_progress" }) });
+  assert.match(handoff, /Rolled over from session: in_memory_history/);
   assert.match(handoff, /Compact receipt digest:/);
 });

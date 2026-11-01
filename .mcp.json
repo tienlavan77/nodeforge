@@ -1,0 +1,16 @@
+{
+  "_nodeforge_created_file": true,
+  "mcpServers": {
+    "forge": {
+      "type": "stdio",
+      "command": "/opt/node-v26.12.1-linux-x64/bin/node",
+      "args": [
+        "/home/data/sites/nodeforge/backend/src/transport/cli/index.js",
+        "mcp-serve",
+        "--project",
+        "/home/data/sites/nodeforge"
+      ],
+      "_managed_by": "nodeforge"
+    }
+  }
+}

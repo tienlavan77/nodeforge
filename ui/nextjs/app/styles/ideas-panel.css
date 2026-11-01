@@ -2,7 +2,7 @@
  * Its independent scroll area prevents long entries from changing conversation geometry.
  * Native controls remain keyboard accessible, with a visible focus indicator in both themes. */
 .ideas-panel {
-  position: fixed; z-index: 90;
+  position: fixed; z-index: 82;
   display: flex; flex-direction: column;
   min-width: 260px; min-height: 120px;
   max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
@@ -12,6 +12,7 @@
   background: var(--app-panel, #fff); color: var(--app-text, #222);
   box-shadow: 0 12px 36px #0005; white-space: normal;
 }
+.ideas-panel.is-active-panel { z-index: 89; border-color: var(--app-accent, #629dff); }
 .ideas-panel.is-minimized { min-height: 0; resize: none; }
 .ideas-panel[hidden] { display: none; }
 .ideas-panel .workspace-monitor-header {

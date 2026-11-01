@@ -158,3 +158,18 @@ test("IdeasPanel and styles implement 12px To-do list layout, split open/done li
   assert.match(ideasStylesSource, /\.ideas-panel\s+\.ideas-icon-btn\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px/s);
   assert.match(ideasStylesSource, /\.ideas-panel\s+\.ideas-icon-btn\s+svg\s*\{[^}]*width:\s*8px;\s*height:\s*8px/s);
 });
+
+test("bringMonitorPanelToFront and getMonitorPanelZIndex promote the active panel to the top of the monitor stack", async () => {
+  const { bringMonitorPanelToFront, getMonitorPanelZIndex } = await import("../lib/workspace-monitor-layout.js");
+  const order1 = bringMonitorPanelToFront(["watcher", "agent", "ideas"], "watcher");
+  assert.deepEqual(order1, ["agent", "ideas", "watcher"]);
+  assert.ok(getMonitorPanelZIndex(order1, "watcher", "watcher") > getMonitorPanelZIndex(order1, "ideas", "watcher"));
+  assert.ok(getMonitorPanelZIndex(order1, "watcher", "watcher") > getMonitorPanelZIndex(order1, "agent", "watcher"));
+  const order2 = bringMonitorPanelToFront(order1, "ideas");
+  assert.deepEqual(order2, ["agent", "watcher", "ideas"]);
+  assert.ok(getMonitorPanelZIndex(order2, "ideas", "ideas") > getMonitorPanelZIndex(order2, "watcher", "ideas"));
+  assert.match(workspaceMonitorsSource, /is-active-panel/);
+  assert.match(workspaceMonitorsSource, /is-inactive-panel/);
+  assert.match(workspaceMonitorsSource, /createPortal\(panelElement,\s*ideasPortalElement\)/);
+  assert.match(workspaceMonitorsSource, /ref=\{setIdeasPortalElement\}\s+className="workspace-monitor-layer"/);
+});

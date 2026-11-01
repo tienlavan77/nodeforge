@@ -6,5 +6,5 @@ export function createClaudeForgeOptions({ mcpServers, allowedTools }, extra = {
   if (!mcpServers?.forge || !Array.isArray(allowedTools) || allowedTools.some((name) => !name.startsWith("mcp__forge__") && name !== "WebSearch")) {
     throw new ConfigurationError("Claude Forge options require a Forge MCP server and its tool allowlist.");
   }
-  return { ...extra, tools: [], mcpServers, allowedTools: [...allowedTools] };
+  return { settingSources: [], ...extra, tools: [], mcpServers, allowedTools: [...allowedTools] };
 }

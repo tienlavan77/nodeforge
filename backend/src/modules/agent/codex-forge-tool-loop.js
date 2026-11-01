@@ -118,7 +118,17 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
       error.code = "CODEX_TOOL_LOOP_ROUND_LIMIT";
       throw error;
     }
-    return { text: finalText, tool_events: toolEvents, rounds, usage: aggregateUsage(usageByRound) };
+    const lastRound = usageByRound.at(-1);
+    const contextInputTokens = lastRound
+      ? Math.max(Number(lastRound.input_tokens ?? 0), Number(lastRound.cache_read_input_tokens ?? 0))
+      : undefined;
+    return {
+      text: finalText,
+      tool_events: toolEvents,
+      rounds,
+      usage: aggregateUsage(usageByRound),
+      ...(contextInputTokens !== undefined ? { context_input_tokens: contextInputTokens, last_call_usage: { input_tokens: lastRound.input_tokens, cached_input_tokens: lastRound.cache_read_input_tokens } } : {})
+    };
   }
 
 // Aggregates per-round token and cache usage into totals.

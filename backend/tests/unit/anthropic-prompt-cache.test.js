@@ -36,8 +36,8 @@ test("Claude SDK enables cache and preserves usage without exposing credentials 
       queryFn: (request) => {
         options = request.options;
         return { async *[Symbol.asyncIterator]() {
-          yield { type: "result", modelUsage: { model: { inputTokens: 1, cacheReadInputTokens: 1 } } };
-          yield { type: "result", modelUsage: { model: { inputTokens: 10, outputTokens: 20, cacheReadInputTokens: 300, cacheCreationInputTokens: 400 } }, api_key: "secret-value", authorization: "secret-value" };
+          yield { type: "result", subtype: "success", modelUsage: { model: { inputTokens: 1, cacheReadInputTokens: 1 } } };
+          yield { type: "result", subtype: "success", modelUsage: { model: { inputTokens: 10, outputTokens: 20, cacheReadInputTokens: 300, cacheCreationInputTokens: 400 } }, api_key: "secret-value", authorization: "secret-value" };
         } };
       }
     });
@@ -50,9 +50,23 @@ test("Claude SDK enables cache and preserves usage without exposing credentials 
     assert.deepEqual(result.usage, usage);
     assert.equal(result.messages[1].modelUsage.model.cacheReadInputTokens, 300);
     assert.equal(JSON.stringify(result).includes("secret-value"), false);
-    assert.match(terminal.join(""), /cache_read=300 cache_write=400/);
+    assert.match(terminal.join(""), /sdk\.completed.*SUCCESS/);
   }
   assert.deepEqual(claudeCacheUsage([{ type: "result", usage }]), usage);
+  assert.deepEqual(
+    claudeCacheUsage([
+      { type: "assistant", message: { usage: { input_tokens: 15000, cache_read_input_tokens: 60000 } } },
+      { type: "assistant", message: { usage: { input_tokens: 18000, cache_read_input_tokens: 72000, cache_creation_input_tokens: 2000 } } },
+      { type: "result", modelUsage: { model: { inputTokens: 33000, outputTokens: 1200, cacheReadInputTokens: 132000, cacheCreationInputTokens: 2000 } } }
+    ]),
+    {
+      input_tokens: 33000,
+      output_tokens: 1200,
+      cache_creation_input_tokens: 2000,
+      cache_read_input_tokens: 132000,
+      context_input_tokens: 92000
+    }
+  );
   assert.equal(claudeCacheUsage([]), undefined);
 });
 

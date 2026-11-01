@@ -153,6 +153,7 @@ test("enables the Codex MCP feature when Forge tools are attached", async () => 
   assert.equal(codexOptions.config.mcp_servers.forge.enabled, true);
   assert.deepEqual(codexOptions.config.mcp_servers.forge.enabled_tools, ["ping"]);
   assert.equal(codexOptions.config.mcp_servers.forge.env.NODEFORGE_CODEX_MCP_DEFINITIONS.includes("ping"), true);
+  assert.equal(codexOptions.config.mcp_servers.forge.env.NODEFORGE_CODEX_MCP_DEBUG_LOG, "/repo/.forge/runtime/nf/logs/codex-mcp.log");
 });
 
 test("does not leak the parent Codex session into the MCP child", async () => {

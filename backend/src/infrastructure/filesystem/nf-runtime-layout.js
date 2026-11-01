@@ -9,7 +9,7 @@ export const NF_RUNTIME_GROUPS = Object.freeze({
   planning: Object.freeze(["plans", "plan-clarifications", "plan-requests"]),
   execution: Object.freeze(["tickets", "sprint-plan", "code-requests"]),
   history: Object.freeze(["conversations", "conversation-migrations", "summary"]),
-  sdk: Object.freeze(["codex-homes", "sdk-cache"]),
+  sdk: Object.freeze(["claude-homes", "codex-homes", "sdk-cache"]),
   maintenance: Object.freeze(["error-migrations", "sprint-migration", "sprint-migration-backups", "sprint-migration-receipts"]),
   logs: Object.freeze([])
 });

@@ -9,10 +9,10 @@ export async function nfInfo(path) {
   try { return await lstat(path); } catch (error) { if (error.code === "ENOENT") return null; throw error; }
 }
 
-/** Recognizes only the fixed codex-homes alias pointing to its exact project-local destination. */
+/** Recognizes only the fixed SDK home aliases pointing to their exact project-local destinations. */
 export async function isNfSdkAlias(root, from, to) {
   const info = await nfInfo(resolve(root, from));
-  return from === NF_RUNTIME_ROOT + "/codex-homes" && info?.isSymbolicLink()
+  return [NF_RUNTIME_ROOT + "/claude-homes", NF_RUNTIME_ROOT + "/codex-homes"].includes(from) && info?.isSymbolicLink()
     && resolve(resolve(root, from), "..", await readlink(resolve(root, from))) === resolve(root, to);
 }
 

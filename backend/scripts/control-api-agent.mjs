@@ -25,7 +25,7 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   }
   agentConfiguration.sync();
   const agentGateway = createAgentGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.agentTimeoutMs });
-  const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs });
+  const claudeSdkGateway = createClaudeSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs, claudeHomeRoot: resolveRuntimePath(config.cwd, config.dataDir, "claude-homes") });
   const codexSdkGateway = createCodexSdkGateway({ configuration: agentConfiguration, credentialResolver: (reference) => secrets.get(reference), timeoutMs: config.sdkTimeoutMs, codexHomeRoot: resolveRuntimePath(config.cwd, config.dataDir, "codex-homes") });
   const openaiSdkProviderFactory = createOpenAiSdkProviderFactory({ credentialResolver: (reference) => secrets.get(reference) });
   const openaiSdkGateway = createOpenAiSdkGateway({ providerFactory: openaiSdkProviderFactory, timeoutMs: config.sdkTimeoutMs });

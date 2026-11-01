@@ -114,6 +114,9 @@ test("Claude gateway preserves native guards and emits command and text streamin
   await gateway.execute({ agentId: "SE", prompt: "Inspect", correlationId: "C", options: { ...native, onBuiltinToolEvent: (event) => events.push(event), onTextDelta: (text) => deltas.push(text) } });
   assert.equal(typeof options.hooks.PreToolUse[0].hooks[0], "function");
   assert.deepEqual(options.mcpServers, undefined);
+  assert.deepEqual(options.settingSources, []);
+  assert.ok(options.env.CLAUDE_CONFIG_DIR.startsWith(join(process.cwd(), ".forge/runtime/nf/")));
+  assert.ok(options.env.XDG_CACHE_HOME.startsWith(join(process.cwd(), ".forge/runtime/nf/")));
   assert.deepEqual(events.map(({ tool, status }) => [tool, status]), [["Agent", "started"], ["Agent", "success"]]);
   assert.deepEqual(deltas, ["Done"]);
 });

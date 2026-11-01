@@ -33,7 +33,7 @@ export function createResumeState(resume) {
     sdkTurnProgress: clean?.sdk_turn_progress ?? null,
     sessionId: typeof clean?.session_id === "string" ? clean.session_id : null,
     threadId: typeof clean?.thread_id === "string" ? clean.thread_id : null,
-    sessionRolledOver: false,
+    sessionRolledOver: clean?.sdk_turn_progress?.rolled_over === true,
     turnCount: Number.isInteger(clean?.last_completed_turn) ? clean.last_completed_turn : 0,
     completedTools: Array.isArray(clean?.completed_tools) ? clean.completed_tools.map(engineeringToolName) : [],
     turnHistory: Array.isArray(clean?.turn_history) ? clean.turn_history.map((entry) => ({ ...entry, tool: engineeringToolName(entry.tool) })) : [],

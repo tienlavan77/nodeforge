@@ -4,6 +4,9 @@
   "private": true,
   "description": "Protocol-driven multi-agent orchestration system.",
   "type": "module",
+  "bin": {
+    "forge": "./src/transport/cli/index.js"
+  },
   "scripts": {
     "test": "node scripts/run-backend-tests.mjs",
     "lint": "node ../node_modules/eslint/bin/eslint.js --rulesdir ../eslint-rules \"src/**/*.js\" \"tests/**/*.js\" \"tests/**/*.mjs\" --no-error-on-unmatched-pattern --max-warnings=0",

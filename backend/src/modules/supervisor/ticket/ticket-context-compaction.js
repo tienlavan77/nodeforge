@@ -112,31 +112,76 @@ function compactHistoryItem(item, checksums, changedSet) {
   };
 }
 
-// Business purpose: measures total input token consumption of an SDK turn so the supervisor knows when a provider session is approaching context limits.
-// Technical description: sums input_tokens, cache_creation_input_tokens, and cache_read_input_tokens / cached_input_tokens / cached_tokens across Claude and Codex usage formats.
-export function extractTurnInputTokens(result) {
-  const usage = result?.usage ?? result?.payload?.usage;
+// Business purpose: measures the prompt context footprint of a single model invocation so session rollover decisions evaluate actual context window occupancy without double-counting cached tokens.
+// Technical description: adds cache_creation_input_tokens and disjoint Anthropic cache_read_input_tokens to input_tokens, while treating OpenAI/Codex cached_input_tokens / cached_tokens as a subset of input_tokens via Math.max.
+export function measureSingleCallInputTokens(usage) {
   if (!usage || typeof usage !== "object") return 0;
-  const base = Number(usage.input_tokens ?? usage.inputTokens ?? 0);
-  const cacheCreate = Number(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens ?? 0);
-  const cacheRead = Number(
-    usage.cache_read_input_tokens
-    ?? usage.cacheReadInputTokens
-    ?? usage.cached_input_tokens
-    ?? usage.cachedInputTokens
-    ?? usage.cached_tokens
-    ?? 0
+  const rawBase = Number(usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens ?? usage.promptTokens ?? 0);
+  const base = Number.isFinite(rawBase) && rawBase > 0 ? rawBase : 0;
+  const rawCreate = Number(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens ?? 0);
+  const cacheCreate = Number.isFinite(rawCreate) && rawCreate > 0 ? rawCreate : 0;
+  const rawDisjointRead = usage.cache_read_input_tokens ?? usage.cacheReadInputTokens;
+  if (rawDisjointRead !== undefined && rawDisjointRead !== null) {
+    const cacheRead = Number(rawDisjointRead);
+    return base + cacheCreate + (Number.isFinite(cacheRead) && cacheRead > 0 ? cacheRead : 0);
+  }
+  const rawInclusiveCached = Number(
+    usage.cached_input_tokens ?? usage.cachedInputTokens ?? usage.cached_tokens
+    ?? usage.input_tokens_details?.cached_tokens ?? usage.inputTokensDetails?.cachedTokens
+    ?? usage.prompt_tokens_details?.cached_tokens ?? 0
   );
-  const total = (Number.isFinite(base) ? base : 0) + (Number.isFinite(cacheCreate) ? cacheCreate : 0) + (Number.isFinite(cacheRead) ? cacheRead : 0);
-  return total > 0 ? total : 0;
+  const inclusiveCached = Number.isFinite(rawInclusiveCached) && rawInclusiveCached > 0 ? rawInclusiveCached : 0;
+  return Math.max(base, inclusiveCached) + cacheCreate;
 }
 
-// Business purpose: decides whether an active Claude or Codex session should roll over to a fresh session at a clean phase boundary to prevent context bloat and cost spikes.
-// Technical description: returns true only when a valid work_progress payload was accepted, an active sessionId or threadId exists, and turn input tokens meet or exceed the configured threshold.
+// Business purpose: counts the number of distinct model invocation rounds in a streamed item list so parallel tool calls within the same round do not artificially deflate context window estimates.
+// Technical description: groups contiguous non-message/non-reasoning tool items into a single tool round and returns toolRounds + 1 when tool rounds occurred.
+export function estimateItemModelRounds(items) {
+  if (!Array.isArray(items) || !items.length) return 1;
+  let toolRounds = 0;
+  let inToolBatch = false;
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    if (item.type === "agent_message" || item.type === "reasoning") {
+      inToolBatch = false;
+    } else if (!inToolBatch) {
+      toolRounds += 1;
+      inToolBatch = true;
+    }
+  }
+  return toolRounds > 0 ? toolRounds + 1 : 1;
+}
+
+// Business purpose: measures the active context window size at the end of an SDK turn so the supervisor knows when a provider session is approaching context limits without being misled by multi-step cumulative tool-loop totals.
+// Technical description: prefers explicit final-call context_input_tokens or last_call_usage, normalizes multi-request cumulative usage by rounds/requests or grouped tool-call rounds, and falls back to measureSingleCallInputTokens.
+export function extractTurnInputTokens(result) {
+  if (!result || typeof result !== "object") return 0;
+  const usage = result.usage ?? result.payload?.usage ?? (
+    ("input_tokens" in result || "inputTokens" in result || "cache_read_input_tokens" in result || "cached_input_tokens" in result || "cached_tokens" in result || "context_input_tokens" in result)
+      ? result
+      : null
+  );
+  const directContext = Number(result.context_input_tokens ?? result.contextInputTokens ?? usage?.context_input_tokens ?? usage?.contextInputTokens);
+  if (Number.isFinite(directContext) && directContext > 0) return directContext;
+  const lastCallUsage = result.last_call_usage ?? usage?.last_call_usage ?? result.rawResponses?.at?.(-1)?.usage;
+  if (lastCallUsage && typeof lastCallUsage === "object") return measureSingleCallInputTokens(lastCallUsage);
+  if (!usage || typeof usage !== "object") return 0;
+  const singleFootprint = measureSingleCallInputTokens(usage);
+  const rounds = Number(usage.rounds ?? usage.requests ?? result.rounds ?? result.requests ?? 0);
+  if (Number.isFinite(rounds) && rounds > 1) return Math.round(singleFootprint / rounds);
+  const itemRounds = estimateItemModelRounds(result.items);
+  if (itemRounds > 1) return Math.round(singleFootprint / itemRounds);
+  return singleFootprint;
+}
+
+// Business purpose: decides whether an active Claude, Codex, or function-calling Coder session should roll over to a fresh session at a clean phase boundary to prevent context bloat and cost spikes.
+// Technical description: returns true when a valid work_progress payload was accepted, an active sessionId/threadId or function-calling history/turn state exists, and turn input tokens meet or exceed the configured threshold.
 export function shouldRolloverSdkSession({ result, progress, resumeState, threshold = DEFAULT_ROLLOVER_INPUT_TOKENS } = {}) {
   if (!progress || !resumeState) return false;
   const activeSession = resumeState.sessionId ?? resumeState.threadId;
-  if (typeof activeSession !== "string" || !activeSession.trim()) return false;
+  const hasSession = typeof activeSession === "string" && Boolean(activeSession.trim());
+  const hasHistory = Array.isArray(result?.history) ? result.history.length > 0 : Boolean(result?.turn_completed && (resumeState.turnCount > 0 || resumeState.sdkTurnProgress));
+  if (!hasSession && !hasHistory) return false;
   const effectiveThreshold = Number.isInteger(threshold) && threshold > 0 ? threshold : DEFAULT_ROLLOVER_INPUT_TOKENS;
   return extractTurnInputTokens(result) >= effectiveThreshold;
 }
@@ -149,6 +194,7 @@ export function buildCompactedRolloverPrompt({ basePrompt, progress, resumeState
   const directiveBlock = formatMidFlightDirectives(
     directives.length ? directives : (resumeState?.deliveredDirectives ?? [])
   );
+  const rolledOverFrom = resumeState?.sdkTurnProgress?.rolled_over_from || "in_memory_history";
   const turns = Array.isArray(resumeState?.turnHistory) && resumeState.turnHistory.length
     ? resumeState.turnHistory.map((entry) => `- turn ${entry.turn} ${entry.tool} ${entry.target} -> ${entry.outcome}`.trim()).join("\n")
     : `- Completed tools: ${JSON.stringify((resumeState?.completedTools ?? []).slice(-8))}`;
@@ -157,7 +203,7 @@ export function buildCompactedRolloverPrompt({ basePrompt, progress, resumeState
     "",
     "=== COMPACTED SESSION HANDOFF (Session rolled over at phase boundary to preserve context budget) ===",
     `Accepted phase progress: ${JSON.stringify(progress?.payload ?? {})}.`,
-    `Continue at tool turn ${resumeState?.turnCount ?? 0}. Rolled over from session: ${resumeState?.sdkTurnProgress?.rolled_over_from ?? "previous"}.`,
+    `Continue at tool turn ${resumeState?.turnCount ?? 0}. Rolled over from session: ${rolledOverFrom}.`,
     `Compact receipt digest: ${receiptDigest}.`,
     `Active file checksums (reuse as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged windows): ${JSON.stringify(checksums)}.`,
     `Files already changed in the worktree: ${JSON.stringify(resumeState?.changedPaths ?? [])}.`,

@@ -2,20 +2,64 @@
 // filesystem policy as production, without using a model or gateway credential.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { createCodexSdkGateway } from "../../src/modules/agent/codex-sdk-gateway.js";
 import { codexFilesystemEntries, codexNodeRuntime, codexShellEnvironment } from "../../src/modules/agent/codex-shell-environment.js";
 
 // PATH normalization must survive restricted caller environments without duplicate toolchain entries.
-test("Codex shell selects the deployed runtime and uses project-local package-manager caches", () => {
+test("Codex shell selects the deployed runtime and uses project-local package-manager caches", (t) => {
   const root = "/project";
   const { bin } = codexNodeRuntime();
   const env = codexShellEnvironment({ PATH: `/custom/bin:${bin}:/usr/bin` }, root);
   assert.equal(env.PATH, `${bin}:/custom/bin:/usr/bin`);
   assert.equal(env.npm_config_cache, "/project/.forge/runtime/nf/sdk-cache/npm");
   assert.equal(env.XDG_CACHE_HOME, "/project/.forge/runtime/nf/sdk-cache");
+
+  const scratch = resolve(".forge/scratch");
+  mkdirSync(scratch, { recursive: true });
+  const groupedRoot = mkdtempSync(join(scratch, "codex-grouped-runtime-"));
+  t.after(() => rmSync(groupedRoot, { recursive: true, force: true }));
+  mkdirSync(join(groupedRoot, ".forge/runtime/nf"), { recursive: true });
+  writeFileSync(join(groupedRoot, ".forge/runtime/runtime-layout.json"), JSON.stringify({ version: 1, layout: "grouped", status: "ready", moves: [] }));
+  writeFileSync(join(groupedRoot, ".forge/runtime/nf/nf-runtime-layout.json"), JSON.stringify({ version: 1, layout: "grouped", status: "ready", moves: [] }));
+  const groupedEnv = codexShellEnvironment({ PATH: "/usr/bin" }, groupedRoot);
+  assert.equal(groupedEnv.XDG_CACHE_HOME, resolve(groupedRoot, ".forge/runtime/nf/sdk/sdk-cache"));
+  assert.equal(groupedEnv.npm_config_cache, resolve(groupedRoot, ".forge/runtime/nf/sdk/sdk-cache/npm"));
+});
+
+// Ensures Codex SDK Gateway resolves CODEX_HOME (mode 0o700) and cache paths from execution cwd across all agent roles.
+test("Codex SDK Gateway resolves isolated CODEX_HOME and sdk-cache per execution cwd across all roles", async (t) => {
+  const scratch = resolve(".forge/scratch");
+  mkdirSync(scratch, { recursive: true });
+  const root = mkdtempSync(join(scratch, "codex-gateway-cwd-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, ".forge/runtime/nf"), { recursive: true });
+  writeFileSync(join(root, ".forge/runtime/runtime-layout.json"), JSON.stringify({ version: 1, layout: "grouped", status: "ready", moves: [] }));
+  writeFileSync(join(root, ".forge/runtime/nf/nf-runtime-layout.json"), JSON.stringify({ version: 1, layout: "grouped", status: "ready", moves: [] }));
+
+  let captured;
+  const gateway = createCodexSdkGateway({
+    configuration: { getById: (id) => ({ agent_id: id, agent_name: id, role: id, gateway_url: "https://gateway.test/v1", credential_ref: "secret", enabled: true, status: "ready" }) },
+    credentialResolver: () => "gateway-key",
+    terminalOutput: { write() {} },
+    CodexClass: class FakeCodex {
+      constructor(options) { captured = options; }
+      startThread() { return { id: "thread-role", runStreamed: async () => ({ events: (async function* () { yield { type: "turn.completed", usage: null }; })() }) }; }
+    }
+  });
+
+  for (const role of ["system_engineer", "architecture_manager", "sprint_leader", "coder", "reviewer"]) {
+    await gateway.execute({ agentId: role, correlationId: `CORR-${role}`, cwd: root, prompt: "Inspect" });
+    const expectedHome = resolve(root, ".forge/runtime/nf/sdk/codex-homes", role);
+    const expectedCache = resolve(root, ".forge/runtime/nf/sdk/sdk-cache");
+    assert.equal(captured.env.CODEX_HOME, expectedHome);
+    assert.equal(statSync(expectedHome).mode & 0o777, 0o700);
+    assert.equal(captured.env.XDG_CACHE_HOME, expectedCache);
+    assert.equal(captured.env.npm_config_cache, resolve(expectedCache, "npm"));
+  }
 });
 
 // This deployment smoke test checks symlinked npm/pnpm scripts, crypto startup,

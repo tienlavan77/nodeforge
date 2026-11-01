@@ -119,7 +119,7 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
 
   useEffect(() => {
     let active = true;
-    client.getAgents("architecture_manager").then((payload) => {
+    client.getAgents().then((payload) => {
       if (!active) return;
       const agents = Array.isArray(payload) ? payload : payload?.agents ?? payload?.items ?? [];
       setAgentDirectory(agents);
@@ -242,7 +242,7 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
           {historyError && <InlineError error={historyError} onRetry={() => void (hasOlder ? loadEarlierMessages() : loadConversationMessages(activeConversationId))} />}
           {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">N</span><h1>How can NodeForge help?</h1><p>Start a conversation with your project agent.</p></div>}
           {messages.map((message) => <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
-            <div className="claude-message-meta"><span>{message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
+            <div className="claude-message-meta"><span>{message.from === "agent" ? agentDisplayName(message.nickname, agentDirectory) : message.nickname ?? (message.from === "owner" ? "You" : "NodeForge")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
             {message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID}><ConversationResponseReveal text={message.text} contentType={message.from === "agent" ? "text/markdown" : "text/plain"} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
             {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
           </article>)}

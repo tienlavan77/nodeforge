@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // CLI entry for index rebuild and project file watching.
 import { runLifecycleCli } from "./project-lifecycle.js";
+import { runMcpLifecycleCli } from "./mcp-lifecycle.js";
+import { runMcpServeCli } from "./mcp-serve.js";
 import { statePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -96,7 +98,13 @@ async function invokeLifecycleEndpoint(endpointUrl, init, { fetchImpl, stdout, s
   }
 }
 
-export async function runCli(args, { cwd = process.cwd(), env = process.env, fetchImpl = globalThis.fetch, stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch, embeddingProvider } = {}) {
+export async function runCli(args, { cwd = process.cwd(), env = process.env, fetchImpl = globalThis.fetch, stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, signalEmitter = process, watchProject = startProjectWatch, embeddingProvider } = {}) {
+  if (args[0] === "mcp-serve") {
+    return runMcpServeCli(args, { cwd, stdin, stdout, stderr });
+  }
+  if (args[0] === "mcp") {
+    return runMcpLifecycleCli(args, { cwd, stdin, stdout, stderr });
+  }
   if (args[0] === "project") {
     const exitCode = await runProjectCli(args, { env, fetchImpl, stdout, stderr });
     if (exitCode !== null) {

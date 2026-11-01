@@ -20,7 +20,7 @@ import {
 } from "../lib/workspace-monitor-layout.js";
 
 /** Toggle the project notebook from the existing dock and restore keyboard focus when closing it. */
-export function IdeasDock({ projectId: propProjectId, panelState, onUpdatePanel, onStartDrag, panelRef, renderPanel } = {}) {
+export function IdeasDock({ projectId: propProjectId, panelState, isActive = true, zIndex, onActivate, onUpdatePanel, onStartDrag, panelRef, renderPanel } = {}) {
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, () => initialSelection);
   const explicitProjectId = propProjectId && propProjectId !== selection.projectId ? propProjectId : undefined;
   const activeProjectId = explicitProjectId || selection.projectId;
@@ -60,6 +60,7 @@ export function IdeasDock({ projectId: propProjectId, panelState, onUpdatePanel,
    * of the header's minimize or close control buttons, delegating to WorkspaceMonitorPanels when bound.
    */
   function handleHeaderPointerDown(event) {
+    onActivate?.();
     if (event.target.closest("button")) return;
     event.preventDefault();
     if (onStartDrag) { onStartDrag(event); return; }
@@ -88,6 +89,7 @@ export function IdeasDock({ projectId: propProjectId, panelState, onUpdatePanel,
     top: panel.y,
     width: panel.width,
     height: minimized ? "auto" : panel.height,
+    ...(Number.isFinite(zIndex) ? { zIndex } : {}),
   };
   const panelElement = <IdeasPanel
     key={activeProjectId}
@@ -96,6 +98,8 @@ export function IdeasDock({ projectId: propProjectId, panelState, onUpdatePanel,
     projectId={activeProjectId}
     open={open}
     minimized={minimized}
+    isActive={isActive}
+    onActivate={onActivate}
     onToggleMinimize={toggleMinimize}
     onClose={close}
     onHeaderPointerDown={handleHeaderPointerDown}
