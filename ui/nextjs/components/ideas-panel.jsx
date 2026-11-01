@@ -101,9 +101,17 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId, minimize
         <span className="ideas-status-badge" hidden>{isDone ? "Đã xong" : "Đang mở"}</span>
         <div className="ideas-actions">
           <button type="button" className="ideas-icon-btn" aria-label="Sửa" title="Sửa"
-            disabled={blocked || Boolean(draft.edit)} onClick={() => changeDraft({ ...draft, edit: { ...item } })}>✎</button>
+            disabled={blocked || Boolean(draft.edit)} onClick={() => changeDraft({ ...draft, edit: { ...item } })}>
+            <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+              <path d="M8.5 1.5l2 2L4 10H2V8l6.5-6.5z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
           <button type="button" className="ideas-icon-btn" aria-label="Xóa" title="Xóa"
-            disabled={blocked} onClick={(event) => { deleteButton.current = event.currentTarget; setDeleting(item.id); }}>🗑</button>
+            disabled={blocked} onClick={(event) => { deleteButton.current = event.currentTarget; setDeleting(item.id); }}>
+            <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+              <path d="M2 3.2h8M4.5 3.2V2h3v1.2M3.2 3.2v6.3a.8.8 0 0 0 .8.8h4a.8.8 0 0 0 .8-.8V3.2" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
       </div>}
       {deleting === item.id && <div role="group" aria-label="Xác nhận xóa" className="ideas-delete-confirm">

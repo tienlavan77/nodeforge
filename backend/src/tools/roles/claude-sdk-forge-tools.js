@@ -98,7 +98,7 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
   const lifecycleDefinitions = [
     ["select_code_graph_candidates", "Ask Node to find up to eight candidate files related to your search intent, with import relations. Call this FIRST as your project map before searching or reading.", selectCodeGraphCandidatesInput],
     ["search_code", "Search the approved project code index. kind=\"content\" returns FTS text snippets with matching lines; kind=\"file\" with projection=\"summary\" returns a file's symbol map with line ranges.", searchCodeInput],
-    ["read_file", "Read one file's metadata, current symbol map and scoped graph without source. Use Read with start_line/end_line to read code.", readFileInput],
+    ["read_file", "Read one file's metadata, current symbol map and scoped graph without source. Inspect code_graph and use Read with symbol for code; start_line/end_line is only for .md documents.", readFileInput],
     ...(includeClaudeFileTools ? claudeFileDefinitions.map(({ name, description, input_schema }) => [name, description, engineeringInputShape(input_schema)]) : []),
     ["write_diff", "Write one approved project file after checksum validation. Content is limited to 250 lines. For a new file that does not exist, before_checksum must be the JSON value null (not a string and not omitted).", writeDiffInput],
     ["edit_diff", "Replace an exact anchor string in one approved file after checksum validation. Read the file first and use a unique exact anchor; use occurrence=\"all\" to replace every match.", editDiffInput],

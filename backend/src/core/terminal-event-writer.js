@@ -67,5 +67,12 @@ function toolFacts(payload) {
     Number.isInteger(result.changed_files) && `files=${result.changed_files}`, result.branch && `branch=${terminalText(result.branch)}`,
     result.job_id && `job=${terminalText(result.job_id)}`, Number.isInteger(result.passed) && `passed=${result.passed}`, Number.isInteger(result.failed) && `failed=${result.failed}`,
     (verification.status ?? result.status) && `status=${terminalText(verification.status ?? result.status)}`,
+    payload.mode && `mode=${terminalText(payload.mode)}`,
+    Number.isInteger(payload.input_tokens) && `input_tokens=${payload.input_tokens}`,
+    Number.isInteger(payload.before_bytes) && `before_bytes=${payload.before_bytes}`,
+    Number.isInteger(payload.after_bytes) && `after_bytes=${payload.after_bytes}`,
+    Number.isInteger(payload.compacted_items) && `compacted_items=${payload.compacted_items}`,
+    Number.isInteger(payload.compaction_rollover_count) && `rollovers=${payload.compaction_rollover_count}`,
+    Number.isInteger(payload.receipt_position) && `receipt_position=${payload.receipt_position}`,
     Number.isInteger(payload.retry_after_ms) && `retry_after=${payload.retry_after_ms / 1000}s`].filter((value) => value !== false && value !== undefined && value !== null && value !== "").join("; ");
 }

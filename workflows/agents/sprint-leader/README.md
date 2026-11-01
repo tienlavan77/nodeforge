@@ -147,3 +147,7 @@ Maintain concise status: `planned`, `active`, `blocked`, `ready for review`, `ac
 > SL decides what changes are needed across the sprint and their boundaries. Forge/Code Index identifies where relevant code is located. SV executes how one approved ticket reaches a terminal result. Reviewer decides whether that implementation meets the quality gate.
 
 Any older wording that says “SL dispatches Reviewer after every code ticket” is superseded: SV dispatches and manages Coder ↔ Reviewer for its own ticket; SL receives terminal results or escalations only.
+
+## Forge source reading
+
+Use `read_file({path})` to inspect metadata, `code_graph` and `symbol_map` before reading code. Code requires `Read({file_path,symbol})` from that metadata; arbitrary line windows are rejected. Only `.md` documents permit `Read({file_path,start_line,end_line})`. Markdown line windows are limited to 80 physical lines. Code reads return the entire selected symbol regardless of line count, without lines outside its bounds. Do not reconstruct whole code files by repeated reads or broad search patterns.

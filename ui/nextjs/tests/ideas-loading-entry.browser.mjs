@@ -156,7 +156,7 @@ export const browserAssertions = {
         delWidth: Math.round(delBtn.getBoundingClientRect().width)
       };
     });
-    assert.equal(todoStyles.fontSize, "15px");
+    assert.equal(todoStyles.fontSize, "12px");
     assert.equal(todoStyles.editRightOfContent, true);
     assert.ok(todoStyles.editWidth <= 28 && todoStyles.delWidth <= 28);
 

@@ -18,8 +18,9 @@ export function scopedGraph(graph, context) {
     if (typeof path !== "string") return false;
     if (context.agent_identity?.role === "coder") return isAgentPathAllowed(path, context);
     if (context.file_access_version !== undefined || context.file_access_policy !== undefined) return isAgentPathAllowed(path, context);
-    if (context.agent_identity?.role === "architecture_manager") {
-      try { assertRoleFileAccess("architecture_manager", "read", path); return true; }
+    if (context.agent_identity?.role === "architecture_manager" || context.agent_identity?.role === "system_engineer") {
+      if (context.agent_identity.role === "system_engineer" && !isAgentPathAllowed(path, context)) return false;
+      try { assertRoleFileAccess(context.agent_identity.role, "read", path); return true; }
       catch (error) { if (error.code === "FILE_ROLE_FORBIDDEN") return false; throw error; }
     }
     return paths.includes(path) || prefixes.some((prefix) => path === prefix.replace(/\/$/, "") || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`));
