@@ -37,7 +37,7 @@ export async function fingerprintStore(root, { allowInternalLinks = false, metad
       if (runtimeOffset >= 0) {
         const local = target.slice(runtimeOffset + 1);
         if (groupedRuntimePath(local) !== local || legacyRuntimePath(local) !== local) throw new Error(`Link into moved state needs relocation review: ${path}`);
-        if (groupedNfRuntimePath(local) !== local && local !== NF_RUNTIME_ROOT + "/codex-homes" && !local.startsWith(NF_RUNTIME_ROOT + "/codex-homes/")) throw new Error(`Link into moved nf state needs relocation review: ${path}`);
+        if (groupedNfRuntimePath(local) !== local && ![NF_RUNTIME_ROOT + "/claude-homes", NF_RUNTIME_ROOT + "/codex-homes"].some(home => local === home || local.startsWith(home + "/"))) throw new Error(`Link into moved nf state needs relocation review: ${path}`);
       }
       digest.update(JSON.stringify([local, "link", target]));
     } else if (info.isDirectory()) {

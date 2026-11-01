@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getIdeasSession } from "../lib/ideas-session.js";
 
 /** Present accessible quick entry and versioned CRUD, leaving conversation and SSE ownership untouched. */
-export function IdeasPanel({ client, projectId, open, onClose, panelId, minimized = false, onToggleMinimize, onHeaderPointerDown, style, panelRef }) {
+export function IdeasPanel({ client, projectId, open, onClose, panelId, minimized = false, isActive = true, onActivate, onToggleMinimize, onHeaderPointerDown, style, panelRef }) {
   const session = getIdeasSession(projectId);
   const { draft, items, loaded, loading, saving, error, saved, conflict, comparison, uncertain } =
     useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
@@ -122,7 +122,10 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId, minimize
     </li>;
   }
   return <section ref={panelRef} id={panelId} data-monitor-name="ideas"
-    className={`workspace-monitor ideas-panel${minimized ? " is-minimized" : ""}`}
+    data-monitor-active={isActive ? "true" : "false"}
+    onPointerDown={() => onActivate?.()}
+    onFocusCapture={() => onActivate?.()}
+    className={`workspace-monitor ideas-panel${minimized ? " is-minimized" : ""}${isActive ? " is-active-panel" : " is-inactive-panel"}`}
     style={style} aria-label="Ý tưởng" hidden={!open}
     onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
     <header className="workspace-monitor-header" onPointerDown={onHeaderPointerDown}>

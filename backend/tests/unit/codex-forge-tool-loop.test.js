@@ -191,6 +191,8 @@ test("aggregates usage rounds without leaking run-local state outside scope", as
   const loop = createCodexForgeToolLoop({ agentGateway, projectLogger: (entry) => logs.push(entry) });
   const result = await loop.run({ agentId: "codex-1", correlationId: "CORR-USAGE", prompt: "Run.", definitions: definitions(), registry, context: { task_id: "T-USAGE" } });
   assert.deepEqual(result.usage, { rounds: 1, input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 25 });
+  assert.equal(result.context_input_tokens, 100);
+  assert.deepEqual(result.last_call_usage, { input_tokens: 100, cached_input_tokens: 25 });
   assert.equal(logs[0].payload.cache_hit_rate, 0.25);
   assert.equal(logs[0].payload.round, 1);
   assert.equal(logs[0].payload.agent_id, "codex-1");

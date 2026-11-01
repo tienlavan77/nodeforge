@@ -22,23 +22,24 @@ export function createCodexSdkGateway({
   CodexClass = DefaultCodex,
   timeoutMs = 3600000,
   environment = process.env,
-  codexHomeRoot = resolveRuntimePath(process.cwd(), ".forge/runtime/nf/codex-homes"),
+  codexHomeRoot,
   terminalOutput = process.stdout
 } = {}) {
   if (typeof configuration?.getById !== "function") throw new ConfigurationError("Codex SDK Gateway requires Node Agent Configuration.");
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Codex SDK Gateway requires a credential resolver.");
   if (typeof CodexClass !== "function") throw new ConfigurationError("Codex SDK Gateway requires a Codex constructor.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Codex SDK Gateway timeout must be a positive integer.");
-  if (typeof codexHomeRoot !== "string" || !codexHomeRoot) throw new ConfigurationError("Codex SDK Gateway home root is required.");
+  if (codexHomeRoot !== undefined && (typeof codexHomeRoot !== "string" || !codexHomeRoot)) throw new ConfigurationError("Codex SDK Gateway home root is required.");
 
   const active = new Map();
   return Object.freeze({ execute, assertSessionStopped, provider: "codex", conversationMode: "thread" });
 
   // Confirms a timed-out local runner has stopped before a ticket may offer checkpoint Resume.
   // Both in-process invocations and surviving CLI processes retain exclusive ownership until idle.
-  function assertSessionStopped({ agentId, threadId }) {
+  function assertSessionStopped({ agentId, threadId, cwd }) {
     if ([...active.values()].includes(agentId)) throw Object.assign(new Error("Codex invocation is still stopping."), { code: "EXECUTION_SESSION_BUSY" });
-    assertCodexThreadAvailable(join(codexHomeRoot, agentId), threadId, "/proc", { requireIdle: true });
+    const homeRoot = codexHomeRoot ?? resolveRuntimePath(cwd ?? process.cwd(), ".forge/runtime/nf/codex-homes");
+    assertCodexThreadAvailable(join(homeRoot, agentId), threadId, "/proc", { requireIdle: true });
   }
 
   // Defines execute function behavior for codex-sdk-gateway.js.
@@ -47,7 +48,8 @@ export function createCodexSdkGateway({
     assertString(prompt, "Codex SDK prompt");
     assertString(correlationId, "Codex SDK correlation_id");
     const credential = await resolveCredential(profile.credential_ref);
-    const codexHome = join(codexHomeRoot, profile.agent_id);
+    const workingDirectory = cwd ?? options.workingDirectory ?? process.cwd();
+    const codexHome = join(codexHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/codex-homes"), profile.agent_id);
     mkdirSync(codexHome, { recursive: true, mode: 0o700 });
     assertCodexThreadAvailable(codexHome, resumeThreadId);
     const controller = new AbortController();
@@ -91,7 +93,7 @@ export function createCodexSdkGateway({
               NODEFORGE_CODEX_MCP_URL: mcpSession.url,
               NODEFORGE_CODEX_MCP_TOKEN: mcpSession.token,
               NODEFORGE_CODEX_MCP_DEFINITIONS: JSON.stringify(mcpSession.tools),
-              NODEFORGE_CODEX_MCP_DEBUG_LOG: options.mcpDebugLog ?? join(process.cwd(), statePath("nf/logs/codex-mcp.log"))
+              NODEFORGE_CODEX_MCP_DEBUG_LOG: options.mcpDebugLog ?? resolveRuntimePath(workingDirectory, statePath("nf/logs/codex-mcp.log"))
             },
             startup_timeout_sec: 10,
             // Verification has a ten-minute service deadline; allow one minute for final receipt delivery.
@@ -113,7 +115,7 @@ export function createCodexSdkGateway({
       }
       const maxOutputTokens = options.maxOutputTokens ?? options.max_output_tokens ?? profile.max_output_tokens;
       const childEnvironment = buildCodexChildEnvironment(environment, options.env);
-      const shellEnvironment = codexShellEnvironment(childEnvironment, cwd ?? options.workingDirectory ?? process.cwd());
+      const shellEnvironment = codexShellEnvironment(childEnvironment, workingDirectory);
       const codex = new CodexClass({
         apiKey: credential, baseUrl: normalizeBaseUrl(profile.gateway_url),
         env: { ...childEnvironment, ...shellEnvironment, CODEX_HOME: codexHome },
@@ -130,7 +132,7 @@ export function createCodexSdkGateway({
       });
       const threadOptions = {
         model: options.model ?? profile.model ?? undefined,
-        workingDirectory: cwd ?? options.workingDirectory ?? process.cwd(),
+        workingDirectory,
         ...(options.usePermissionProfile ? {} : { sandboxMode: options.sandboxMode ?? "workspace-write" }),
         // Codex treats MCP calls as approval-gated actions. `never` makes the
         // server visible in tools/list but blocks every tools/call. The Forge
@@ -173,9 +175,11 @@ export function createCodexSdkGateway({
         throw err;
       }
       if (incompleteDetails?.reason === "max_output_tokens") throw Object.assign(new ConfigurationError(`Codex SDK output truncated at max_output_tokens for ${profile.agent_id}.`), { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: incompleteDetails, response_text: finalResponse });
+      const contextInputTokens = estimateCodexTurnContextTokens(usage, items);
       return {
         agent_id: profile.agent_id, agent_name: profile.agent_name, role: profile.role, correlation_id: correlationId,
         status: "completed", turn_completed: turnCompleted && !streamError, text: finalResponse, items, usage,
+        ...(contextInputTokens > 0 ? { context_input_tokens: contextInputTokens } : {}),
         ...(incompleteDetails ? { incomplete_details: incompleteDetails } : {}), thread_id: thread.id
       };
     } catch (error) {
@@ -243,6 +247,25 @@ function normalizeReasoningEffort(value) {
 // Defines assertString function behavior for codex-sdk-gateway.js.
 function assertString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) throw new ConfigurationError(`${label} is required.`);
+}
+
+// Business purpose: estimates the active prompt context window at the end of a Codex CLI turn so multi-step MCP or built-in tool loops do not trigger premature session rollover.
+// Technical description: computes the single-call token footprint without double-counting cached_input_tokens and divides cumulative turn usage by the number of model invocations inferred from completed tool items.
+function estimateCodexTurnContextTokens(usage, items) {
+  if (!usage || typeof usage !== "object") return 0;
+  const direct = Number(usage.context_input_tokens ?? usage.contextInputTokens ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const base = Math.max(Number(usage.input_tokens ?? usage.inputTokens ?? 0) || 0, Number(usage.cached_input_tokens ?? usage.cachedInputTokens ?? usage.cached_tokens ?? 0) || 0);
+  if (base <= 0) return 0;
+  const explicitRounds = Number(usage.rounds ?? usage.requests ?? 0);
+  if (Number.isFinite(explicitRounds) && explicitRounds > 1) return Math.round(base / explicitRounds);
+  let toolRounds = 0; let inToolBatch = false;
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || typeof item !== "object") continue;
+    if (item.type === "agent_message" || item.type === "reasoning") inToolBatch = false;
+    else if (!inToolBatch) { toolRounds += 1; inToolBatch = true; }
+  }
+  return toolRounds > 0 ? Math.round(base / (toolRounds + 1)) : base;
 }
 
 // Defines sanitizeItems function behavior for codex-sdk-gateway.js.

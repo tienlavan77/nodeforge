@@ -1,8 +1,12 @@
 // claude sdk gateway — handles claude sdk gateway logic for the agent subsystem.
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
-import { ConfigurationError } from "../../shared/errors.js";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import process from "node:process";
+import { ConfigurationError } from "../../shared/errors.js";
+import { resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { prependNodeBin } from "./node-bin-path.js";
+import { codexShellEnvironment } from "./codex-shell-environment.js";
 import { claudeCacheEnvironment, claudeCacheUsage } from "./anthropic-prompt-cache.js";
 import { sdkFailureEvidence } from "./sdk-failure-evidence.js";
 import { claudeSdkResult } from "./claude-sdk-result.js";
@@ -12,6 +16,7 @@ import { assertClaudeSessionStopped } from "./claude-session-process.js";
 const SAFE_URL = /^https:\/\//;
 const USAGE_FIELDS = new Set(["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"]);
 const SECRET_FIELD = /(?:api[_-]?key|credential|secret|password|token|authorization)/i;
+const CLAUDE_PARENT_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CONFIG_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "FORGE_CLAUDE_AGENT_ID"];
 
 // createClaudeSdkGateway — create claude sdk gateway logic.
 export function createClaudeSdkGateway({
@@ -21,6 +26,7 @@ export function createClaudeSdkGateway({
   timeoutMs = 3600000,
   environment = process.env,
   gatewayBaseUrl = environment.FORGE_GATEWAY_BASE_URL,
+  claudeHomeRoot,
   mcpServers = {},
   allowedTools = [],
   terminalOutput = process.stdout
@@ -29,6 +35,7 @@ export function createClaudeSdkGateway({
   if (typeof credentialResolver !== "function") throw new ConfigurationError("Claude SDK Gateway requires a credential resolver.");
   if (typeof queryFn !== "function") throw new ConfigurationError("Claude SDK Gateway requires a query function.");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) throw new ConfigurationError("Claude SDK Gateway timeout must be a positive integer.");
+  if (claudeHomeRoot !== undefined && (typeof claudeHomeRoot !== "string" || !claudeHomeRoot)) throw new ConfigurationError("Claude SDK Gateway home root must be a non-empty string.");
 
   const active = new Set();
   return Object.freeze({ execute, assertSessionStopped: ({ agentId, sessionId, endedAt }) => assertClaudeSessionStopped(agentId, active.has(agentId), "/proc", sessionId, endedAt), provider: "claude", conversationMode: "history" });
@@ -39,6 +46,9 @@ export function createClaudeSdkGateway({
     assertString(prompt, "Claude SDK prompt");
     assertString(correlationId, "Claude SDK correlation_id");
     const credential = await resolveCredential(config.credential_ref);
+    const workingDirectory = cwd ?? options.cwd ?? process.cwd();
+    const claudeHome = join(claudeHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/claude-homes"), config.agent_id);
+    mkdirSync(claudeHome, { recursive: true, mode: 0o700 });
     const controller = new AbortController();
     // Defines stop function behavior for claude-sdk-gateway.js.
     const stop = () => controller.abort(abortSignal.reason);
@@ -53,16 +63,17 @@ export function createClaudeSdkGateway({
     if (effort !== undefined && !["none", "low", "medium", "high", "xhigh", "max"].includes(effort)) throw new ConfigurationError("Claude SDK reasoning effort is invalid.");
     const maxOutputTokens = options.maxOutputTokens ?? options.max_output_tokens ?? config.max_output_tokens;
     const queryOptions = {
+      settingSources: [],
       ...structuredClone(cloneableOptions),
       ...(Number.isSafeInteger(maxOutputTokens) && maxOutputTokens >= 1 ? { maxOutputTokens } : {}),
       ...(effort === "none" ? { thinking: { type: "disabled" } } : effort ? { effort } : {}),
       ...(hooks ? { hooks } : {}),
       ...(typeof canUseTool === "function" ? { canUseTool } : {}),
       abortController: controller,
-      cwd: cwd ?? options.cwd ?? process.cwd(),
+      cwd: workingDirectory,
       additionalDirectories: [...additionalDirectories],
       ...(config.model || options.model ? { model: options.model ?? config.model } : {}),
-      env: createGatewayEnvironment({ config, credential, optionsEnv: options.env }),
+      env: createGatewayEnvironment({ config, credential, optionsEnv: options.env, projectRoot: workingDirectory, claudeHome }),
       ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
       ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
       ...(options.tools === undefined ? {} : { tools: options.tools }),
@@ -153,19 +164,22 @@ export function createClaudeSdkGateway({
   }
 
   // Defines createGatewayEnvironment function behavior for claude-sdk-gateway.js.
-  function createGatewayEnvironment({ config, credential, optionsEnv }) {
+  function createGatewayEnvironment({ config, credential, optionsEnv, projectRoot, claudeHome }) {
     const baseUrl = config.gateway_url || gatewayBaseUrl;
     if (typeof baseUrl !== "string" || !SAFE_URL.test(baseUrl)) {
       throw new ConfigurationError("Claude SDK third-party gateway URL is unavailable.");
     }
-    const env = {
-      ...environment,
-      ...(optionsEnv && typeof optionsEnv === "object" ? optionsEnv : {})
-    };
+    const env = { ...(environment && typeof environment === "object" ? environment : process.env) };
+    for (const name of CLAUDE_PARENT_ENV) delete env[name];
+    if (optionsEnv && typeof optionsEnv === "object") Object.assign(env, optionsEnv);
+    for (const name of CLAUDE_PARENT_ENV) delete env[name];
+    const shellEnvironment = codexShellEnvironment(env, projectRoot);
     return {
       ...env,
+      ...shellEnvironment,
       PATH: prependNodeBin(env.PATH),
       ...claudeCacheEnvironment(),
+      CLAUDE_CONFIG_DIR: claudeHome,
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_AUTH_TOKEN: credential,
       FORGE_CLAUDE_AGENT_ID: config.agent_id,

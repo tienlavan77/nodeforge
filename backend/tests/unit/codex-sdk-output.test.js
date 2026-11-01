@@ -41,6 +41,7 @@ test("new and resumed Codex turns retain native schema and only the last respons
       assert.equal(result.text, JSON.stringify(value));
       assert.equal(result.thread_id, "T");
       assert.equal(result.items.length, 2);
+      assert.equal(result.context_input_tokens, 12);
     }
     assert.deepEqual(calls, ["start", "resume"]);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -68,5 +69,29 @@ test("Codex SDK forwards configured max_output_tokens and classifies truncated o
       return true;
     });
     assert.equal(codexConfig.model_max_output_tokens, 4096);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("Codex SDK estimates context_input_tokens by model invocation rounds rather than dividing by parallel tool count", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-codex-context-tokens-"));
+  try {
+    const gateway = createCodexSdkGateway({ codexHomeRoot: root, terminalOutput: { write() {} },
+      configuration: { getById: () => ({ agent_id: "CODER", role: "coder", gateway_url: "https://gateway.test",
+        credential_ref: "fixture", enabled: true, status: "ready" }) }, credentialResolver: () => "fixture-key",
+      CodexClass: class {
+        startThread() {
+          return { id: "T-CTX", runStreamed: async () => ({ events: (async function* () {
+            yield { type: "item.completed", item: { type: "reasoning", text: "Planning parallel reads" } };
+            yield { type: "item.completed", item: { type: "mcp_tool_call", tool: "read_file" } };
+            yield { type: "item.completed", item: { type: "mcp_tool_call", tool: "Read" } };
+            yield { type: "item.completed", item: { type: "mcp_tool_call", tool: "search_text" } };
+            yield { type: "item.completed", item: { type: "agent_message", text: "Done" } };
+            yield { type: "turn.completed", usage: { input_tokens: 240000, cached_input_tokens: 180000, output_tokens: 500 } };
+          })() }) };
+        }
+      } });
+    const result = await gateway.execute({ agentId: "CODER", prompt: "Inspect files", correlationId: "CTX-TOK" });
+    // 3 parallel tool calls in one batch + 1 final response = 2 model rounds -> 240000 / 2 = 120000 (not 240000 / 4 = 60000).
+    assert.equal(result.context_input_tokens, 120000);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

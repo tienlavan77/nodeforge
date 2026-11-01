@@ -50,7 +50,11 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
       const openaiAgent = new AgentClass(agentOptions);
       const input = Array.isArray(options.history) ? [...options.history, { role: "user", content: prompt }] : prompt;
       const result = await runner(openaiAgent, input, { modelProvider: provider, signal: controller.signal, maxTurns: null, tracingDisabled: true });
+      const usage = extractOpenAiRunnerUsage(result);
+      const lastRawUsage = Array.isArray(result?.rawResponses) ? result.rawResponses.map((item) => item?.usage).filter(Boolean).at(-1) : undefined;
       return {
+        ...(usage ? { usage } : {}),
+        ...(lastRawUsage ? { last_call_usage: lastRawUsage } : {}),
         agent_id: normalized.agent_id,
         agent_name: normalized.agent_name,
         role: normalized.role,
@@ -104,4 +108,47 @@ function extractText(value) {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";
   return JSON.stringify(value);
+}
+
+// Business purpose: normalizes token usage reported by @openai/agents runs so
+// Owner Chat and Ticket execution can track context consumption and trigger
+// automatic session/history compaction rollover across OpenAI and compatible
+// providers. Technical description: extracts input/output/cached token counts
+// from result.usage, result.rawResponses, or result.state._context.usage.
+function extractOpenAiRunnerUsage(result) {
+  if (!result || typeof result !== "object") return undefined;
+  const direct = result.usage ?? result.state?._context?.usage ?? result.state?.usage;
+  const rawList = Array.isArray(result.rawResponses) ? result.rawResponses.map((item) => item?.usage).filter(Boolean) : [];
+  const sources = rawList.length ? rawList : direct && typeof direct === "object" ? [direct] : [];
+  if (!sources.length) return undefined;
+  const totals = sources.reduce((acc, u) => {
+    const input = Number(u.input_tokens ?? u.inputTokens ?? u.prompt_tokens ?? u.promptTokens ?? 0);
+    const output = Number(u.output_tokens ?? u.outputTokens ?? u.completion_tokens ?? u.completionTokens ?? 0);
+    const disjointCacheRead = Number(u.cache_read_input_tokens ?? u.cacheReadInputTokens ?? 0);
+    const cacheCreate = Number(u.cache_creation_input_tokens ?? u.cacheCreationInputTokens ?? 0);
+    const hasDisjoint = u.cache_read_input_tokens !== undefined || u.cacheReadInputTokens !== undefined;
+    const inclusiveCached = hasDisjoint ? 0 : Number(
+      u.cached_input_tokens ?? u.cachedInputTokens ?? u.cached_tokens
+      ?? u.input_tokens_details?.cached_tokens ?? u.inputTokensDetails?.cachedTokens
+      ?? u.prompt_tokens_details?.cached_tokens ?? 0
+    );
+    return {
+      input_tokens: acc.input_tokens + (Number.isFinite(input) ? input : 0),
+      output_tokens: acc.output_tokens + (Number.isFinite(output) ? output : 0),
+      cached_input_tokens: acc.cached_input_tokens + (Number.isFinite(inclusiveCached) ? inclusiveCached : 0) + (Number.isFinite(disjointCacheRead) ? disjointCacheRead : 0),
+      cache_read_input_tokens: acc.cache_read_input_tokens + (Number.isFinite(disjointCacheRead) ? disjointCacheRead : 0),
+      cache_creation_input_tokens: acc.cache_creation_input_tokens + (Number.isFinite(cacheCreate) ? cacheCreate : 0),
+      hasDisjoint: acc.hasDisjoint || hasDisjoint
+    };
+  }, { input_tokens: 0, output_tokens: 0, cached_input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, hasDisjoint: false });
+  if (totals.input_tokens <= 0 && totals.output_tokens <= 0 && totals.cached_input_tokens <= 0 && totals.cache_creation_input_tokens <= 0) return undefined;
+  const requests = rawList.length ? 0 : Number(direct?.requests ?? direct?.rounds ?? result.requests ?? result.rounds ?? 0);
+  return {
+    input_tokens: totals.input_tokens,
+    output_tokens: totals.output_tokens,
+    cached_input_tokens: totals.cached_input_tokens,
+    ...(totals.hasDisjoint ? { cache_read_input_tokens: totals.cache_read_input_tokens } : {}),
+    ...(totals.cache_creation_input_tokens > 0 ? { cache_creation_input_tokens: totals.cache_creation_input_tokens } : {}),
+    ...(Number.isFinite(requests) && requests > 1 ? { requests } : {})
+  };
 }
