@@ -15,6 +15,9 @@ function resultError(code, message, result, outcome = "failed") {
 export function claudeSdkResult(messages, { structured = false } = {}) {
   const result = messages.findLast((message) => message.type === "result");
   if (result) {
+    const details = `${result.subtype ?? ""} ${result.errors?.join("; ") || result.result || ""}`;
+    if (result.stop_reason === "max_tokens" || result.incomplete_details?.reason === "max_output_tokens" || /max_output_tokens|max[_ ]tokens/i.test(details))
+      throw Object.assign(resultError("SDK_MAX_OUTPUT_TOKENS", `Claude Code truncated output at max_output_tokens: ${details.trim() || "limit reached"}`, result), { incomplete_details: { reason: "max_output_tokens" } });
     if (result.is_error || result.subtype !== "success")
       throw resultError("CLAUDE_SDK_RESULT_ERROR", `Claude Code returned ${result.subtype ?? "an error result"}: ${result.errors?.join("; ") || result.result || "No result details."}`, result);
     if (result.structured_output !== undefined) return { text: JSON.stringify(result.structured_output), structured_output: result.structured_output };

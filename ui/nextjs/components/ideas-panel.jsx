@@ -14,11 +14,14 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId, minimize
   const { draft, items, loaded, loading, saving, error, saved, conflict, comparison, uncertain } =
     useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [deleting, setDeleting] = useState(null);
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
   const input = useRef(null);
   // Preserve the stable delete trigger when its temporary confirmation controls disappear.
   const deleteButton = useRef(null);
   const changeDraft = session.changeDraft;
   const blocked = saving || (loading && Boolean(uncertain));
+  const dragEnabled = !blocked && !draft.edit;
   useEffect(() => { if (open && !loaded && !loading && !error) void session.load(client); },
     [open, loaded, loading, error, session, client]);
   useEffect(() => { if (open && !minimized) input.current?.focus(); }, [open, minimized]);
@@ -42,6 +45,74 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId, minimize
   }
   // Keep an edit visible even if a fresh server list no longer contains its record.
   const visibleItems = draft.edit && !items.some(item => item.id === draft.edit.id) ? [...items, draft.edit] : items;
+  const openItems = visibleItems.filter(item => item.status !== "done");
+  const doneItems = visibleItems.filter(item => item.status === "done");
+  /**
+   * Business purpose: Allows users to reorder Ideas or drag an Idea between the open and completed lists while persisting the new order and status to the backend.
+   * Technical description: Computes the target global position index in the project's Ideas collection and dispatches a reorder mutation with expected_version and optional status transition.
+   */
+  function dropIdea(targetItem, targetStatus = targetItem?.status) {
+    if (!dragEnabled || !draggingId) return;
+    const source = items.find(entry => entry.id === draggingId);
+    setDraggingId(null); setDragOverId(null);
+    if (!source || (targetItem && source.id === targetItem.id && source.status === targetStatus)) return;
+    const rest = items.filter(entry => entry.id !== source.id);
+    let nextPosition = rest.length;
+    if (targetItem) {
+      const idx = rest.findIndex(entry => entry.id === targetItem.id);
+      if (idx !== -1) nextPosition = idx;
+    }
+    const nextStatus = targetStatus && targetStatus !== source.status ? targetStatus : undefined;
+    void session.mutate(client, "reorder", { ...source, position: nextPosition, ...(nextStatus ? { status: nextStatus } : {}) });
+  }
+  /**
+   * Business purpose: Renders a single To-do item row with a completion checkbox, 15px content text (strikethrough when completed), compact right-side Edit/Delete icon buttons, inline edit form, and delete confirmation.
+   * Technical description: Produces an accessible draggable list item element bound to item.id and versioned session mutations.
+   */
+  function renderIdeaItem(item) {
+    const isDone = item.status === "done";
+    return <li key={item.id} data-idea-id={item.id} data-idea-status={item.status}
+      className={`ideas-todo-item${isDone ? " is-done" : ""}${draggingId === item.id ? " is-dragging" : ""}${dragOverId === item.id ? " is-drag-over" : ""}`}
+      draggable={dragEnabled}
+      onDragStart={(event) => {
+        if (!dragEnabled) { event.preventDefault(); return; }
+        setDraggingId(item.id);
+        event.dataTransfer?.setData("text/plain", item.id);
+      }}
+      onDragOver={(event) => {
+        if (!dragEnabled || !draggingId) return;
+        event.preventDefault();
+        if (dragOverId !== item.id) setDragOverId(item.id);
+      }}
+      onDrop={(event) => { event.preventDefault(); event.stopPropagation(); dropIdea(item, item.status); }}
+      onDragEnd={() => { setDraggingId(null); setDragOverId(null); }}>
+      {draft.edit?.id === item.id ? <form onSubmit={saveEdit}>
+        <label htmlFor={panelId + "-edit"}>Sửa nội dung</label>
+        <textarea id={panelId + "-edit"} value={draft.edit.content}
+          onChange={(event) => changeDraft({ ...draft, edit: { ...draft.edit, content: event.target.value } })} />
+        <p>Phiên bản gốc: {draft.edit.version}</p>
+        <button type="submit" disabled={blocked || !draft.edit.content.trim()}>Lưu nội dung</button>
+        <button type="button" disabled={saving} onClick={() => changeDraft({ ...draft, edit: null })}>Hủy sửa</button>
+      </form> : <div className="ideas-todo-row">
+        <input type="checkbox" className="ideas-todo-checkbox" checked={isDone} disabled={blocked}
+          aria-label={isDone ? "Mở lại" : "Hoàn thành"} title={isDone ? "Mở lại" : "Hoàn thành"}
+          onChange={() => toggle(item)} />
+        <p className={`ideas-todo-content${isDone ? " is-done" : ""}`}>{item.content}</p>
+        <span className="ideas-status-badge" hidden>{isDone ? "Đã xong" : "Đang mở"}</span>
+        <div className="ideas-actions">
+          <button type="button" className="ideas-icon-btn" aria-label="Sửa" title="Sửa"
+            disabled={blocked || Boolean(draft.edit)} onClick={() => changeDraft({ ...draft, edit: { ...item } })}>✎</button>
+          <button type="button" className="ideas-icon-btn" aria-label="Xóa" title="Xóa"
+            disabled={blocked} onClick={(event) => { deleteButton.current = event.currentTarget; setDeleting(item.id); }}>🗑</button>
+        </div>
+      </div>}
+      {deleting === item.id && <div role="group" aria-label="Xác nhận xóa" className="ideas-delete-confirm">
+        <p>Xóa ý tưởng này?</p>
+        <button type="button" disabled={blocked} onClick={() => void confirmDelete(item)}>Xác nhận xóa</button>
+        <button type="button" disabled={saving} onClick={() => { setDeleting(null); deleteButton.current?.focus(); }}>Hủy xóa</button>
+      </div>}
+    </li>;
+  }
   return <section ref={panelRef} id={panelId} data-monitor-name="ideas"
     className={`workspace-monitor ideas-panel${minimized ? " is-minimized" : ""}`}
     style={style} aria-label="Ý tưởng" hidden={!open}
@@ -65,28 +136,24 @@ export function IdeasPanel({ client, projectId, open, onClose, panelId, minimize
       {uncertain && <p role="note">Chưa xác nhận lưu. {uncertain.checked && "Đã tải dữ liệu để đối chiếu. "}{uncertain.kind === "create" ? "Không thể xác định chắc chắn ý tưởng đã được tạo. Gửi lại có thể tạo bản trùng." : "Kiểm tra dữ liệu server trước khi gửi lại."}</p>}
       {comparison && <aside aria-label="Bản server"><h3>Bản server để đối chiếu</h3><p>{comparison.content}</p><p>Version: {comparison.version ?? "—"}</p></aside>}
       {loaded && !loading && !visibleItems.length && <p>Chưa có ý tưởng.</p>}
-      <ul aria-label="Danh sách ý tưởng" aria-busy={loading || saving}>
-        {visibleItems.map((item) => <li key={item.id} data-idea-id={item.id}>
-          {draft.edit?.id === item.id ? <form onSubmit={saveEdit}>
-            <label htmlFor={panelId + "-edit"}>Sửa nội dung</label>
-            <textarea id={panelId + "-edit"} value={draft.edit.content}
-              onChange={(event) => changeDraft({ ...draft, edit: { ...draft.edit, content: event.target.value } })} />
-            <p>Phiên bản gốc: {draft.edit.version}</p>
-            <button type="submit" disabled={blocked || !draft.edit.content.trim()}>Lưu nội dung</button>
-            <button type="button" disabled={saving} onClick={() => changeDraft({ ...draft, edit: null })}>Hủy sửa</button>
-          </form> : <><p>{item.content}</p><span>{item.status === "done" ? "Đã xong" : "Đang mở"}</span>
-            <div className="ideas-actions">
-              <button type="button" disabled={blocked || Boolean(draft.edit)} onClick={() => changeDraft({ ...draft, edit: { ...item } })}>Sửa</button>
-              <button type="button" disabled={blocked} onClick={() => toggle(item)}>{item.status === "done" ? "Mở lại" : "Hoàn thành"}</button>
-              <button type="button" disabled={blocked} onClick={(event) => { deleteButton.current = event.currentTarget; setDeleting(item.id); }}>Xóa</button>
-            </div></>}
-          {deleting === item.id && <div role="group" aria-label="Xác nhận xóa">
-            <p>Xóa ý tưởng này?</p>
-            <button type="button" disabled={blocked} onClick={() => void confirmDelete(item)}>Xác nhận xóa</button>
-            <button type="button" disabled={saving} onClick={() => { setDeleting(null); deleteButton.current?.focus(); }}>Hủy xóa</button>
-          </div>}
-        </li>)}
-      </ul>
+      <div className="ideas-lists-container">
+        <div className="ideas-list-section" data-list-status="open">
+          <h4 className="ideas-list-heading">Chưa hoàn thành ({openItems.length})</h4>
+          <ul aria-label="Danh sách ý tưởng" data-ideas-list="open" aria-busy={loading || saving}
+            onDragOver={(event) => { if (dragEnabled && draggingId) event.preventDefault(); }}
+            onDrop={(event) => { event.preventDefault(); dropIdea(null, "open"); }}>
+            {openItems.map(renderIdeaItem)}
+          </ul>
+        </div>
+        <div className="ideas-list-section" data-list-status="done">
+          <h4 className="ideas-list-heading">Đã hoàn thành ({doneItems.length})</h4>
+          <ul aria-label="Danh sách ý tưởng đã hoàn thành" data-ideas-list="done" aria-busy={loading || saving}
+            onDragOver={(event) => { if (dragEnabled && draggingId) event.preventDefault(); }}
+            onDrop={(event) => { event.preventDefault(); dropIdea(null, "done"); }}>
+            {doneItems.map(renderIdeaItem)}
+          </ul>
+        </div>
+      </div>
     </div>}
   </section>;
 }

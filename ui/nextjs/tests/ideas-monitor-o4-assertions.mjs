@@ -76,10 +76,10 @@ export const o4BrowserAssertions = {
     assert.equal(await panel.getByLabel("Ý tưởng mới", { exact: true }).inputValue(), "Create draft kept on 503");
 
     const row = panel.locator('[data-idea-id="idea-1"]');
-    await row.getByRole("button", { name: "Hoàn thành", exact: true }).click();
-    await row.getByRole("button", { name: "Mở lại", exact: true }).waitFor();
+    await row.getByRole("checkbox", { name: "Hoàn thành", exact: true }).click();
+    await row.getByRole("checkbox", { name: "Mở lại", exact: true }).waitFor();
     await page.evaluate(() => { window.nextIdeasFailure = { method: "PATCH", status: 500, message: "Toggle HTTP 500 error" }; });
-    await row.getByRole("button", { name: "Mở lại", exact: true }).click();
+    await row.getByRole("checkbox", { name: "Mở lại", exact: true }).click();
     await panel.getByRole("alert").waitFor();
     assert.match(await panel.getByRole("alert").innerText(), /Toggle HTTP 500 error/);
     assert.equal(await panel.getByRole("note").count(), 0);
@@ -224,8 +224,8 @@ export const o4BrowserAssertions = {
     await row.getByRole("button", { name: "Lưu nội dung", exact: true }).click();
     await row.locator("p", { hasText: editSecret }).waitFor();
 
-    await row.getByRole("button", { name: "Hoàn thành", exact: true }).click();
-    await row.getByText("Đã xong", { exact: true }).waitFor();
+    await row.getByRole("checkbox", { name: "Hoàn thành", exact: true }).click();
+    await panel.getByRole("list", { name: "Danh sách ý tưởng đã hoàn thành", exact: true }).locator('[data-idea-id="idea-2"]').waitFor();
 
     await row.getByRole("button", { name: "Xóa", exact: true }).click();
     await row.getByRole("group", { name: "Xác nhận xóa" }).getByRole("button", { name: "Xác nhận xóa", exact: true }).click();

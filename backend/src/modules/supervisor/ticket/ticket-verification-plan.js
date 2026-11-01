@@ -25,16 +25,22 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
     if (lintPaths.length) checks.push({ kind: "lint", argv: [process.execPath, "node_modules/eslint/bin/eslint.js", "--rulesdir", "eslint-rules", "--no-ignore", "--max-warnings=0", ...lintPaths] });
   }
   if (requiresSchemaVerification(paths)) checks.push({ kind: "schema_validation", scope: verificationPlan.some((step) => step?.kind === "schema_validation") || paths.some((path) => path.startsWith("schemas/") || path === "backend/scripts/validate-schemas.mjs") ? "ticket" : "regression", reason: "Shared schema contract validation after backend or API changes", argv: [process.execPath, "backend/scripts/validate-schemas.mjs"] });
-  if (backend) {
+  if (backend || verificationPlan.some((step) => step?.kind === "backend_tests" || step?.kind === "test" && step.test_path?.startsWith("backend/tests/"))) {
     const allTests = (await readdir(join(root, "backend/tests"), { recursive: true }))
       .filter((path) => /\.test\.[cm]?js$/.test(path)).sort().map((path) => `backend/tests/${path}`);
     const related = selectNamedTests(paths, allTests);
-    const mapped = verificationPlan.filter((step) => step?.kind === "test" && allTests.includes(step.test_path)).map((step) => step.test_path);
+    const mapped = verificationPlan.filter((step) => ["test", "backend_tests"].includes(step?.kind) && allTests.includes(step.test_path)).map((step) => step.test_path);
     const changed = paths.filter((path) => allTests.includes(path));
     const tests = [...new Set(fullBackend ? allTests : [...changed, ...mapped])].sort();
     if (!tests.length) tests.push(...related);
-    if (!tests.length) throw Object.assign(new ConfigurationError("No backend test covers the ticket paths; add or identify a ticket test before verification."), { code: "VERIFY_TEST_SCOPE_EMPTY" });
-    checks.push({ kind: "backend_tests", scope: "ticket", test_paths: tests, criterion_ids: verificationPlan.filter((step) => tests.includes(step.test_path)).flatMap((step) => step.criterion_ids ?? []), argv: testArgv(tests) });
+    if (backend && !tests.length) throw Object.assign(new ConfigurationError("No backend test covers the ticket paths; add or identify a ticket test before verification."), { code: "VERIFY_TEST_SCOPE_EMPTY" });
+    if (tests.length) {
+      const criterionIds = [...new Set([
+        ...verificationPlan.filter((step) => tests.includes(step.test_path)).flatMap((step) => step.criterion_ids ?? []),
+        ...verificationPlan.filter((step) => step?.kind === "backend_tests" && !step.test_path).flatMap((step) => step.criterion_ids ?? [])
+      ])];
+      checks.push({ kind: "backend_tests", scope: "ticket", test_paths: tests, criterion_ids: criterionIds, argv: testArgv(tests) });
+    }
   }
   if (paths.some((path) => path.startsWith("ui/nextjs/"))) {
     const entries = await readdir(join(root, "ui/nextjs/tests"), { withFileTypes: true });
@@ -54,7 +60,7 @@ export async function buildTicketVerificationPlan(paths, root, { fullBackend = f
     }
     if (step?.kind !== "test" || typeof step.test_path !== "string" || commandsContainTest(checks, step.test_path)) continue;
     if (!/^(?:backend\/tests|ui\/nextjs\/tests)\/.+\.test\.[cm]?[jt]sx?$/.test(step.test_path)) throw new ConfigurationError(`Verification test path is outside supported test directories: ${step.test_path}`);
-    checks.push({ kind: "test", scope: "ticket", test_paths: [step.test_path], criterion_ids: step.criterion_ids ?? [], argv: testArgv([step.test_path]) });
+    checks.push({ kind: step.test_path.startsWith("backend/tests/") ? "backend_tests" : "test", scope: "ticket", test_paths: [step.test_path], criterion_ids: step.criterion_ids ?? [], argv: testArgv([step.test_path]) });
   }
   if (!checks.length) checks.push({ kind: "typecheck", argv: [process.execPath, "node_modules/typescript/bin/tsc", "--project", "jsconfig.json"] });
   return [...checks.filter((check) => check.kind === "browser"), ...checks.filter((check) => check.kind !== "browser" && check.scope !== "regression"), ...checks.filter((check) => check.scope === "regression")];

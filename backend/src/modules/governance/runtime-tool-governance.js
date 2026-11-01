@@ -7,7 +7,7 @@ import { assertDiscoveryBudget, createExplorationState, discoveryKind, markEditS
 import { assertReservation, buildToolContext, cloneBudget, cloneContext, contextKey, distinctCalls, ensureTables, governanceError, isId, loadBudget, loadPersistedBudget, normalizeBudget, normalizeScope, nonNegativeInteger, persistBudget, persistBudgetValues, resourceAllowed, resourceList, withLock } from "./runtime-tool-governance-state.js";
 
 const TERMINAL_LIFECYCLES = new Set(["COMPLETED", "CANCELLED", "EXPIRED", "FAILED", "NEEDS_HUMAN_REVIEW"]);
-const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "search_tree", "list_files", "search_text", "read_lines", "rg_files", "rg_search", "read_file", "sed_lines", "read_code", "Read", "Glob", "Grep"]);
+const DISCOVERY_TOOLS = new Set(["select_code_graph_candidates", "search_code", "search_tree", "list_files", "search_text", "rg_files", "rg_search", "read_file", "sed_lines", "read_code", "Read", "Glob", "Grep"]);
 const EDIT_TOOLS = new Set(["write_diff", "edit_diff", "delete_file", "move_file"]);
 
 // Creates runtime guards for tool authorization, budgeting, and auditing.

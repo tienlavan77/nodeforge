@@ -15,8 +15,8 @@ function retainedDisposition(text) {
  * the next complete response still passes every authority and source validator. */
 export function blockerCorrectionPrompt(job) {
   if (!job.validation_feedback?.length) return "";
-  if (job.validation_feedback.every((entry) => entry.reason === "json_invalid"))
-    return "JSON RESPONSE CORRECTION: The completed provider response is not valid JSON; no decision from it has been accepted. Return one shorter, complete JSON object with exactly kind, subject, payload and evidence. Close payload before its sibling evidence array and close the outer object. Preserve the assigned question and factual evidence; use current Node capability facts instead of historical capability claims. Do not repeat discovery or request a new Owner decision to fix JSON syntax.";
+  if (job.validation_feedback.every((entry) => ["json_invalid", "response_truncated", "max_output_tokens"].includes(entry.reason)))
+    return "COMPACT JSON RESPONSE CORRECTION: The previous provider response was truncated or not valid JSON; no decision from it has been accepted. Return one compact, complete JSON object with exactly kind, subject, payload and evidence using the retained checkpoint and completed reads. Keep text fields brief (1-3 sentences each), close payload before its sibling evidence array and close the outer object. Preserve the assigned question and factual evidence; use current Node capability facts instead of historical capability claims. Do not repeat discovery or request a new Owner decision to fix JSON syntax.";
   const latest = job.disposition_attempts?.at(-1);
   let result = null;
   for (const attempt of (job.disposition_attempts ?? []).slice(-8).reverse()) {
@@ -47,7 +47,7 @@ function evidenceCorrection(job) {
   const references = new Map();
   if (checkpoint?.assignment_id === discoveryAssignment(job)) {
     for (const receipt of checkpoint.receipts ?? []) {
-      if (!["read_file", "read_lines"].includes(receipt.tool)) continue;
+      if (!["read_file", "Read"].includes(receipt.tool)) continue;
       const path = receipt.input?.path, sha256 = receipt.source_sha256?.replace(/^sha256:/, "");
       if (typeof path !== "string" || path.length > 512 || path.includes("/blocker-context/")) continue;
       const reference = { path, sha256 };

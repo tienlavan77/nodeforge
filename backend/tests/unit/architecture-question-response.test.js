@@ -4,10 +4,14 @@ import test from "node:test";
 import { parseArchitectureQuestions } from "../../src/modules/governance/architecture-question-response.js";
 import { clarificationFixture, question } from "./architecture-clarification-fixture.js";
 
-for (const wrapper of ["raw", "fenced", "progress", "crlf"]) {
+for (const wrapper of ["raw", "fenced", "progress", "unfenced_progress", "crlf"]) {
   test(`Architecture question parser accepts ${wrapper} JSON`, () => {
     const json = JSON.stringify({ questions: [question] });
-    const text = wrapper === "raw" ? json : `${wrapper === "progress" ? "I'll inspect the repository.\n\nI've inspected the registry.\n\n" : ""}\`\`\`json\n${json}\n\`\`\``;
+    const text = wrapper === "raw"
+      ? json
+      : wrapper === "unfenced_progress"
+        ? `I'll inspect the repository.\n\nI've inspected the registry.\n\n${json}`
+        : `${wrapper === "progress" ? "I'll inspect the repository.\n\nI've inspected the registry.\n\n" : ""}\`\`\`json\n${json}\n\`\`\``;
     assert.deepEqual(parseArchitectureQuestions(wrapper === "crlf" ? text.replaceAll("\n", "\r\n") : text), [question]);
   });
 }

@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
 const REQUIRED_FIELDS = ["agent_id", "agent_name", "role", "gateway_url", "credential_ref", "enabled", "status", "created_at", "updated_at"];
-const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses", "use_previous_response_id", "tool_mode"];
+const OPTIONAL_FIELDS = ["provider", "model", "reasoning", "use_responses", "use_previous_response_id", "tool_mode", "max_output_tokens"];
 const FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
 const PROVIDERS = ["codex", "claude", "openai", "anthropic", "ollama", "custom", "devquote", "xai", "alibaba", "zhipu", "deepseek"];
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
@@ -102,6 +102,7 @@ function validateConfiguration(value) {
   if (value.model !== undefined && typeof value.model !== "string") throw new ConfigurationError("Agent configuration is invalid.");
   if (value.reasoning !== undefined && (!value.reasoning || typeof value.reasoning !== "object" || Array.isArray(value.reasoning) || !["none", "low", "medium", "high", "max"].includes(value.reasoning.effort))) throw new ConfigurationError("Agent configuration is invalid.");
   if (value.use_responses !== undefined && typeof value.use_responses !== "boolean") throw new ConfigurationError("Agent configuration is invalid.");
+  if (value.max_output_tokens !== undefined && (!Number.isSafeInteger(value.max_output_tokens) || value.max_output_tokens < 1)) throw new ConfigurationError("Agent max_output_tokens is invalid.");
   if (Object.keys(value).some((key) => SECRET_FIELD.test(key))) throw new ConfigurationError("Agent configuration cannot contain plaintext credentials.");
   const result = Object.fromEntries(REQUIRED_FIELDS.map((field) => [field, value[field]]));
   for (const field of OPTIONAL_FIELDS) if (value[field] !== undefined) result[field] = value[field];

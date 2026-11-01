@@ -9,14 +9,19 @@ export function reviewOperationalFailure(error) {
   if (error?.code === "REVIEWER_BUSY" && error.not_started === true && error.agent_wait?.agent_id)
     return { code: error.code, message: error.message, retryable: true, not_started: true, agent_wait: error.agent_wait };
   if (!error || /(?:DENIED|FORBIDDEN|REJECTED|OUTCOME_UNKNOWN|PROVIDER_UNKNOWN|RECONCILIATION)/.test(error.code ?? '')
+    || ["unknown", "active"].includes(error.provider_outcome)
     || /rejected due to unacceptable risk|approval denied/i.test(error.message ?? '')) return null;
   const status = Number(error.statusCode ?? error.status ?? error.response?.status);
   const message = String(error.message ?? '');
   const http = message.match(/\b(?:HTTP(?:\/[\d.]+)?(?:\s+status)?|status(?:\s+code)?|received(?:\s+HTTP)?|unexpected status)\s*[:=]?\s*(429|502|503|504)\b/i);
   const httpStatus = temporaryModelFailure(error, { ended: error.provider_outcome === "failed" }) ? 400
     : RETRYABLE_STATUS.has(status) ? status : http ? Number(http[1]) : null;
-  if (!httpStatus && !RETRYABLE_CODES.has(error.code)) return null;
-  return { code: error.code ?? (httpStatus ? `HTTP_${httpStatus}` : 'REVIEW_TRANSPORT_FAILED'), message,
+  const streamDisconnect = /\b(?:stream disconnected before completion|stream closed before response\.completed)\b/i.test(message);
+  const retryableCode = RETRYABLE_CODES.has(error.code) ? error.code
+    : RETRYABLE_CODES.has(error.cause?.code) ? error.cause.code
+      : streamDisconnect ? "REVIEW_TRANSPORT_FAILED" : null;
+  if (!httpStatus && !retryableCode) return null;
+  return { code: RETRYABLE_CODES.has(error.code) ? error.code : httpStatus ? (error.code ?? `HTTP_${httpStatus}`) : retryableCode, message,
     ...(httpStatus ? { status: httpStatus } : {}), retryable: true };
 }
 

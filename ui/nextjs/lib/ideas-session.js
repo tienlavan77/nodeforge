@@ -82,15 +82,23 @@ export function createSession(projectId) {
       let result;
       if (kind === "create") result = await client.createIdea({ projectId, content: submitted });
       else if (kind === "delete") result = await client.deleteIdea({ projectId, id: item.id, expected_version: item.version });
+      else if (kind === "reorder") result = await client.updateIdea({ projectId, id: item.id, expected_version: item.version,
+        position: item.position, ...(item.status === undefined ? {} : { status: item.status }) });
       else result = await client.updateIdea({ projectId, id: item.id, expected_version: item.version,
         ...(kind === "edit" ? { content: submitted } : { status: item.status === "done" ? "open" : "done" }) });
       revision++;
       let nextDraft = state.draft;
       if (kind === "create" && nextDraft.content === submitted && nextDraft === draft) nextDraft = { ...nextDraft, content: "" };
       if (kind === "edit" && nextDraft.edit === item) nextDraft = { ...nextDraft, edit: null };
-      const items = kind === "create" ? [...state.items, result] : kind === "delete"
-        ? state.items.filter(entry => entry.id !== item.id)
-        : state.items.map(entry => entry.id === result.id ? result : entry);
+      let items;
+      if (kind === "create") items = [...state.items, result];
+      else if (kind === "delete") items = state.items.filter(entry => entry.id !== item.id);
+      else if (kind === "reorder") {
+        const rest = state.items.filter(entry => entry.id !== result.id);
+        const targetIndex = Math.max(0, Math.min(Number.isSafeInteger(item.position) ? item.position : rest.length, rest.length));
+        rest.splice(targetIndex, 0, result);
+        items = rest.map((entry, idx) => ({ ...entry, position: idx }));
+      } else items = state.items.map(entry => entry.id === result.id ? result : entry);
       // Clear only the matching retried operation; unrelated lost responses remain unresolved.
       const queue = state.uncertain ? [state.uncertain, ...(state.uncertain.pending ?? [])] : [];
       const remaining = queue.filter(entry => entry.kind !== kind || entry.id !== item?.id);

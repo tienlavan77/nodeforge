@@ -25,10 +25,13 @@ export function createIdeasClient({ url = forgeV1, request = requestJson } = {})
     },
     /** Read an independently addressed Idea while project binding guards the caller context. */
     getIdea({ id }) { return request(url(`/ideas/${encodeURIComponent(id)}`)); },
-    /** Update only content and status; project context must never enter the PATCH payload. */
-    updateIdea({ id, content, status, expected_version }) {
+    /** Update only content, status, and position; project context must never enter the PATCH payload. */
+    updateIdea({ id, content, status, position, expected_version }) {
       return mutate(`/ideas/${encodeURIComponent(id)}`, "PATCH", {
-        expected_version, ...(content === undefined ? {} : { content }), ...(status === undefined ? {} : { status })
+        expected_version,
+        ...(content === undefined ? {} : { content }),
+        ...(status === undefined ? {} : { status }),
+        ...(position === undefined ? {} : { position })
       });
     },
     /** Delete a confirmed Idea through its independent item endpoint. */

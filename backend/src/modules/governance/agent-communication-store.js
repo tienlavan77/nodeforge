@@ -23,12 +23,21 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
   if (database !== undefined && (!database?.run || !database?.all)) throw new ConfigurationError("Persistent Agent Communication Store requires a SQLite database.");
   const messages = [];
   const messagesById = new Map();
+  const linkedByConversation = new Map();
   const storageRoot = database ? dirname(database.databasePath ?? "") : undefined;
-  // load() is now resilient to ENOENT raw files, so startup won't crash.
-  if (database) try { load(); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  if (database) try { initIndex(); } catch (error) { if (error?.code !== "ENOENT") throw error; }
 
+  return Object.freeze({ append, getById, getAll, getBySender, getByReceiver, getByCorrelationId, getByConversationId, getByLinkedConversationId, load });
 
-  return Object.freeze({ append, getById, getAll, getBySender, getByReceiver, getByCorrelationId, getByConversationId, load });
+  // Business purpose: tracks linked conversation message IDs in memory so dual-stream history queries resolve in O(1) without scanning all conversation files.
+  // Technical description: records message.id under message.payload.linked_conversation_id in linkedByConversation when present.
+  function trackLinkedConversation(stored) {
+    const linkedId = stored?.payload?.linked_conversation_id;
+    if (typeof linkedId !== "string" || !linkedId) return;
+    let bucket = linkedByConversation.get(linkedId);
+    if (!bucket) { bucket = new Set(); linkedByConversation.set(linkedId, bucket); }
+    bucket.add(stored.id);
+  }
 
   // Validates, redacts, and indexes a new agent message.
   function append(message) {
@@ -42,6 +51,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
         database.run("UPDATE agent_communications SET raw_file = ?, byte_offset = ?, byte_length = ? WHERE message_id = ?", [location.raw_file, location.byte_offset, location.byte_length, stored.id]);
       } else messages[messages.findIndex((entry) => entry.id === stored.id)] = stored;
       messagesById.set(stored.id, database ? true : stored);
+      trackLinkedConversation(stored);
       return structuredClone(stored);
     }
     if (turn) message = turn.stored;
@@ -59,6 +69,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
     }
     if (!database) messages.push(stored);
     messagesById.set(stored.id, database ? true : stored);
+    trackLinkedConversation(stored);
     return structuredClone(stored);
   }
 
@@ -100,13 +111,30 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
     return messages.filter((message) => message.conversation_id === id).map((message) => structuredClone(message));
   }
 
-  // Rebuilds in-memory index from the persisted table and raw files.
-  function load() {
-    if (!database) return getAll();
+  // Business purpose: retrieves messages linked to a target conversation via linked_conversation_id without performing a full-store scan.
+  // Technical description: looks up tracked message IDs in linkedByConversation when backed by SQLite, or filters in-memory messages when no database is used.
+  function getByLinkedConversationId(id) {
+    assertId(id, "conversation");
+    if (!database) return messages.filter((message) => message.payload?.linked_conversation_id === id).map((message) => structuredClone(message));
+    const ids = linkedByConversation.get(id);
+    if (!ids?.size) return [];
+    return [...ids].flatMap((msgId) => { const item = getById(msgId); return item ? [item] : []; });
+  }
+
+  // Business purpose: initializes the SQLite table and in-memory message ID index on startup without reading all raw JSONL files from disk.
+  // Technical description: ensures the schema exists and populates messagesById from message_id rows.
+  function initIndex() {
+    if (!database) return;
     ensureTable(database, fileService);
     messages.splice(0, messages.length);
     messagesById.clear();
     for (const { message_id } of database.all("SELECT message_id FROM agent_communications ORDER BY sequence")) messagesById.set(message_id, true);
+  }
+
+  // Rebuilds in-memory index from the persisted table and raw files.
+  function load() {
+    if (!database) return getAll();
+    initIndex();
     // Do not fail startup if a raw file is missing — readIndexed already tolerates ENOENT.
     try { return getAll(); }
     catch (error) {

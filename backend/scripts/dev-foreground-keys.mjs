@@ -5,7 +5,7 @@
 // trailing digits used to fall through into the command line. This parser
 // swallows whole sequences instead: wheel motion scrolls the log, every other
 // mouse report is dropped, and plain keys pass through untouched.
-export function createKeyParser({ onKey, onWheel, onEscape } = {}) {
+export function createKeyParser({ onKey, onWheel, onEscape, onMouse } = {}) {
   let pending = "";
   return Object.freeze({ push });
 
@@ -78,9 +78,10 @@ export function createKeyParser({ onKey, onWheel, onEscape } = {}) {
   // Handles one SGR mouse report: wheel motion scrolls, the rest is dropped.
   function handleSgrMouse(params, final) {
     if (final !== "M" && final !== "m") return;
-    const button = Number(params.split(";")[0]);
+    const [button, x, y] = params.split(";").map(Number);
     if (button === 64) onWheel?.(1);
     else if (button === 65) onWheel?.(-1);
+    else if ((button & 3) === 0 && !(button & 64)) onMouse?.({ x, y, action: final === "m" ? "up" : button & 32 ? "move" : "down" });
   }
 
   // Handles one X10 mouse button byte with the same wheel mapping as SGR.

@@ -27,9 +27,13 @@ export function useProjectEventStream({
 }) {
   // Reconciles ordinary reply frames with the SE's raw public text events, if present.
   const setMessages = (update) => updateMessages((current) => mergeConversationRevisions(withoutSystemEngineerReplyDuplicates(update(current))));
+  const projectEventRef = useRef(onProjectEvent);
+  projectEventRef.current = onProjectEvent;
   const reconnectRef = useRef(onConversationReconnect);
   reconnectRef.current = onConversationReconnect;
   useEffect(() => {
+    // Deliver through the latest callback without reopening SSE on each render.
+    const onProjectEvent = (event) => projectEventRef.current?.(event);
     let opened = false;
     // An unavailable project admission makes stream connection throw synchronously; the workspace must surface an error state, not crash the page.
     let stream = null;
@@ -52,11 +56,11 @@ export function useProjectEventStream({
         if (event.event_type === "agent.activity") {
           setAgentActivities?.((current) => [...current, event].slice(-50));
           setMessages((current) => appendSystemEngineerConversationEvent(current, event, activeConversationIdRef.current, agentDisplayName(event.payload?.agent_id, agentDirectoryRef.current)));
-          if (event.payload?.sdk_event?.type === "conversation_turn" && event.payload.conversation_id === activeConversationIdRef.current) setAgentTyping(event.payload.status === "working");
+          if (event.payload?.sdk_event?.type === "conversation_turn" && (event.payload.conversation_id === activeConversationIdRef.current || event.payload.linked_conversation_id === activeConversationIdRef.current)) setAgentTyping(event.payload.status === "working");
           return;
         }
         if (event.event_type.startsWith("conversation.message.") || event.event_type === "conversation.agent.status_changed") {
-          if (event.payload?.conversation_id !== activeConversationIdRef.current) return;
+          if (event.payload?.conversation_id !== activeConversationIdRef.current && event.payload?.linked_conversation_id !== activeConversationIdRef.current) return;
           const payload = event.payload ?? {};
           const key = event.event_type === "conversation.message.owner" || event.event_type === "conversation.message.created"
             ? `owner:${payload.supersedes_message_id ?? payload.message_id ?? event.event_id}`
@@ -76,7 +80,10 @@ export function useProjectEventStream({
             return;
           }
           setMessages((current) => {
-            const index = current.findIndex((message) => message.stream_key === key);
+            const isOwnerEvent = event.event_type === "conversation.message.owner" || event.event_type === "conversation.message.created";
+            const index = current.findIndex((message) => message.stream_key === key
+              || Boolean(payload.message_id) && (message.id === payload.message_id || message.source_message_id === payload.message_id)
+              || !isOwnerEvent && message.from !== "owner" && Boolean(payload.correlation_id) && message.correlation_id === payload.correlation_id);
             if (index >= 0 && current[index].se_event?.type === "conversation_turn" && ["conversation.message.delta", "conversation.message.received", "conversation.message.completed"].includes(event.event_type)) return current;
             if (event.event_type === "conversation.message.owner" || event.event_type === "conversation.message.created") {
               if (current.some((message) => message.source_message_id === payload.message_id)) return current;
@@ -101,9 +108,9 @@ export function useProjectEventStream({
             if (event.event_type === "conversation.message.received" || event.event_type === "conversation.message.completed") {
               setAgentTyping(false);
               const contentType = effectiveAgentContentType(payload);
-              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, correlation_id: payload.correlation_id, conversation_id: payload.conversation_id, stream_key: key, text: payload.text ?? "", content_type: contentType, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, reveal: true }];
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, source_message_id: payload.message_id, correlation_id: payload.correlation_id, conversation_id: payload.conversation_id, stream_key: key, text: payload.text ?? "", content_type: contentType, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, reveal: true }];
               const next = [...current];
-              next[index] = { ...next[index], id: payload.message_id ?? next[index].id, conversation_id: payload.conversation_id ?? next[index].conversation_id, text: payload.text ?? next[index].text, content_type: contentType, stream: false, timestamp };
+              next[index] = { ...next[index], id: payload.message_id ?? next[index].id, source_message_id: payload.message_id ?? next[index].source_message_id, conversation_id: payload.conversation_id ?? next[index].conversation_id, text: payload.text ?? next[index].text, content_type: contentType, stream: false, timestamp };
               return next;
             }
             return current;
@@ -130,7 +137,7 @@ export function useProjectEventStream({
     });
     } catch { setWatcherState("error"); return undefined; }
     return () => stream.close();
-  }, [client, projectId, onProjectEvent]);
+  }, [client, projectId]);
 }
 
 // Resolves live message format only from an explicit supported producer declaration.

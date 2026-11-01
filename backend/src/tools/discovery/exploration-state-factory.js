@@ -20,13 +20,12 @@ export const DISCOVERY_KINDS = {
   search_tree: "search",
   list_files: "search",
   search_text: "search",
-  read_lines: "read",
+  Read: "read",
   rg_files: "search",
   rg_search: "search",
   read_file: "read",
   sed_lines: "read",
   read_code: "read",
-  Read: "read",
   Glob: "search",
   Grep: "search"
 };

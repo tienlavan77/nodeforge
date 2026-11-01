@@ -78,7 +78,7 @@ function buildPrompt({ projectId, content, ticket, feedback }) {
     agentRoleGuidance("sprint_leader").prompt,
     schemaLookupInstructions("sprint_leader", "ticket_draft"),
     PLANNING_AUTONOMY_PROMPT,
-    "Investigate the project with the supplied read-only Forge lookup_schema, search_tree, list_files, search_text, read_file, and read_lines tools before drafting the ticket (call lookup_schema({\"schema_id\":\"sprint_leader.ticket_draft.v1\"}) to inspect the Ticket draft JSON contract). Find related existing files when possible and cite only observed facts. If discovery is unavailable, state the uncertainty. Do not use built-in shell, file, or write tools.",
+    "Investigate the project with the supplied read-only Forge lookup_schema, search_tree, list_files, search_text, read_file, and Read tools before drafting the ticket (call lookup_schema({\"schema_id\":\"sprint_leader.ticket_draft.v1\"}) to inspect the Ticket draft JSON contract). Find related existing files when possible and cite only observed facts. If discovery is unavailable, state the uncertainty. Do not use built-in shell, file, or write tools.",
     SPRINT_LEADER_WEB_SEARCH_PROMPT,
     "Write ALL ticket field values (title, objective, acceptance_criteria, verification_plan) in English. If the owner request is in another language (e.g. Vietnamese), translate it into clear technical English.",
     "REQUIRED: Set implementation_type to exactly one value in a one-item array: frontend (UI/component/page/chat UI), backend (API/database/server), or security (auth/permission/credential). Return e.g. [\"frontend\"]. Do not return the legacy style field or combine types.",

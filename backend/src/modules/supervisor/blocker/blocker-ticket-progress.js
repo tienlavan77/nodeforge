@@ -15,7 +15,7 @@ import { blockerRuntimeCapabilities } from "./blocker-runtime-capabilities.js";
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 // Builds a conservative progress snapshot; inspected or merely changed files never prove acceptance.
-export async function buildBlockerTicketProgress({ job, checkpoint, workspace, reviewCheckpoint, sprintRegistry, ticketStatusStore }) {
+export async function buildBlockerTicketProgress({ job, checkpoint, workspace, reviewCheckpoint, sprintRegistry, ticketStatusStore, contractDelegation }) {
   const ticket = job.request.ticket;
   const context = await workspace.executionContexts.load(job.request.task_id);
   const dependencies = blockerDependencyProgress({ request: job.request, job, sprintRegistry, ticketStatusStore });
@@ -31,7 +31,8 @@ export async function buildBlockerTicketProgress({ job, checkpoint, workspace, r
   const diagnostics = [];
   const contract_source = [];
   const refs = ticket.execution_policy?.contract_evidence ?? [];
-  const verifyContractSource = refs.length ? createTicketContractSource({ request: job.request, workspace }) : null;
+  const verifyContractSource = refs.length ? createTicketContractSource({ request: job.request, workspace,
+    contractDelegation: contractDelegation ?? job.architecture_response?.disposition ?? job.sprint_delegation ?? checkpoint?.contract_decisions?.at(-1)?.record?.disposition ?? null }) : null;
   for (const ref of refs) {
     try { contract_source.push({ status: "validated", ...await verifyContractSource(ref) }); }
     catch (error) {

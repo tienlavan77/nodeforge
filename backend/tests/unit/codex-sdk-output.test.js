@@ -45,3 +45,28 @@ test("new and resumed Codex turns retain native schema and only the last respons
     assert.deepEqual(calls, ["start", "resume"]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("Codex SDK forwards configured max_output_tokens and classifies truncated output as SDK_MAX_OUTPUT_TOKENS", async () => {
+  const root = await mkdtemp(join(tmpdir(), "forge-codex-max-tokens-"));
+  let codexConfig;
+  try {
+    const gateway = createCodexSdkGateway({ codexHomeRoot: root, terminalOutput: { write() {} },
+      configuration: { getById: () => ({ agent_id: "SL", role: "sprint_leader", gateway_url: "https://gateway.test",
+        credential_ref: "fixture", enabled: true, status: "ready", max_output_tokens: 4096 }) }, credentialResolver: () => "fixture-key",
+      CodexClass: class {
+        constructor(options) { codexConfig = options.config; }
+        startThread() {
+          return { id: "T", runStreamed: async () => ({ events: (async function* () {
+            yield { type: "item.completed", item: { type: "agent_message", text: "{\"kind\":\"consultation_response\"" } };
+            yield { type: "turn.completed", incomplete_details: { reason: "max_output_tokens" }, usage: { input_tokens: 100, output_tokens: 4096 } };
+          })() }) };
+        }
+      } });
+    await assert.rejects(gateway.execute({ agentId: "SL", prompt: "Investigate", correlationId: "MAX-TOK" }), (error) => {
+      assert.equal(error.code, "SDK_MAX_OUTPUT_TOKENS");
+      assert.equal(error.incomplete_details?.reason, "max_output_tokens");
+      return true;
+    });
+    assert.equal(codexConfig.model_max_output_tokens, 4096);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

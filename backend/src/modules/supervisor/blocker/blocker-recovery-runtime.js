@@ -111,10 +111,10 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     if (!authority) throw new Error("Decision authority changed before investigation.");
     const baseline = await prepareBaseline(job);
     if (baseline) options.deadline = await options.onNodeVerificationCompleted?.() ?? options.deadline;
-    const ticket_progress = await buildBlockerTicketProgress({ job, ...authority, sprintRegistry, ticketStatusStore, reviewCheckpoint: await checkpoints.loadReview?.(job.request.task_id) });
+    const { contracts, delegation } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
+    const ticket_progress = await buildBlockerTicketProgress({ job, ...authority, contractDelegation: delegation, sprintRegistry, ticketStatusStore, reviewCheckpoint: await checkpoints.loadReview?.(job.request.task_id) });
     Object.assign(ticket_progress.runtime_capabilities, runtimeCapabilities);
     if (baseline) ticket_progress.verification.baseline_recovery = baseline;
-    const { contracts, delegation } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
     ticket_progress.architecture_decision ??= delegation;
     ticket_progress.failure_classification = await classifyFailure(job, authority.workspace);
     refreshBlockerFailureFeedback(job, ticket_progress.failure_classification);
@@ -168,16 +168,16 @@ export function createProductionBlockerRecovery({ store, fileService, projectId,
     if (job.stage === "reviewer") { const verified = await validateBlockerReviewerEvidence(value, job, authority.workspace.projectRoot ?? authority.workspace.path);
       await recordTicketStage({ checkpoints, taskId: job.request.task_id, stage: "reviewer_evidence", status: "completed", details: { job_id: job.id, action: verified.action }, logger, clock });
       return verified; }
-    const ticket_progress = await buildBlockerTicketProgress({ job, ...authority, sprintRegistry, ticketStatusStore, reviewCheckpoint: await checkpoints.loadReview?.(job.request.task_id) });
+    const { delegation: contractDelegation, contracts } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
+    const ticket_progress = await buildBlockerTicketProgress({ job, ...authority, contractDelegation, sprintRegistry, ticketStatusStore, reviewCheckpoint: await checkpoints.loadReview?.(job.request.task_id) });
     ticket_progress.failure_classification = await classifyFailure(job, authority.workspace);
     ticket_progress.evidence_sha256 = blockerDigest([ticket_progress.evidence_sha256, ticket_progress.failure_classification]);
     if (retained && JSON.stringify(job.ticket_progress?.failure_classification ?? null) !== JSON.stringify(ticket_progress.failure_classification))
       throw blockerValidationError("/action", "failure_classification_changed", "Node's receipt-based failure classification changed. SL must reassess the current blocker before reusing this historical disposition.");
-    const { delegation: contractDelegation, contracts } = await readBlockerContractDelegation({ job, checkpoint: authority.checkpoint, fileService, architecture: authority.architecture });
     const verified = await validateBlockerDisposition(value, { job: { ...job, ticket_progress }, plan: authority.plan, architecture: authority.architecture,
       contractDelegation, contractReceipts: contracts, contractFileService: fileService,
       fileService: (authority.workspace.root_only ? authority.workspace.fileService : authority.workspace.worktreeFileService ?? authority.workspace.fileService) ?? fileService,
-      projectRoot: authority.workspace.path ?? authority.workspace.projectRoot, verifyContractSource: createTicketContractSource({ request: job.request, workspace: authority.workspace }) });
+      projectRoot: authority.workspace.path ?? authority.workspace.projectRoot, verifyContractSource: createTicketContractSource({ request: job.request, workspace: authority.workspace, contractDelegation }) });
     if (verified.action === "dependency_requested") await dependencies.validate(job, verified);
     if (["coder_requested", "candidate_prepared", "sprint_required"].includes(verified.action) || job.stage === "architecture_manager" && verified.action === "resolved") projectLogger({ event_name: "supervisor.blocker_candidate_handoff", level: "info", status: "success", task_id: job.request.task_id,
       message: job.stage === "architecture_manager" && verified.action === "resolved" ? "Architecture answer is ready for Sprint Leader; no Coder dispatch or execution approval." : verified.action === "sprint_required" ? "Architecture delegated implementation coordination to Sprint Leader; execution remains parked." : verified.action === "coder_requested" ? `${job.stage} requested a read-only Coder candidate; original execution remains parked.` : "Coder candidate is ready for its coordinating role; execution is not yet resumed.",

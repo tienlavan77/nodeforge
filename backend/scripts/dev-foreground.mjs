@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import process from "node:process";
+import { createMouseSelection } from "./dev-foreground-selection.mjs";
 import { createKeyParser } from "./dev-foreground-keys.mjs";
 import { createForegroundView } from "./dev-foreground-view.mjs";
 import { alive, findMatchingPids } from "./dev-foreground-process.mjs";
@@ -43,7 +44,7 @@ if (!interactive) {
 function runInteractive() {
   const state = { input: "", cursor: 0, history: [], historyIndex: -1, scrollBack: 0, copyMode: false };
   // Capture wheel events directly so the terminal cannot scroll the entire TUI.
-  process.stdout.write("\x1b[?1049h\x1b[?1007l\x1b[?7l\x1b[?1002l\x1b[?1015l\x1b[?1016l\x1b[?1006h\x1b[?1000h\x1b[2J\x1b[H\x1b[?25l");
+  process.stdout.write("\x1b[?1049h\x1b[?1007l\x1b[?7l\x1b[?1015l\x1b[?1016l\x1b[?1006h\x1b[?1000h\x1b[?1002h\x1b[2J\x1b[H\x1b[?25l");
   process.stdin.setRawMode(true);
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
@@ -56,7 +57,9 @@ function runInteractive() {
   statusTimer.unref?.();
   process.stdout.on("resize", () => render(state));
 
+  const selection = createMouseSelection({ state, output: process.stdout });
   const parser = createKeyParser({
+    onMouse: selection.onMouse,
     onKey: (char) => handleKey(char, state),
     onWheel: (delta) => { state.scrollBack = Math.max(0, (state.scrollBack ?? 0) + delta * 3); },
     onEscape: (sequence) => handleEscape(sequence, state)
@@ -140,7 +143,7 @@ function runInteractive() {
   // Summary: Freezes the screen for terminal-native mouse selection and copying.
   function enterCopyMode(state) {
     state.copyMode = true;
-    process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?7h\x1b[?1049l");
+    process.stdout.write("\x1b[?1002l\x1b[?1000l\x1b[?1006l\x1b[?7h\x1b[?1049l");
     renderCopyScreen();
   }
 
@@ -154,7 +157,7 @@ function runInteractive() {
   // Summary: Leaves copy mode and restores the live view.
   function exitCopyMode(state) {
     state.copyMode = false;
-    process.stdout.write("\x1b[?1049h\x1b[?7l\x1b[?1006h\x1b[?1000h");
+    process.stdout.write("\x1b[?1049h\x1b[?7l\x1b[?1006h\x1b[?1000h\x1b[?1002h");
   }
 
   // Summary: Dumps buffered logs to a file for later copying.
@@ -235,7 +238,7 @@ async function shutdown() {
   shuttingDown = true;
   // eslint-disable-next-line no-silent-catch -- Stdin may already be closed during shutdown.
   try { process.stdin.setRawMode(false); } catch { /* stdin already closed. */ }
-  process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?7h\x1b[?1049l\x1b[?25h\n");
+  process.stdout.write("\x1b[?1002l\x1b[?1000l\x1b[?1006l\x1b[?7h\x1b[?1049l\x1b[?25h\n");
   await Promise.all([...children.keys()].map((name) => stop(name)));
   const leftovers = Object.keys(definitions).flatMap((name) => findMatchingPids(name));
   for (const pid of leftovers) {

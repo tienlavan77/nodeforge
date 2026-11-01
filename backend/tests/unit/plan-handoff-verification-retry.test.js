@@ -200,3 +200,32 @@ test("concurrent handoffs cannot duplicate SL correction or sprint registration"
   assert.equal((await state.service.handoff({ plan: state.plan })).replayed, true);
   assert.equal(state.requests.length, 2);
 });
+
+// Verifies positional outcome coverage across split tickets repairs verification_plan without inflating acceptance_criteria.
+test("positional coverage across split tickets repairs verification_plan without appending outcome criteria to acceptance_criteria", async (context) => {
+  const state = await fixture(context, (attempt) => ({
+    id: "SPRINT-COVERAGE",
+    tickets: [
+      {
+        id: "TICKET-SPLIT-1", title: "Part 1", objective: "Deliver AC 1..3", implementation_type: ["backend"], file_budget: 2, outcome_refs: ["O1"], dependencies: [],
+        acceptance_criteria: ["Scoped check A", "Scoped check B"],
+        coverage: { O1: { criterion_refs: ["O1.AC-1", "O1.AC-2", "O1.AC-3"], guardrail_refs: ["O1.G-1"] } },
+        verification_plan: [{ kind: "test", criterion_ids: attempt > 1 ? ["AC-1", "AC-2"] : ["AC-1"], test_path: "backend/tests/unit/plan-handoff-verification-retry.test.js" }]
+      },
+      {
+        id: "TICKET-SPLIT-2", title: "Part 2", objective: "Deliver AC 4..6", implementation_type: ["backend"], file_budget: 2, outcome_refs: ["O1"], dependencies: ["TICKET-SPLIT-1"],
+        acceptance_criteria: ["Scoped check C"],
+        coverage: { O1: { criterion_refs: ["O1.AC-4", "O1.AC-5", "O1.AC-6"], guardrail_refs: ["O1.G-1"] } },
+        verification_plan: [{ kind: "test", criterion_ids: ["AC-1"], test_path: "backend/tests/unit/plan-handoff-verification-retry.test.js" }]
+      }
+    ]
+  }));
+  const result = await state.service.handoff({ plan: state.plan });
+  assert.equal(result.status, "handed_to_sprint_leader");
+  assert.equal(state.requests.length, 2);
+  const persisted = JSON.parse(state.receipt().generated_json);
+  assert.deepEqual(persisted.tickets[0].acceptance_criteria, ["Scoped check A", "Scoped check B"]);
+  assert.deepEqual(persisted.tickets[1].acceptance_criteria, ["Scoped check C"]);
+  assert.deepEqual(persisted.tickets[0].coverage.O1.criterion_refs, approvedCriteria.slice(0, 3));
+  assert.deepEqual(persisted.tickets[1].coverage.O1.criterion_refs, approvedCriteria.slice(3, 6));
+});

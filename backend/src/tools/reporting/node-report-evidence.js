@@ -47,8 +47,13 @@ export function coverageFromPlan(criteria, commands, verificationPlan, ticket, s
     const hint = (supplied ?? []).find((entry) => criterionIndex(entry, criteria) === index);
     const hintPath = hint?.test_path ?? (hint?.missing_checks?.length === 1 && ["test", "backend_tests"].includes(hint.missing_checks[0].kind) ? hint.missing_checks[0].test_path : undefined);
     const required = steps.filter((step) => step.kind !== "governance" && !(step.kind === "human" && ownerApproved))
-      .map((step) => ["test", "backend_tests"].includes(step.kind) && !step.test_path
-        ? { ...step, criterion_ids: [criterionId], ...(typeof hintPath === "string" ? { test_path: hintPath } : {}) } : step);
+      .map((step) => {
+        if (!["test", "backend_tests"].includes(step.kind) || step.test_path) return step;
+        const scopedStep = { ...step, criterion_ids: [criterionId] };
+        const canUseHint = typeof hintPath === "string" && (step.kind !== "backend_tests" || hintPath.startsWith("backend/"));
+        const withHint = canUseHint ? { ...scopedStep, test_path: hintPath } : scopedStep;
+        return canUseHint && (findPassingVerificationCommand(withHint, commands) || !findPassingVerificationCommand(scopedStep, commands)) ? withHint : scopedStep;
+      });
     const missing = required.filter((step) => !findPassingVerificationCommand(step, commands));
     if (missing.length) return { criterion_id: criterionId, criterion, status: "evidence_pending", command_kind: hint?.command_kind ?? null, test_path: hintPath ?? null, missing_checks: missing.map((step) => ({ kind: step.kind, ...(step.test_path ? { test_path: step.test_path } : {}) })) };
     const passing = required.find((step) => ["test", "backend_tests", "browser"].includes(step.kind)) ?? required[0];

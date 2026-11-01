@@ -51,8 +51,10 @@ export function createClaudeSdkGateway({
     delete cloneableOptions.forgeTools;
     const effort = options.effort ?? config.reasoning?.effort;
     if (effort !== undefined && !["none", "low", "medium", "high", "xhigh", "max"].includes(effort)) throw new ConfigurationError("Claude SDK reasoning effort is invalid.");
+    const maxOutputTokens = options.maxOutputTokens ?? options.max_output_tokens ?? config.max_output_tokens;
     const queryOptions = {
       ...structuredClone(cloneableOptions),
+      ...(Number.isSafeInteger(maxOutputTokens) && maxOutputTokens >= 1 ? { maxOutputTokens } : {}),
       ...(effort === "none" ? { thinking: { type: "disabled" } } : effort ? { effort } : {}),
       ...(hooks ? { hooks } : {}),
       ...(typeof canUseTool === "function" ? { canUseTool } : {}),
@@ -121,7 +123,8 @@ export function createClaudeSdkGateway({
         ? error.message.replace(credential, "[REDACTED]")
         : "unknown SDK error";
       const failure = new ConfigurationError(`Claude SDK request failed for ${config.agent_id}: ${message}`, { cause: error });
-      if (error.code?.startsWith("CLAUDE_SDK_")) Object.assign(failure, { code: error.code, provider_outcome: error.provider_outcome, retry_safe: false, sdk_subtype: error.sdk_subtype });
+      if (error.code === "SDK_MAX_OUTPUT_TOKENS" || /max_output_tokens|max[_ ]tokens/i.test(message)) Object.assign(failure, { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: error.incomplete_details ?? { reason: "max_output_tokens" }, provider_outcome: "failed", retry_safe: false });
+      else if (error.code?.startsWith("CLAUDE_SDK_")) Object.assign(failure, { code: error.code, provider_outcome: error.provider_outcome, retry_safe: false, sdk_subtype: error.sdk_subtype });
       throw sdkFailureEvidence(failure, error, { ended: error.provider_outcome === "failed" });
     } finally {
       terminal.close(abortSignal?.aborted ? { code: "TICKET_STOPPED", message: "SDK session stopped." } : controller.signal.aborted ? { code: "SDK_REQUEST_TIMEOUT", message: "SDK request timed out." } : terminalFailure);

@@ -2,13 +2,12 @@
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationResponseReveal } from "./conversation-response-reveal.jsx";
 
-// Renders reply snapshots in native event order without command output or duplicate message wrappers.
+// Renders reply snapshots in native event order while keeping tool commands out of the chat stream.
 export function SystemEngineerEvent({ value, onMarkdownOpen }) {
-  if (value?.type === "conversation_turn") return <>{value.entries.map((entry) => entry.type === "text"
-    ? <ConversationResponseReveal key={entry.id} text={entry.text} contentType={value.content_type ?? "text/plain"} onMarkdownOpen={onMarkdownOpen} />
-    : <SystemEngineerEvent key={entry.id} value={entry} />)}</>;
-  const text = systemEngineerCommandText(systemEngineerEventText(value));
-  return text ? <details className="system-engineer-command" open><summary><span className="system-engineer-command-dot" aria-hidden="true" />RAN</summary><pre className="system-engineer-event-value">{text}</pre></details> : null;
+  if (value?.type === "conversation_turn") return <>{value.entries.filter((entry) => entry.type === "text").map((entry) => (
+    <ConversationResponseReveal key={entry.id} text={entry.text} contentType={value.content_type ?? "text/plain"} onMarkdownOpen={onMarkdownOpen} />
+  ))}</>;
+  return null;
 }
 
 // Shows the quoted shell payload instead of its CLI launcher, without changing stored or executed commands.

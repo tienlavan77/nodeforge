@@ -21,7 +21,7 @@ export async function inspectFindingReviewSource({ taskId, projectId, fileServic
     || manifest.revision !== receipt.manifest.revision + 1 || manifest.source_repair_cycle_id !== receipt.cycle_id) return null;
   return { status: "available_for_unchanged_response", cycle_id: receipt.cycle_id, commit_sha: receipt.context.review_commit_sha,
     artifact_id: receipt.artifact.artifact_id, source_revision: receipt.context.source_revision,
-    instruction: "No Coder writes exist in this finding repair. report_done/respond_to_review can reuse the retained verified source after Node validates its receipt and Git checksums. Do not require duplicate source edits or a new commit solely for evidence delivery. Reviewer has complete ticket history through its existing read_file/read_lines tools." };
+    instruction: "No Coder writes exist in this finding repair. report_done/respond_to_review can reuse the retained verified source after Node validates its receipt and Git checksums. Do not require duplicate source edits or a new commit solely for evidence delivery. Reviewer has complete ticket history through its existing read_file/Read tools." };
 }
 
 // Restores only a proven prior verification binding, never source bytes, claims, approval or a new commit.

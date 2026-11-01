@@ -144,3 +144,15 @@ test("IdeasDock close and toggleDock reset minimized state and expand minimized 
   assert.match(ideasDockSource, /function\s+close\s*\(\)\s*\{[^}]*update\(\{\s*visible:\s*false\s*,\s*minimized:\s*false\s*\}\)/s);
   assert.match(ideasDockSource, /function\s+toggleDock\s*\(\)\s*\{[^}]*update\(\{\s*visible:\s*!open\s*\|\|\s*minimized\s*,\s*minimized:\s*false\s*\}\)/s);
 });
+
+test("IdeasPanel and styles implement 15px To-do list layout, split open/done lists, strikethrough checkbox items, right-side icon buttons, and drag-and-drop", () => {
+  assert.match(ideasPanelSource, /data-ideas-list="open"/);
+  assert.match(ideasPanelSource, /data-ideas-list="done"/);
+  assert.match(ideasPanelSource, /type="checkbox"/);
+  assert.match(ideasPanelSource, /aria-label="Sửa"/);
+  assert.match(ideasPanelSource, /aria-label="Xóa"/);
+  assert.match(ideasPanelSource, /draggable=\{dragEnabled\}/);
+  assert.match(ideasStylesSource, /font-size:\s*15px/);
+  assert.match(ideasStylesSource, /text-decoration:\s*line-through/);
+  assert.match(ideasStylesSource, /\.ideas-panel\s+\.ideas-icon-btn/);
+});

@@ -7,29 +7,31 @@ export function isSystemEngineerConversationEvent(payload) {
 }
 
 // Converts live and persisted reply snapshots to the same stable assistant card identity.
+// Tool command blocks stay in the Agent Activity panel and never render inside the chat stream.
 export function systemEngineerConversationEvent({ id, payload, timestamp }, nickname) {
   if (!isSystemEngineerConversationEvent(payload) || !payload.conversation_id) return null;
   const activityId = payload.activity_id ?? id;
   if (!activityId) return null;
   const event = payload.sdk_event;
   if (event.type === "conversation_turn") {
-    const text = event.entries.filter((entry) => entry.type === "text").map((entry) => entry.text).join("\n");
+    const entries = event.entries.filter((entry) => entry.type === "text");
+    if (!entries.length) return null;
+    const effectiveEvent = { ...event, entries };
+    const text = entries.map((entry) => entry.text).join("\n");
     return { id: activityId, source_message_id: id, conversation_id: payload.conversation_id, correlation_id: payload.correlation_id,
-      stream_key: `agent:${payload.correlation_id}`, se_event: event, sdk_sequence: payload.sdk_sequence,
-      timestamp: event.entries[0]?.timestamp ?? timestamp, text, from: "agent", nickname: nickname ?? payload.agent_id,
+      stream_key: `agent:${payload.correlation_id}`, se_event: effectiveEvent, sdk_sequence: payload.sdk_sequence,
+      timestamp: entries[0]?.timestamp ?? timestamp, text, from: "agent", nickname: nickname ?? payload.agent_id,
       retryable: false, status: payload.status, stream: payload.status === "working" };
   }
-  return { id: activityId, source_message_id: id, conversation_id: payload.conversation_id, correlation_id: payload.correlation_id,
-    stream_key: `se-event:${activityId}`, se_event: event, se_text: null, sdk_sequence: payload.sdk_sequence, status: payload.status,
-    text: event.command, content_type: "text/plain", from: "system", retryable: false,
-    nickname: `${nickname ?? payload.agent_id ?? "SE"} · command`, timestamp };
+  return null;
 }
 
-// Appends or updates only the active SE conversation and ignores replayed identities.
+// Appends or updates only the active SE conversation (or its linked Architecture conversation) and ignores replayed identities.
 // Replayed older snapshots cannot replace the newer ordered text and command blocks.
 export function appendSystemEngineerConversationEvent(messages, event, conversationId, nickname) {
-  if (event.event_type !== "agent.activity" || !conversationId || event.payload?.conversation_id !== conversationId) return messages;
-  const message = systemEngineerConversationEvent({ id: event.event_id, payload: event.payload, timestamp: event.timestamp }, nickname);
+  const matchesConversation = event.payload?.conversation_id === conversationId || event.payload?.linked_conversation_id === conversationId;
+  if (event.event_type !== "agent.activity" || !conversationId || !matchesConversation) return messages;
+  const message = systemEngineerConversationEvent({ id: event.event_id, payload: event.payload, timestamp: event.timestamp }, nickname, conversationId);
   if (!message) return messages;
   const position = messages.findIndex((entry) => entry.stream_key === message.stream_key);
   if (position < 0) return withoutSystemEngineerReplyDuplicates([...messages, message]);
@@ -44,7 +46,11 @@ export function appendSystemEngineerConversationEvent(messages, event, conversat
 // Keep fallback replies if a provider did not emit their text as public SDK events.
 export function withoutSystemEngineerReplyDuplicates(messages) {
   const texts = new Map();
+  const turnCorrelations = new Set();
   for (const message of messages) {
+    if (message.se_event?.type === "conversation_turn" && message.correlation_id && message.text) {
+      turnCorrelations.add(message.correlation_id);
+    }
     if (!message.se_text || !message.correlation_id) continue;
     const current = texts.get(message.correlation_id) ?? [];
     if (message.se_event?.type === "result" && current.includes(message.se_text)) continue;
@@ -53,6 +59,7 @@ export function withoutSystemEngineerReplyDuplicates(messages) {
   }
   return messages.filter((message) => {
     const correlationId = message.correlation_id ?? (message.stream_key?.startsWith("agent:") ? message.stream_key.slice(6) : undefined);
+    if (!message.se_event && message.from === "agent" && correlationId && turnCorrelations.has(correlationId)) return false;
     const candidates = texts.get(correlationId);
     return Boolean(message.se_event) || message.from !== "agent" || !candidates || ![...candidates, candidates.join(""), candidates.join("\n")].includes(message.text);
   });

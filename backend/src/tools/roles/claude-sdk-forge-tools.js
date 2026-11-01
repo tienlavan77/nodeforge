@@ -88,6 +88,7 @@ function engineeringInputShape(inputSchema) {
   const transport = structuredClone(inputSchema);
   // Zod cannot convert allOf/if/then/else; removing this transport-only branch does not change Node validation.
   delete transport.allOf;
+  delete transport.oneOf;
   return z.fromJSONSchema(transport).shape;
 }
 
@@ -98,7 +99,7 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
     ["select_code_graph_candidates", "Ask Node to find up to eight candidate files related to your search intent, with import relations. Call this FIRST as your project map before searching or reading.", selectCodeGraphCandidatesInput],
     ["search_code", "Search the approved project code index. kind=\"content\" returns FTS text snippets with matching lines; kind=\"file\" with projection=\"summary\" returns a file's symbol map with line ranges.", searchCodeInput],
     ["read_file", "Read one file's metadata, current symbol map and scoped graph without source. Use Read with start_line/end_line to read code.", readFileInput],
-    ...(includeClaudeFileTools ? claudeFileDefinitions.map(({ name, description, input_schema }) => [name, description, z.fromJSONSchema(input_schema).shape]) : []),
+    ...(includeClaudeFileTools ? claudeFileDefinitions.map(({ name, description, input_schema }) => [name, description, engineeringInputShape(input_schema)]) : []),
     ["write_diff", "Write one approved project file after checksum validation. Content is limited to 250 lines. For a new file that does not exist, before_checksum must be the JSON value null (not a string and not omitted).", writeDiffInput],
     ["edit_diff", "Replace an exact anchor string in one approved file after checksum validation. Read the file first and use a unique exact anchor; use occurrence=\"all\" to replace every match.", editDiffInput],
     ["delete_file", "Delete one role-authorized project file through Node File Service after checking its whole-file sha256. Read the file first.", deleteFileInput],
@@ -153,7 +154,6 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__search_tree",
   "mcp__forge__list_files",
   "mcp__forge__search_text",
-  "mcp__forge__read_lines",
   "mcp__forge__run_check",
   "mcp__forge__push_commit",
   "mcp__forge__Read",

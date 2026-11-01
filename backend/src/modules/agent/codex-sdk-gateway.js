@@ -111,13 +111,14 @@ export function createCodexSdkGateway({
       if (mcpSession) {
         onSessionReady?.(mcpSession.tools.map((tool) => tool.name) ?? []);
       }
+      const maxOutputTokens = options.maxOutputTokens ?? options.max_output_tokens ?? profile.max_output_tokens;
       const childEnvironment = buildCodexChildEnvironment(environment, options.env);
       const shellEnvironment = codexShellEnvironment(childEnvironment, cwd ?? options.workingDirectory ?? process.cwd());
       const codex = new CodexClass({
-        apiKey: credential,
-        baseUrl: normalizeBaseUrl(profile.gateway_url),
+        apiKey: credential, baseUrl: normalizeBaseUrl(profile.gateway_url),
         env: { ...childEnvironment, ...shellEnvironment, CODEX_HOME: codexHome },
         config: { ...codexConfig, ...options.config,
+          ...(Number.isSafeInteger(maxOutputTokens) && maxOutputTokens >= 1 ? { model_max_output_tokens: maxOutputTokens } : {}),
           allow_login_shell: false,
           shell_environment_policy: { ...options.config?.shell_environment_policy, experimental_use_profile: false,
             set: { ...options.config?.shell_environment_policy?.set, ...shellEnvironment } },
@@ -139,69 +140,66 @@ export function createCodexSdkGateway({
         approvalPolicy: options.approvalPolicy ?? (mcpSession ? "on-request" : "never"),
         ...(normalizeReasoningEffort(options.modelReasoningEffort ?? profile.reasoning?.effort) ? { modelReasoningEffort: normalizeReasoningEffort(options.modelReasoningEffort ?? profile.reasoning?.effort) } : {}),
         ...(options.usePermissionProfile ? {} : { networkAccessEnabled: options.networkAccessEnabled ?? false }),
-        webSearchMode: options.webSearchMode ?? "disabled",
-        skipGitRepoCheck: options.skipGitRepoCheck ?? false
+        webSearchMode: options.webSearchMode ?? "disabled", skipGitRepoCheck: options.skipGitRepoCheck ?? false
       };
       if (resumeThreadId && typeof codex.resumeThread !== "function") throw Object.assign(new ConfigurationError("Codex SDK cannot resume this thread; choose Restart instead."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
-      const thread = resumeThreadId
-        ? codex.resumeThread(resumeThreadId, threadOptions)
-        : codex.startThread(threadOptions);
+      const thread = resumeThreadId ? codex.resumeThread(resumeThreadId, threadOptions) : codex.startThread(threadOptions);
       onSessionReady?.(thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
       const streamed = await thread.runStreamed(prompt, { signal: controller.signal, ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}) });
-      const items = [];
-      let finalResponse = "";
-      let usage = null;
+      const items = []; let finalResponse = ""; let usage = null; let incompleteDetails = null;
       for await (const rawEvent of streamed.events) {
         const event = sanitizeItems(rawEvent, credential);
         terminal.event(event);
         if (event.type === "thread.started") onSessionReady?.(event.thread_id ?? thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
         if (typeof onEvent === "function") {
-          try { await onEvent(event); }
-          catch (error) { controller.abort(error); throw error; }
+          try { await onEvent(event); } catch (error) { controller.abort(error); throw error; }
         }
         if (event.type === "item.completed") {
           items.push(event.item);
           if (event.item?.type === "agent_message") finalResponse = event.item.text ?? finalResponse;
         } else if (event.type === "turn.completed") {
-          turnCompleted = true;
-          usage = event.usage ?? null;
+          turnCompleted = true; usage = event.usage ?? null;
+          if (event.incomplete_details) incompleteDetails = event.incomplete_details;
         } else if (event.type === "turn.failed") {
-          turnFailure = event.error?.message ?? "Codex turn failed.";
-          structuredFailure = event.error;
-        } else if (event.type === "error" && event.message) {
-          streamError = event.message;
-        }
+          turnFailure = event.error?.message ?? "Codex turn failed."; structuredFailure = event.error;
+          if (event.error?.incomplete_details) incompleteDetails = event.error.incomplete_details;
+        } else if (event.type === "error" && event.message) streamError = event.message;
       }
       ended = true;
-      if (turnFailure) throw new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`);
+      const isMaxTokens = (msg, err) => err?.incomplete_details?.reason === "max_output_tokens" || err?.code === "max_output_tokens" || err?.code === "SDK_MAX_OUTPUT_TOKENS" || /max_output_tokens|max[_ ]tokens|incomplete.*output_tokens|output token limit/i.test(String(msg ?? ""));
+      if (turnFailure) {
+        const err = new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`);
+        if (isMaxTokens(turnFailure, structuredFailure) || incompleteDetails?.reason === "max_output_tokens") Object.assign(err, { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: incompleteDetails ?? { reason: "max_output_tokens" }, response_text: finalResponse });
+        throw err;
+      }
+      if (incompleteDetails?.reason === "max_output_tokens") throw Object.assign(new ConfigurationError(`Codex SDK output truncated at max_output_tokens for ${profile.agent_id}.`), { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: incompleteDetails, response_text: finalResponse });
       return {
-        agent_id: profile.agent_id,
-        agent_name: profile.agent_name,
-        role: profile.role,
-        correlation_id: correlationId,
-        status: "completed",
-        turn_completed: turnCompleted && !streamError,
-        text: finalResponse,
-        items,
-        usage,
-        thread_id: thread.id
+        agent_id: profile.agent_id, agent_name: profile.agent_name, role: profile.role, correlation_id: correlationId,
+        status: "completed", turn_completed: turnCompleted && !streamError, text: finalResponse, items, usage,
+        ...(incompleteDetails ? { incomplete_details: incompleteDetails } : {}), thread_id: thread.id
       };
     } catch (error) {
       terminalFailure = error;
       if (abortSignal?.aborted) throw abortSignal.reason;
       if (/thread(?:-store conflict:|\/resume:)[\s\S]*already has an active writer/i.test(String(error?.message ?? ""))) throw codexThreadBusyError(resumeThreadId, error);
       if (error?.name === "AbortError" || controller.signal.aborted) throw sdkFailureEvidence(Object.assign(new ConfigurationError(`Codex SDK request timed out for ${profile.agent_id}.`, { cause: error }), { code: "SDK_REQUEST_TIMEOUT" }), error, { aborted: true });
+      if (error?.code === "SDK_MAX_OUTPUT_TOKENS") throw sdkFailureEvidence(error, structuredFailure ?? error, { ended: true });
       if (turnFailure) throw sdkFailureEvidence(new ConfigurationError(`Codex SDK turn failed for ${profile.agent_id}: ${turnFailure}`, { cause: error }), structuredFailure, { ended });
-      if (streamError) throw new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${streamError}`, { cause: error });
+      if (streamError) {
+        const err = new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${streamError}`, { cause: error });
+        if (/max_output_tokens|max[_ ]tokens|incomplete.*output_tokens|output token limit/i.test(streamError)) Object.assign(err, { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: { reason: "max_output_tokens" } });
+        throw err;
+      }
       if (/No available channel for model/i.test(String(error?.message ?? ""))) {
         const unavailable = new ForgeError("Gateway has no available channel for the selected model.", { cause: error, code: "SERVICE_UNAVAILABLE" });
-        unavailable.statusCode = 503;
-        throw unavailable;
+        unavailable.statusCode = 503; throw unavailable;
       }
       if (error instanceof ConfigurationError) throw error;
       const rawMessage = typeof error?.message === "string" && error.message ? error.message.replaceAll(credential, "[REDACTED]") : "unknown SDK error";
       const message = rawMessage.replace(/Reading prompt from stdin\.{3}\s*/g, "").replace(/\s*\r?\n\s*/g, " ");
-      throw sdkFailureEvidence(new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error }), error);
+      const wrapped = new ConfigurationError(`Codex SDK request failed for ${profile.agent_id}: ${message}`, { cause: error });
+      if (/max_output_tokens|max[_ ]tokens|incomplete.*output_tokens|output token limit/i.test(message)) Object.assign(wrapped, { code: "SDK_MAX_OUTPUT_TOKENS", incomplete_details: { reason: "max_output_tokens" } });
+      throw sdkFailureEvidence(wrapped, error);
     } finally {
       terminal.close(abortSignal?.aborted ? { code: "TICKET_STOPPED", message: "SDK session stopped." } : controller.signal.aborted ? { code: "SDK_REQUEST_TIMEOUT", message: "SDK request timed out." } : terminalFailure);
       abortSignal?.removeEventListener("abort", stop);

@@ -7,13 +7,12 @@ import { assertCoderProjectAccess } from "../../infrastructure/filesystem/file-s
 import { isAgentPathAllowed } from "./tool-authorization.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { loadAgentContextConventions } from "../../modules/supervisor/agent-context-conventions.js";
-import { resolveSymbolWindow, scopedGraph } from "../discovery/agent-file-index-view.js";
+import { scopedGraph } from "../discovery/agent-file-index-view.js";
 import { extractorRegistry } from "../../modules/index/parser/index.js";
-import { hasFileHeaderComment, extractFunctionSignatures, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage } from "./agent-code-conventions.js";
+import { hasFileHeaderComment, extractFunctionSignatures, findFunctionDeclarationLine, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage } from "./agent-code-conventions.js";
 import { discoveryNotice, recordRead, resetExploration } from "../discovery/exploration-state.js";
 const MAX_CONTENT = 200000;
 const WRITE_DIFF_MAX_LINES = 250;
-const READ_WINDOW_LINE_LIMIT = 250;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
 const safePath = (value, operation = "read", role) => {
@@ -36,9 +35,10 @@ const checksumDiagnostics = (beforeChecksum, targetExists) => ({
 });
 
 // createReadFileTool - handles createReadFileTool operation.
-export function createReadFileTool({ fileService, codeCache, projectRoot, dependencyReader = readDependencyFile, maxChars = MAX_CONTENT } = {}) {
+export function createReadFileTool({ fileService, codeCache, projectRoot, dependencyReader = readDependencyFile } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
+    if (Object.keys(input).some((key) => key !== "path")) throw error("INPUT_INVALID", "read_file accepts path only; use Read with symbol or start_line/end_line for source.");
     const path = safePath(input.path, "read", context.agent_identity?.role);
     if (context.agent_identity?.role === "system_engineer" && /\.(?:png|bak)$/i.test(path)) {
       assertAllowed(path, context);
@@ -47,16 +47,12 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
       return { path, sha256: checksum(bytes), size_bytes: Buffer.byteLength(bytes), ...(/\.bak$/i.test(path) ? { backup: true } : { binary: true }), content_omitted: true };
     }
     const markdown = /\.md$/i.test(path);
-    const symbol = markdown || input.symbol === "" ? undefined : input.symbol ?? undefined;
-    const requestedOffset = input.offset ?? undefined;
-    const requestedLimit = input.limit ?? undefined;
     assertAllowed(path, context); const file = context.agent_identity?.role !== "coder" && isDependencyPath(path) && (projectRoot ?? context.project_root)
       ? await dependencyReader({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
     assertAllowed(path, context);
     const sha256 = file.sha256 ?? checksum(file.content);
     const sizeBytes = file.size_bytes ?? Buffer.byteLength(file.content);
-    const hasWindow = requestedOffset !== undefined || requestedLimit !== undefined;
     const lines = file.content.split("\n");
     const symbols = codeCache ? file.code_index?.symbols ?? [] : extractorRegistry.extract(path, file.content).symbols;
     const metadata = { path, sha256, size_bytes: sizeBytes, total_lines: lines.length, code_lines: countBudgetLines(file.content),
@@ -64,33 +60,14 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
       indexed_sha256: file.indexed_sha256 ?? null, index_version: file.index_version ?? null,
       index_status: file.index_status ?? "unavailable", code_index: file.code_index ?? { path, symbols },
       code_graph: scopedGraph(file.code_graph, context), symbol_map: symbols, discovery_budget: discoveryNotice(context) };
-    if (!hasWindow && symbol === undefined) {
-      if (markdown) {
-        const content = lines.slice(0, DOCUMENT_LINE_LIMIT).join("\n");
-        recordRead(context, { path, window: `document-1-${Math.min(lines.length, DOCUMENT_LINE_LIMIT)}` });
-        return { ...metadata, content, offset: 1, limit: Math.min(lines.length, DOCUMENT_LINE_LIMIT), truncated: lines.length > DOCUMENT_LINE_LIMIT,
-          notice: lines.length > DOCUMENT_LINE_LIMIT ? `Document continues after line ${DOCUMENT_LINE_LIMIT}; use a line-reading tool for the remainder.` : "Complete Markdown document content." };
-      }
-      recordRead(context, { path, window: "metadata" });
-      return { ...metadata, notice: "Metadata only. To read source, call read_file with symbol or offset/limit, or read_lines (at most 250 lines)." };
+    if (markdown) {
+      const content = lines.slice(0, DOCUMENT_LINE_LIMIT).join("\n");
+      recordRead(context, { path, window: `document-1-${Math.min(lines.length, DOCUMENT_LINE_LIMIT)}` });
+      return { ...metadata, content, offset: 1, limit: Math.min(lines.length, DOCUMENT_LINE_LIMIT), truncated: lines.length > DOCUMENT_LINE_LIMIT,
+        notice: lines.length > DOCUMENT_LINE_LIMIT ? "Document continues; use Read with start_line/end_line for the remainder." : "Complete Markdown document content." };
     }
-    let offset = requestedOffset ?? 1;
-    let limit = requestedLimit ?? READ_WINDOW_LINE_LIMIT;
-    const maxWindowLines = markdown ? DOCUMENT_LINE_LIMIT : READ_WINDOW_LINE_LIMIT;
-    if (symbol !== undefined) {
-      if (hasWindow || typeof symbol !== "string" || !symbol) throw error("INPUT_INVALID", "symbol cannot be combined with offset/limit and must be a name.");
-      const current = resolveSymbolWindow(file, path, symbol);
-      if (!current) throw error("SYMBOL_STALE", `Symbol ${symbol} is absent from current source; search again or read an explicit window.`);
-      offset = current.start_line;
-      limit = current.end_line - current.start_line + 1;
-      if (limit > maxWindowLines) throw error("SYMBOL_TOO_LARGE", `Symbol ${symbol} spans ${limit} lines; read explicit windows of at most ${maxWindowLines} lines.`);
-    }
-    if (!Number.isInteger(offset) || offset < 1) throw error("INPUT_INVALID", "offset must be a positive integer (1-based line).");
-    if (offset > lines.length) throw error("OFFSET_OUT_OF_RANGE", `offset ${offset} is beyond the last line (${lines.length}) of ${path}.`);
-    if (!Number.isInteger(limit) || limit < 1 || limit > maxWindowLines) throw error("INPUT_INVALID", `limit must be an integer between 1 and ${maxWindowLines}.`);
-    const content = lines.slice(offset - 1, offset - 1 + limit).join("\n").slice(0, maxChars);
-    recordRead(context, { path, window: symbol ?? `${offset}-${offset + limit - 1}` });
-    return { ...metadata, content, offset, limit, truncated: offset + limit - 1 < lines.length || content.length === maxChars, ...(symbol ? { symbol } : {}) };
+    recordRead(context, { path, window: "metadata" });
+    return { ...metadata, notice: "Metadata only. Use Read with file_path and symbol or start_line/end_line (maximum 80 lines) for source." };
   }});
 }
 
@@ -208,7 +185,7 @@ function assertEditSummaryEnforced(before, after, path) {
     if (beforeFuncs.has(sig)) continue;
     newFunctions.push(sig);
     if (!hasPrecedingComment(after, sig)) throw error("SUMMARY_REQUIRED", `New function "${sig}" must have a detailed summary comment immediately before its definition describing business purpose and technical behavior in one natural language.`, { function: sig });
-    const lineIndex = after.split("\n").findIndex((line) => extractFunctionSignatures(line).has(sig));
+    const lineIndex = findFunctionDeclarationLine(after, sig);
     if (!validateCommentLanguage(extractPrecedingCommentBlock(after, lineIndex))) throw error("SUMMARY_REQUIRED", `New function "${sig}" summary mixes Vietnamese and English prose. Use one natural language with detailed business purpose and technical behavior; technical identifiers are allowed.`, { function: sig });
   }
   return newFunctions;

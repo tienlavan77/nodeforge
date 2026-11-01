@@ -63,7 +63,7 @@ export function terminalToolResult(tool, result = {}) {
     ...(Number.isInteger(result?.changed_files) ? { changed_files: result.changed_files } : Array.isArray(result?.paths) ? { changed_files: result.paths.length } : {}),
     ...(typeof result?.branch === "string" ? { branch: result.branch } : {}),
     ...(Array.isArray(checks) ? { passed: checks.filter((check) => ["passed", "success"].includes(check.status) || check.exit_code === 0).length, failed: checks.filter((check) => check.status === "failed" || check.exit_code > 0).length } : {}),
-    ...(["list_files", "search_text", "read_lines"].includes(tool) && stdout !== null ? { stdout_lines: stdout.split(/\r?\n/).filter(Boolean).length } : {}),
+    ...(["list_files", "search_text", "Read"].includes(tool) && stdout !== null ? { stdout_lines: stdout.split(/\r?\n/).filter(Boolean).length } : {}),
     ...(Array.isArray(result?.selected) || Array.isArray(result?.matches) || Array.isArray(result?.files) ? { count: (result.selected ?? result.matches ?? result.files).length } : {})
   };
 }
