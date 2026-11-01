@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { delimiter, dirname } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { delimiter, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import test from "node:test";
 
@@ -56,11 +57,12 @@ test("prepends the active Node bin directory after environment overrides", async
     agentId: "coder",
     correlationId: "CORR-HELLO",
     prompt: "Say hello.",
-    cwd: "/workspace/project"
+    cwd: process.cwd()
   });
 
   assert.equal(request.prompt, "Say hello.");
-  assert.equal(request.options.cwd, "/workspace/project");
+  assert.equal(request.options.cwd, process.cwd());
+  assert.deepEqual(request.options.settingSources, []);
   assert.equal(request.options.env.ANTHROPIC_BASE_URL, "https://gateway.example.test/anthropic");
   assert.equal(request.options.env.ANTHROPIC_AUTH_TOKEN, "gateway-secret");
   assert.equal(request.options.env.ANTHROPIC_API_KEY, "");
@@ -158,8 +160,63 @@ test("writes one Claude session result to the configured terminal output", async
   });
   await gateway.execute({ agentId: "coder", correlationId: "CORR-LOG", prompt: "hello" });
   assert.equal(output.trim().split("\n").length, 1);
-  assert.match(output, /\[Coder\/Coder\] sdk.completed provider=anthropic; model=claude-sonnet-5;.*run=CORR-LOG - OK/);
+  assert.match(output, /\[Coder\/Coder\] sdk.completed provider=anthropic; model=claude-sonnet-5;.*run=CORR-LOG - (?:OK|SUCCESS)/);
   assert.doesNotMatch(output, /START|DONE|hidden|secret/);
+});
+
+// Isolates Claude CLI config, cache, and parent session environment inside .forge/runtime/nf across grouped and legacy layouts.
+test("isolates CLAUDE_CONFIG_DIR, XDG_CACHE_HOME, npm_config_cache, and cleans parent environment variables", async (t) => {
+  const scratch = join(process.cwd(), ".forge/scratch");
+  mkdirSync(scratch, { recursive: true });
+  const root = mkdtempSync(join(scratch, "claude-runtime-isolation-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, ".forge/runtime/nf"), { recursive: true });
+  writeFileSync(join(root, ".forge/runtime/runtime-layout.json"), JSON.stringify({ version: 1, layout: "grouped", status: "ready", moves: [] }));
+  writeFileSync(join(root, ".forge/runtime/nf/nf-runtime-layout.json"), JSON.stringify({ version: 1, layout: "grouped", status: "ready", moves: [] }));
+
+  let request;
+  const gateway = createClaudeSdkGateway({
+    configuration: { getById: (id) => ({ ...profile(), agent_id: id, role: id }) },
+    credentialResolver: () => "isolated-secret",
+    terminalOutput: { write() {} },
+    environment: {
+      PATH: "/usr/bin",
+      ANTHROPIC_API_KEY: "host-api-key",
+      ANTHROPIC_AUTH_TOKEN: "host-auth-token",
+      ANTHROPIC_BASE_URL: "https://host.example.test",
+      CLAUDE_CONFIG_DIR: "/home/host/.claude",
+      CLAUDECODE: "1",
+      CLAUDE_CODE_ENTRYPOINT: "cli",
+      CLAUDE_CODE_SESSION_ID: "parent-session",
+      FORGE_CLAUDE_AGENT_ID: "parent-agent",
+      KEEP_CUSTOM: "preserved"
+    },
+    queryFn: ({ options }) => { request = options; return query([]); }
+  });
+
+  for (const role of ["system_engineer", "architecture_manager", "sprint_leader", "coder", "reviewer"]) {
+    await gateway.execute({
+      agentId: role,
+      correlationId: `CORR-${role}`,
+      cwd: root,
+      prompt: "Check isolation",
+      options: { env: { CLAUDE_CONFIG_DIR: "/home/override/.claude", CLAUDECODE: "override" } }
+    });
+    const expectedHome = resolve(root, ".forge/runtime/nf/sdk/claude-homes", role);
+    const expectedCache = resolve(root, ".forge/runtime/nf/sdk/sdk-cache");
+    assert.equal(request.env.CLAUDE_CONFIG_DIR, expectedHome);
+    assert.equal(statSync(expectedHome).mode & 0o777, 0o700);
+    assert.equal(request.env.XDG_CACHE_HOME, expectedCache);
+    assert.equal(request.env.npm_config_cache, resolve(expectedCache, "npm"));
+    assert.equal(request.env.FORGE_CLAUDE_AGENT_ID, role);
+    assert.equal(request.env.ANTHROPIC_AUTH_TOKEN, "isolated-secret");
+    assert.equal(request.env.ANTHROPIC_API_KEY, "");
+    assert.equal(request.env.CLAUDECODE, undefined);
+    assert.equal(request.env.CLAUDE_CODE_ENTRYPOINT, undefined);
+    assert.equal(request.env.CLAUDE_CODE_SESSION_ID, undefined);
+    assert.equal(request.env.KEEP_CUSTOM, "preserved");
+    assert.deepEqual(request.settingSources, []);
+  }
 });
 
 function profile() {

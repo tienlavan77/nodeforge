@@ -40,10 +40,10 @@ test("nf apply and rollback preserve references and the thirty-store migration j
   const root = await fixture(context), files = createFileService({ projectRoot: root });
   const pipeline = await readFile(join(root, ".forge/runtime/runtime-layout.json"));
   const preview = await previewNfMigration(root);
-  assert.equal(preview.moves.filter(move => move.status === "planned").length, 16);
+  assert.equal(preview.moves.filter(move => move.status === "planned").length, 17);
   assert.deepEqual(preview.blockers, []);
   assert.equal(readNfRuntimeLayout(root).layout, "legacy");
-  assert.deepEqual(await migrateNfRuntime(root, { apply: true, ...offline }), { status: "grouped", moves: 16, sdkAliases: 1 });
+  assert.deepEqual(await migrateNfRuntime(root, { apply: true, ...offline }), { status: "grouped", moves: 17, sdkAliases: 1 });
   for (const store of Object.values(NF_RUNTIME_GROUPS).flat().filter(store => store !== "sdk-cache")) {
     const path = NF_RUNTIME_ROOT + "/" + store + "/evidence.json";
     assert.equal(await files.readFile({ path }), JSON.stringify({ ref: path }));
@@ -81,6 +81,7 @@ test("complete SDK homes retain absolute session paths, internal links and stand
   finally { read.close(); }
   assert.deepEqual(await readFile(join(groupedHome, "state_5.sqlite")), before);
   assert.equal(await readFile(join(groupedHome, "thread-link"), "utf8"), "retained session\n");
+  assert.equal(resolveRuntimePath(root, NF_RUNTIME_ROOT + "/claude-homes/AGENT"), join(root, NF_RUNTIME_ROOT, "sdk/claude-homes/AGENT"));
   assert.equal(codexShellEnvironment({}, root).XDG_CACHE_HOME, join(root, NF_RUNTIME_ROOT, "sdk/sdk-cache"));
   assert.equal((await migrateNfRuntime(root, { rollback: true, ...offline })).status, "legacy");
 });

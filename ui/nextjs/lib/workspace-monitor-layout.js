@@ -89,6 +89,26 @@ export function restoreMonitorLayout(saved, viewportWidth = 1440, viewportHeight
  * Serialize only the approved window geometry and visibility/minimized state fields for storage,
  * stripping any extraneous properties so idea or draft text can never be written to localStorage.
  */
+/**
+ * Business purpose: Maintains the stacking order of floating workspace monitor panels so selecting or activating a panel brings it to the top above other panels.
+ * Technical description: Moves the target panel name to the end of the ordered panel stack while preserving existing relative order for remaining panels.
+ */
+export function bringMonitorPanelToFront(order = ["watcher", "agent", "ideas"], name) {
+  const base = Array.isArray(order) && order.length ? order : ["watcher", "agent", "ideas"];
+  if (!name) return base;
+  return [...base.filter((item) => item !== name), name];
+}
+
+/**
+ * Business purpose: Computes the CSS z-index for a floating workspace monitor panel so the active panel renders above inactive panels while staying below the monitor dock.
+ * Technical description: Returns a base stacking index plus the panel's position in the order stack and a top-level boost when the panel is currently active.
+ */
+export function getMonitorPanelZIndex(order = ["watcher", "agent", "ideas"], name, activePanel = null) {
+  const list = Array.isArray(order) && order.length ? order : ["watcher", "agent", "ideas"];
+  const index = Math.max(0, list.indexOf(name));
+  return 82 + index + (activePanel === name ? 6 : 0);
+}
+
 export function serializeMonitorLayout(panels, layoutScope = "home") {
   const keys = layoutScope === "home" ? ["watcher", "agent", "ideas"] : ["watcher", "agent"];
   const output = {};

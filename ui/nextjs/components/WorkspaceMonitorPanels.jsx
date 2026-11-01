@@ -4,11 +4,14 @@
 import { IdeasDock } from "./ideas-dock.jsx";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { monitorAgentActivities } from "../lib/monitor-agent-activities.js";
 import {
   INITIAL_PANELS,
   MONITOR_LAYOUT_KEY,
+  bringMonitorPanelToFront,
   clampDraggedMonitorPosition,
+  getMonitorPanelZIndex,
   restoreMonitorLayout,
   serializeMonitorLayout,
 } from "../lib/workspace-monitor-layout.js";
@@ -22,6 +25,19 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
   const panelRefs = useRef({});
   const [watcherActive, setWatcherActive] = useState(false);
   const [agentActive, setAgentActive] = useState(false);
+  const [ideasPortalElement, setIdeasPortalElement] = useState(null);
+  const [activePanel, setActivePanel] = useState("agent");
+  const [panelOrder, setPanelOrder] = useState(["watcher", "agent", "ideas"]);
+
+  /**
+   * Business purpose: Marks a workspace monitor panel as the active selection and promotes it to the top of the floating window stack.
+   * Technical description: Updates activePanel state and moves the panel identifier to the end of panelOrder for z-index calculation.
+   */
+  function activatePanel(name) {
+    if (!name) return;
+    setActivePanel(name);
+    setPanelOrder((current) => bringMonitorPanelToFront(current, name));
+  }
 
   useEffect(() => {
     try {
@@ -69,10 +85,23 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
   ]);
 
   function updatePanel(name, changes) {
-    setPanels((current) => ({ ...current, [name]: { ...current[name], ...changes } }));
+    if (changes.visible === true) activatePanel(name);
+    setPanels((current) => {
+      const nextPanel = { ...current[name], ...changes };
+      const next = { ...current, [name]: nextPanel };
+      if (changes.visible === false) {
+        setActivePanel((currentActive) => {
+          if (currentActive !== name) return currentActive;
+          const remaining = panelOrder.filter((key) => key !== name && next[key]?.visible);
+          return remaining.at(-1) ?? null;
+        });
+      }
+      return next;
+    });
   }
 
   function startDrag(event, name) {
+    activatePanel(name);
     if (event.target.closest("button")) return;
     event.preventDefault();
     draggingRef.current = { name, startX: event.clientX, startY: event.clientY, x: panels[name].x, y: panels[name].y };
@@ -117,24 +146,28 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
     <div className="workspace-monitor-dock" role="group" aria-label="System monitors">
       {layoutScope === "home" && <IdeasDock
         panelState={panels.ideas}
+        isActive={activePanel === "ideas"}
+        zIndex={getMonitorPanelZIndex(panelOrder, "ideas", activePanel)}
+        onActivate={() => activatePanel("ideas")}
         onUpdatePanel={(changes) => updatePanel("ideas", changes)}
         onStartDrag={(event) => startDrag(event, "ideas")}
         panelRef={(node) => { panelRefs.current.ideas = node; }}
+        renderPanel={(panelElement) => (ideasPortalElement ? createPortal(panelElement, ideasPortalElement) : panelElement)}
       />}
       {["watcher", "agent"].map((name) => {
         const panel = panels[name];
         return <button key={name} type="button" aria-pressed={panel.visible && !panel.minimized} onClick={() => updatePanel(name, { visible: !panel.visible || panel.minimized, minimized: false })}><span className={`workspace-monitor-light${(name === "watcher" ? watcherActive : agentActive) ? " is-active" : name === "watcher" && watcherState !== "connected" ? " is-offline" : ""}`} aria-hidden="true" />{name === "watcher" ? "Watcher" : "Agent activity"}</button>;
       })}
     </div>
-    <div className="workspace-monitor-layer">
-      {panels.watcher.visible && <section ref={(node) => { panelRefs.current.watcher = node; }} data-monitor-name="watcher" className={`workspace-monitor${panels.watcher.minimized ? " is-minimized" : ""}`} style={{ left: panels.watcher.x, top: panels.watcher.y, width: panels.watcher.width, height: panels.watcher.minimized ? "auto" : panels.watcher.height }} aria-label="Watcher monitor">
+    <div ref={setIdeasPortalElement} className="workspace-monitor-layer">
+      {panels.watcher.visible && <section ref={(node) => { panelRefs.current.watcher = node; }} data-monitor-name="watcher" data-monitor-active={activePanel === "watcher" ? "true" : "false"} onPointerDown={() => activatePanel("watcher")} onFocusCapture={() => activatePanel("watcher")} className={`workspace-monitor${panels.watcher.minimized ? " is-minimized" : ""}${activePanel === "watcher" ? " is-active-panel" : " is-inactive-panel"}`} style={{ left: panels.watcher.x, top: panels.watcher.y, width: panels.watcher.width, height: panels.watcher.minimized ? "auto" : panels.watcher.height, zIndex: getMonitorPanelZIndex(panelOrder, "watcher", activePanel) }} aria-label="Watcher monitor">
         <header className="workspace-monitor-header" onPointerDown={(event) => startDrag(event, "watcher")}><span className={`workspace-monitor-light${watcherActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={watcherActive ? "Watcher working" : "Watcher idle"} role="img" /><strong>Watcher</strong><span className={`workspace-monitor-indicator is-${watcherState}`}>{watcherStatus}</span><button type="button" aria-label="Minimize Watcher monitor" onClick={() => updatePanel("watcher", { minimized: !panels.watcher.minimized })}>{panels.watcher.minimized ? "□" : "−"}</button><button type="button" aria-label="Close Watcher monitor" onClick={() => updatePanel("watcher", { visible: false })}>×</button></header>
         {!panels.watcher.minimized && <div className="workspace-monitor-content" aria-live="polite">
           {watcherEvents.length === 0 && <p>No recent watcher activity.</p>}
           {watcherEvents.slice().reverse().flatMap((event, eventIndex) => event.payload.activity.map((activity, activityIndex) => <article key={`${event.timestamp}-${eventIndex}-${activityIndex}`}><small>{event.event_type === "watcher.file_removed" ? "Removed" : "Indexed"}</small><span>{typeof activity === "string" ? activity : activity.path ?? activity.file_path ?? JSON.stringify(activity)}</span></article>))}
         </div>}
       </section>}
-      {panels.agent.visible && <section ref={(node) => { panelRefs.current.agent = node; }} data-monitor-name="agent" className={`workspace-monitor${panels.agent.minimized ? " is-minimized" : ""}`} style={{ left: panels.agent.x, top: panels.agent.y, width: panels.agent.width, height: panels.agent.minimized ? "auto" : panels.agent.height }} aria-label="Agent activity monitor">
+      {panels.agent.visible && <section ref={(node) => { panelRefs.current.agent = node; }} data-monitor-name="agent" data-monitor-active={activePanel === "agent" ? "true" : "false"} onPointerDown={() => activatePanel("agent")} onFocusCapture={() => activatePanel("agent")} className={`workspace-monitor${panels.agent.minimized ? " is-minimized" : ""}${activePanel === "agent" ? " is-active-panel" : " is-inactive-panel"}`} style={{ left: panels.agent.x, top: panels.agent.y, width: panels.agent.width, height: panels.agent.minimized ? "auto" : panels.agent.height, zIndex: getMonitorPanelZIndex(panelOrder, "agent", activePanel) }} aria-label="Agent activity monitor">
         <header className="workspace-monitor-header" onPointerDown={(event) => startDrag(event, "agent")}><span className={`workspace-monitor-light${agentActive ? " is-active" : ""}`} aria-label={agentActive ? "Agent working" : "Agent idle"} role="img" /><strong>Agent activity</strong><span className={`workspace-monitor-indicator is-${watcherState}`}>{watcherStatus}</span><button type="button" aria-label="Minimize Agent monitor" onClick={() => updatePanel("agent", { minimized: !panels.agent.minimized })}>{panels.agent.minimized ? "□" : "−"}</button><button type="button" aria-label="Close Agent monitor" onClick={() => updatePanel("agent", { visible: false })}>×</button></header>
         {!panels.agent.minimized && <div className="workspace-monitor-content" aria-live="polite">
           {processEntries.length === 0 && visibleActivities.length === 0 && <p>Waiting for agent activity.</p>}

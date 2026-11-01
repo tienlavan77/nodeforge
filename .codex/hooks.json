@@ -1,0 +1,31 @@
+{
+  "_nodeforge_created_file": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep|Glob|Edit|Write|MultiEdit|NotebookEdit|apply_patch|read_file|list_dir|write_file|edit_file|Bash|shell|exec_command",
+        "_managed_by": "nodeforge",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/opt/node-v26.12.1-linux-x64/bin/node' '/home/data/sites/nodeforge/backend/src/transport/cli/index.js' mcp pre-tool-hook --project '/home/data/sites/nodeforge'",
+            "_managed_by": "nodeforge"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact|resume|.*",
+        "_managed_by": "nodeforge",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/opt/node-v26.12.1-linux-x64/bin/node' '/home/data/sites/nodeforge/backend/src/transport/cli/index.js' mcp context-digest --project '/home/data/sites/nodeforge'",
+            "_managed_by": "nodeforge"
+          }
+        ]
+      }
+    ]
+  }
+}

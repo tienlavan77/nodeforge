@@ -78,7 +78,11 @@ export function createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkG
           request.payload?.direct_code === true, immutableScope), resumeState, { agentId: selected.agent_id, provider: selected.provider, changedPaths: toolContext.changed_paths })}`,
         readToolEvents: () => events.splice(0), executeTurn: async prompt => {
           request.abortSignal?.throwIfAborted();
-          if (history) {
+          if (resumeState.sessionRolledOver || resumeState.sdkTurnProgress?.rolled_over) {
+            history = undefined;
+            resumeState.sessionRolledOver = false;
+            if (resumeState.sdkTurnProgress?.rolled_over) delete resumeState.sdkTurnProgress.rolled_over;
+          } else if (history) {
             const compacted = compactFunctionCallingHistory(history, { readCache: resumeState.readCache, changedPaths: resumeState.changedPaths });
             if (compacted.compacted) {
               history = compacted.history;

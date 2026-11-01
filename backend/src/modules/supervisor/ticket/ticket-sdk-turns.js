@@ -67,6 +67,7 @@ export async function runTicketSdkTurns({ executeTurn, readToolEvents, prompt, s
     }
     const rollover = shouldRolloverSdkSession({ result, progress, resumeState, threshold: request?.payload?.compaction_token_threshold });
     const previousSessionId = resumeState.sessionId ?? resumeState.threadId ?? null;
+    const rolledOverFrom = previousSessionId ?? "in_memory_history";
     const rolloverCount = (resumeState.sdkTurnProgress?.compaction_rollover_count ?? 0) + (rollover ? 1 : 0);
     if (rollover) {
       resumeState.sessionRolledOver = true;
@@ -79,16 +80,17 @@ export async function runTicketSdkTurns({ executeTurn, readToolEvents, prompt, s
       receipt_position: receipts,
       last_completed_turn: resumeState.turnCount,
       ...(progressRef ? { message_ref: progressRef.ref } : {}),
-      ...(rollover ? { rolled_over_from: previousSessionId, compaction_rollover_count: rolloverCount } : rolloverCount ? { compaction_rollover_count: rolloverCount } : {})
+      ...(rollover ? { rolled_over: true, rolled_over_from: rolledOverFrom, compaction_rollover_count: rolloverCount } : rolloverCount ? { compaction_rollover_count: rolloverCount } : {})
     };
     await saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, correlation_id: request.correlation_id,
       agent_id: selected.agent_id, provider: selected.provider, changed_paths: [...resumeState.changedPaths], ...(rollover ? { session_id: null, thread_id: null } : {}) });
     request.abortSignal?.throwIfAborted();
     const receiptDigest = formatActiveReceiptDigest(resumeState);
     if (rollover) {
+      const compactionMode = previousSessionId ? "session_rollover" : "history_rollover";
       projectLogger({ event_name: "supervisor.sdk_context_compacted", level: "info", status: "success", task_id: request.task_id, correlation_id: request.correlation_id,
         message: "Rolled over SDK session at phase boundary with compacted receipt digest.",
-        payload: { agent_id: selected.agent_id, provider: selected.provider, mode: "session_rollover", previous_session_id: previousSessionId, input_tokens: extractTurnInputTokens(result), receipt_position: receipts, compaction_rollover_count: rolloverCount, receipt_digest: receiptDigest } });
+        payload: { agent_id: selected.agent_id, provider: selected.provider, mode: compactionMode, previous_session_id: previousSessionId, input_tokens: extractTurnInputTokens(result), receipt_position: receipts, compaction_rollover_count: rolloverCount, receipt_digest: receiptDigest } });
     }
     projectLogger({ event_name: "supervisor.sdk_turn_continuing", level: "info", status: "started", task_id: request.task_id, correlation_id: request.correlation_id,
       message: progress ? "Agent reported phase progress; continuing the same SDK session from its checkpoint." : "Agent turn ended before ticket completion; requesting structured progress in the same SDK session.",

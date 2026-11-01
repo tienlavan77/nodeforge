@@ -1,6 +1,8 @@
 /* Floating system monitor windows with independent positioning and resizing. */
 .workspace-monitor-layer { position: fixed; inset: 0; z-index: 80; overflow: hidden; pointer-events: none; }
-.workspace-monitor { position: absolute; display: flex; min-width: 260px; min-height: 120px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); flex-direction: column; overflow: auto; resize: both; pointer-events: auto; border: 1px solid var(--app-border); border-radius: 10px; background: color-mix(in srgb, var(--app-panel) 96%, transparent); box-shadow: 0 14px 42px #0007; color: var(--app-text); }
+.workspace-monitor { position: absolute; z-index: 82; display: flex; min-width: 260px; min-height: 120px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); flex-direction: column; overflow: auto; resize: both; pointer-events: auto; border: 1px solid var(--app-border); border-radius: 10px; background: color-mix(in srgb, var(--app-panel) 96%, transparent); box-shadow: 0 14px 42px #0007; color: var(--app-text); transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease; }
+.workspace-monitor.is-active-panel { z-index: 89; border-color: var(--app-accent, #629dff); box-shadow: 0 16px 48px #0009, 0 0 0 1px color-mix(in srgb, var(--app-accent, #629dff) 38%, transparent); }
+.workspace-monitor.is-inactive-panel { opacity: 0.92; }
 .workspace-monitor.is-minimized { min-height: 0; resize: none; }
 .workspace-monitor-header { display: flex; min-height: 42px; flex: none; align-items: center; gap: 10px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--app-border); cursor: move; touch-action: none; }
 .workspace-monitor-header strong { overflow: hidden; flex: 1; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
@@ -21,7 +23,7 @@
 .workspace-monitor-content article { display: flex; flex-direction: column; gap: 2px; padding: 7px 0; border-bottom: 1px solid var(--app-border); }
 .workspace-monitor-content article small { color: var(--app-accent); text-transform: capitalize; }
 .workspace-monitor-content article span { overflow-wrap: anywhere; }
-.workspace-monitor-dock { position: fixed; right: 16px; bottom: 4px; z-index: 81; display: flex; gap: 8px; }
+.workspace-monitor-dock { position: fixed; right: 16px; bottom: 4px; z-index: 95; display: flex; gap: 8px; }
 .workspace-monitor-dock button { display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-panel); color: var(--app-text); padding: 3px 10px; box-shadow: 0 6px 18px #0005; cursor: pointer; }
 @media (max-width: 640px) {
   .workspace-monitor { min-width: 220px; max-width: calc(100vw - 16px); }

@@ -146,10 +146,52 @@ export function formatDiscoveryCompactReceipt(state = {}) {
 // Technical description: checks retainedState.sdk_thread_id and compares retainedState.last_turn_input_tokens against threshold (default 120,000).
 export function shouldRolloverOwnerSession(retainedState = {}, { continueExecution = false, resumeOf = null, planningInputOnly = false, threshold = DEFAULT_ROLLOVER_INPUT_TOKENS } = {}) {
   if (continueExecution || resumeOf || planningInputOnly) return false;
-  if (typeof retainedState?.sdk_thread_id !== "string" || !retainedState.sdk_thread_id.trim()) return false;
+  const hasThread = typeof retainedState?.sdk_thread_id === "string" && Boolean(retainedState.sdk_thread_id.trim());
+  const hasHistory = Array.isArray(retainedState?.sdk_history) && retainedState.sdk_history.length > 0;
+  if (!hasThread && !hasHistory) return false;
   const effectiveThreshold = Number.isInteger(threshold) && threshold > 0 ? threshold : DEFAULT_ROLLOVER_INPUT_TOKENS;
-  const lastTokens = Number(retainedState.last_turn_input_tokens ?? 0);
+  const lastTokens = Number(retainedState.last_turn_input_tokens ?? extractTurnInputTokens(retainedState) ?? 0);
   return Number.isFinite(lastTokens) && lastTokens >= effectiveThreshold;
+}
+
+// Business purpose: formats conversation history for Owner SDK prompts while preserving complete turn boundaries and role prefixes so prompt truncation never cuts mid-sentence or strips User/Assistant labels.
+// Technical description: selects recent turns from the end of the history array within maxChars, truncating oversized individual turn bodies with a clean ellipsis while retaining their role prefix.
+export function formatTurnBoundaryHistory(turns = [], { maxChars = 8000, maxTurnChars = 3600 } = {}) {
+  if (!Array.isArray(turns) || !turns.length) return "";
+  const formatted = [];
+  let total = 0;
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i];
+    const role = turn?.role === "Assistant" ? "Assistant" : "User";
+    const rawText = String(turn?.text ?? "").trim();
+    if (!rawText) continue;
+    const boundedText = rawText.length > maxTurnChars ? `${rawText.slice(0, maxTurnChars)}...[turn truncated]` : rawText;
+    const line = `${role}: ${boundedText}`;
+    if (formatted.length > 0 && total + line.length + 1 > maxChars) break;
+    formatted.unshift(line);
+    total += line.length + 1;
+  }
+  return formatted.join("\n");
+}
+
+// Business purpose: constructs a clean Structured Work Handoff block when an Owner SDK session rolls over at the token threshold so the new session inherits verified objectives, active agent identity, and tool receipts without carrying over raw assistant prose from prior turns.
+// Technical description: combines active profile identity (role, provider, agent_id), prior User objectives extracted from history, and the serialized Compact Receipt Digest.
+export function formatOwnerStructuredWorkHandoff({ profile, history = [], checkpoint, state, selectedReceipts = [], compactDigest } = {}) {
+  const digest = compactDigest || formatOwnerCompactReceiptDigest({ checkpoint, state, selectedReceipts });
+  const userObjectives = (Array.isArray(history) ? history : [])
+    .filter((turn) => turn?.role === "User" && typeof turn.text === "string" && turn.text.trim())
+    .slice(-3)
+    .map((turn) => turn.text.trim().slice(0, 400));
+  const handoff = {
+    handoff_type: "structured_work_handoff",
+    active_agent: {
+      agent_id: profile?.agent_id ?? null,
+      role: profile?.role ?? null,
+      provider: profile?.provider ?? null
+    },
+    prior_user_objectives: userObjectives
+  };
+  return `\nSession rolled over at token threshold (${state?.last_turn_input_tokens ?? 0} tokens). Structured Work Handoff: ${JSON.stringify(handoff)}. Compact Receipt Digest (reuse active_file_checksums as before_checksum without re-reading unchanged files): ${digest}\n`;
 }
 
 export { DEFAULT_ROLLOVER_INPUT_TOKENS, extractTurnInputTokens };
