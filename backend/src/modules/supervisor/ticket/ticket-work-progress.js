@@ -5,6 +5,7 @@ import { assertAgentExchangePayload, bindAgentExchangeResponse } from "../../gov
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { activeFileChecksums } from "./ticket-read-cache.js";
+import { formatActiveReceiptDigest } from "./ticket-context-compaction.js";
 import { formatMidFlightDirectives } from "./ticket-directive-inbox.js";
 
 const require = createRequire(import.meta.url);
@@ -37,9 +38,10 @@ export function parseTicketWorkProgress(text, assignment) {
 export function ticketWorkContinuationPrompt(progress, state = {}, directives = []) {
   const correction = progress ? `Node accepted work_progress: ${JSON.stringify(progress.payload)}.` : "The last SDK turn did not include a valid work_progress response. Use the required schema if you yield again; do not replace a tool action with a narrative promise.";
   const checksums = activeFileChecksums(state.readCache);
+  const receiptDigest = formatActiveReceiptDigest(state);
   const checksumLine = Object.keys(checksums).length
     ? `\nActive file checksums (reuse as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged windows): ${JSON.stringify(checksums)}.`
     : "";
   const directiveBlock = formatMidFlightDirectives(directives?.length ? directives : state.deliveredDirectives);
-  return `${correction}\nContinue the SAME assignment, provider session and checkpoint at tool turn ${state.turnCount ?? 0}. Completed tool names: ${JSON.stringify((state.completedTools ?? []).slice(-8))}.${checksumLine}${directiveBlock ? `\n${directiveBlock}` : ""} Preserve all existing changes, decisions and tool receipts. Execute the next authorized step now; do not restart discovery, repeat completed edits or wait for another user message. A phase status never bypasses tool authorization, commit, verification or report_done.\n${TICKET_WORK_PROGRESS_PROMPT}`;
+  return `${correction}\nContinue the SAME assignment, provider session and checkpoint at tool turn ${state.turnCount ?? 0}. Completed tool names: ${JSON.stringify((state.completedTools ?? []).slice(-8))}.\nCompact receipt digest: ${receiptDigest}.${checksumLine}${directiveBlock ? `\n${directiveBlock}` : ""} Preserve all existing changes, decisions and tool receipts. Execute the next authorized step now; do not restart discovery, repeat completed edits or wait for another user message. A phase status never bypasses tool authorization, commit, verification or report_done.\n${TICKET_WORK_PROGRESS_PROMPT}`;
 }

@@ -30,7 +30,7 @@ Independently assess the submitted change against its ticket, repository rules, 
 - Preserve locked ticket wording and the governing revision during re-review and repair; autonomy does not authorize silently weakening an old contract.
 
 ## Review checks
-- Validate ticket acceptance criteria, edge cases, error handling, tests, naming, local conventions, and the limit of 250 `code_lines` for every file across all file types, excluding comment-only and blank lines. Physical `total_lines` and line addresses remain source coordinates; source read windows remain limited to 80 physical lines.
+- Validate ticket acceptance criteria, edge cases, error handling, tests, naming, local conventions, and the limit of 250 `code_lines` for every file across all file types, excluding comment-only and blank lines. Physical `total_lines` and line addresses remain source coordinates; Markdown line windows remain limited to 80 physical lines; code reads return the complete selected symbol.
 - For new files and new functions/symbols only, check detailed purpose comments at the file top and directly before the definition, describing the business purpose and technical description. Each comment must be entirely in English or entirely in Vietnamese; do not mix sentence structure between languages. Technical identifiers, tags and paths may remain unchanged. Never include secrets. Do not require summaries on existing files/functions/symbols or rewrite historical comments merely to apply this rule.
 - Assess compatibility for API, schema, event, database, protocol, authentication, authorization, and migration changes.
 - Check that no secrets, sensitive data, unsafe logging, or `.forge/` modifications were introduced.
@@ -49,3 +49,7 @@ Independently assess the submitted change against its ticket, repository rules, 
 
 ## Outcome
 When Node supplies an exchange request, return only `{kind:"review_result",subject,payload:{verdict,summary,findings,finding_updates},evidence:[]}` using the looked-up contract. Place adjudications in `payload.finding_updates`. Use `verification_required` with typed `verification_requests` when Node needs to run missing checks; keep findings and finding_updates empty until evidence returns. A legacy assignment without an exchange request uses top-level `verdict`, `findings`, and `adjudications`. An adjudication requires `finding_id`, `decision` (`retain|refine|reopen|withdraw|not_applicable|fixed`), `reason`, and nonempty `evidence_refs`. Include findings ordered by severity and exact evidence. Report a blocker as an evidence-bound finding under `request_changes`; the label alone does not require Owner review. On Node format feedback, correct the response without changing the independent judgment or repeating source discovery solely for JSON formatting.
+
+## Forge source reading
+
+Use `read_file({path})` to inspect metadata, `code_graph` and `symbol_map` before reading code. Code requires `Read({file_path,symbol})` from that metadata; arbitrary line windows are rejected. Only `.md` documents permit `Read({file_path,start_line,end_line})`. Markdown line windows are limited to 80 physical lines. Code reads return the entire selected symbol regardless of line count, without lines outside its bounds. Do not reconstruct whole code files by repeated reads or broad search patterns.

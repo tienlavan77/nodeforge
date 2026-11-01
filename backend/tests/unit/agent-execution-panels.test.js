@@ -240,3 +240,18 @@ test("Node verification wait and terminal notices reach the agent panel without 
   assert(received.every((event) => event.status === "working" && event.tool_name === "report_done"));
   assert(!JSON.stringify(received).includes("PRIVATE-CONTENT"));
 });
+
+test("supervisor.sdk_context_compacted and owner.sdk_context_compacted display detailed metrics on Terminal and Coding Activity Panel", () => {
+  const eventBus = new EventEmitter(); const received = []; const terminalLines = [];
+  eventBus.on("agent.activity", (event) => received.push(event.payload));
+  const activity = createAgentExecutionActivity({ projectId, eventBus });
+  const logger = createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent: () => {}, executionActivity: activity }), output: { write(line) { terminalLines.push(line); } } });
+  logger.emit({ event_name: "supervisor.sdk_context_compacted", status: "success", project_id: projectId, task_id: "TICKET-COMPACT", correlation_id: "CORR-COMPACT-1", message: "Compacted function-calling tool history with receipt stubs.", payload: { agent_id: "CODER-1", mode: "history_compaction", before_bytes: 80000, after_bytes: 4200, compacted_items: 5, receipt_position: 9 } });
+  logger.emit({ event_name: "owner.sdk_context_compacted", status: "success", project_id: projectId, conversation_id: "CONV-SE-1", correlation_id: "CORR-SE-1", message: "Rolled over Owner SDK session after token threshold with compacted receipt digest.", payload: { agent_id: "SE-1", mode: "session_rollover", input_tokens: 132000, compaction_rollover_count: 2, receipt_position: 14 } });
+  assert.equal(received.length, 2);
+  assert.equal(received[0].tool_name, "context_compaction");
+  assert.match(received[0].summary, /mode=history_compaction, bytes=80000->4200, items=5, receipt=9/);
+  assert.match(received[1].summary, /mode=session_rollover, input_tokens=132000, rollover=2, receipt=14/);
+  assert.match(terminalLines[0], /mode=history_compaction; before_bytes=80000; after_bytes=4200; compacted_items=5; receipt_position=9/);
+  assert.match(terminalLines[1], /mode=session_rollover; input_tokens=132000; rollovers=2; receipt_position=14/);
+});

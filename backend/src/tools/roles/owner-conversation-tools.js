@@ -13,6 +13,7 @@ import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 import { createSourceReadTool } from "../discovery/source-read.js";
 import { createLookupSchemaTool } from "../discovery/lookup-schema-tool.js";
 import { formatForgeToolActivitySummary } from "../../application/system-engineer-sdk-transcript.js";
+import { extractOwnerToolPathMeta, recordDiscoveryCompactStep, updateActiveFileChecksums } from "../../application/owner-context-compaction.js";
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
 export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
@@ -54,9 +55,21 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
       authorizeTool(definition.name, toolContext);
       await authorizeOwnerTool(definition.name, input, toolContext, projectRoot);
       const result = await implementations[definition.name].execute(input, toolContext);
-      if (["write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name) && conversationStateStore && conversationId) {
-        const previous = (await conversationStateStore.get(conversationId))?.owner_changed_paths ?? [];
-        await conversationStateStore.update(conversationId, { owner_changed_paths: [...new Set([...previous, ...(toolContext.changed_paths ?? [])])], owner_last_commit_sha: null });
+      if (conversationStateStore && conversationId) {
+        const currentState = (await conversationStateStore.get?.(conversationId)) ?? {};
+        const isMutating = ["write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name);
+        const discoveryUpdate = recordDiscoveryCompactStep(currentState, { toolName: definition.name, input, result });
+        const stepMeta = extractOwnerToolPathMeta(definition.name, input);
+        const activeFileChecksums = discoveryUpdate?.active_file_checksums
+          ?? (isMutating ? updateActiveFileChecksums(currentState.active_file_checksums, { toolName: definition.name, step: { tool_name: definition.name, ...stepMeta }, result }) : currentState.active_file_checksums);
+        if (isMutating || discoveryUpdate) {
+          const previous = currentState.owner_changed_paths ?? [];
+          await conversationStateStore.update?.(conversationId, {
+            ...(isMutating ? { owner_changed_paths: [...new Set([...previous, ...(toolContext.changed_paths ?? [])])], owner_last_commit_sha: null } : {}),
+            ...(activeFileChecksums ? { active_file_checksums: activeFileChecksums } : {}),
+            ...(discoveryUpdate?.discovery_receipts ? { discovery_receipts: discoveryUpdate.discovery_receipts } : {})
+          });
+        }
       }
       const checkFailed = definition.name === "run_check" && result?.status === "failed";
       log(checkFailed ? "failed" : "success", checkFailed ? Object.assign(new Error("Project verification failed."), { code: "CHECK_FAILED" }) : null, result);

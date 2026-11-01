@@ -164,3 +164,71 @@ test("Architecture execution controls require server-side owner authorization", 
   assert.equal((await request("POST", "conversations/C/executions/E/reconcile", "PROJECT", "Bearer secret", { sequence: 2 })).status, 200);
   assert.deepEqual(calls, [["list", "C", "architect"], ["pause", "C", "E", "architect"], ...["continue", "restart", "discard"].map((action) => ["decide", "C", "E", "architect", action]), ["reconcile", "C", "E", "architect", 2, "OWNER"]]);
 });
+
+test("SE and AM checkpoints record active_file_checksums for Read/read_file and owner-sdk-stream rolls over session at token threshold", async (context) => {
+  const { root, fileService, engineer } = await fixture();
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const readSha = `sha256:${"d".repeat(64)}`;
+  await engineer.start({ conversationId: "C-RO", executionId: "E-RO-1", messageId: "M-RO-1", provider: "codex", promptHash: executionDigest("inspect") });
+  const readStep = await engineer.beforeTool("C-RO", "E-RO-1", "Read", { file_path: "backend/src/app.js", symbol: "main", start_line: 1, end_line: 25 });
+  await engineer.afterTool("C-RO", "E-RO-1", readStep, { file_path: "backend/src/app.js", content: "function main() {}", sha256: readSha, total_lines: 42 });
+  await engineer.patch("C-RO", "E-RO-1", { status: "interrupted", provider_thread_id: "thread-ro-1" });
+  await engineer.markStopped("C-RO", "E-RO-1");
+  const loaded = await engineer.load("C-RO", "E-RO-1");
+  assert.deepEqual(loaded.active_file_checksums, {
+    "backend/src/app.js": { sha256: readSha, total_lines: 42, status: "read" }
+  });
+  assert.equal(loaded.completed_tool_calls[0].read_checksum, readSha);
+  assert.equal(loaded.completed_tool_calls[0].total_lines, 42);
+
+  // Verify Continue embeds active_file_checksums in resumeNotes and records last_turn_input_tokens, then next turn rolls over when threshold is reached.
+  const stateMap = new Map([["C-RO", { agent_id: "engineer", sdk_provider: "codex", sdk_tool_mode: "forge", sdk_thread_id: "thread-ro-1", active_file_checksums: loaded.active_file_checksums }]]);
+  const conversationStateStore = {
+    create: async ({ conversationId }) => stateMap.get(conversationId),
+    get: async (conversationId) => stateMap.get(conversationId),
+    update: async (conversationId, fields) => { stateMap.set(conversationId, { ...stateMap.get(conversationId), ...fields }); return stateMap.get(conversationId); }
+  };
+  const logs = [];
+  const calls = [];
+  const stream = createOwnerSdkStream({
+    agentConfiguration: { getById: () => ({ agent_id: "engineer", role: "system_engineer", provider: "codex" }) },
+    sdkGateways: {
+      codex: {
+        conversationMode: "thread",
+        execute: async ({ prompt, resumeThreadId, onSessionReady }) => {
+          calls.push({ prompt, resumeThreadId });
+          const nextThread = calls.length === 1 ? "thread-ro-1" : "thread-ro-2";
+          onSessionReady?.(nextThread);
+          return {
+            text: `turn-${calls.length}`,
+            thread_id: nextThread,
+            usage: { input_tokens: 25000, cached_input_tokens: 100000 }
+          };
+        }
+      }
+    },
+    fallbackStream: async function* () {},
+    executionCheckpoint: engineer,
+    conversationStateStore,
+    fileService,
+    gitService: { status: async () => "", diffWorkingTree: async () => "" },
+    testService: { runCheck: async () => ({ status: "passed" }) },
+    projectRoot: root,
+    projectLogger: (event) => logs.push(event)
+  });
+
+  // Turn 1: Continue from E-RO-1 -> embeds active_file_checksums and records 125,000 input tokens.
+  for await (const _chunk of stream({ agentId: "engineer", payload: { text: "inspect", message_id: "M-RO-1", continue_execution: true }, correlationId: "E-RO-1", conversationId: "C-RO" })) { /* consume */ }
+  assert.equal(calls[0].resumeThreadId, "thread-ro-1");
+  assert.match(calls[0].prompt, /active_file_checksums/);
+  assert.match(calls[0].prompt, new RegExp(readSha));
+  assert.equal(stateMap.get("C-RO").last_turn_input_tokens, 125000);
+
+  // Turn 2: Next normal request exceeds 120,000 threshold -> auto-rollover to fresh session (resumeThreadId === undefined) with Compact Receipt Digest.
+  for await (const _chunk of stream({ agentId: "engineer", payload: { text: "apply next fix", message_id: "M-RO-2" }, correlationId: "E-RO-2", conversationId: "C-RO" })) { /* consume */ }
+  assert.equal(calls[1].resumeThreadId, undefined);
+  assert.match(calls[1].prompt, /Session rolled over at token threshold/);
+  assert.match(calls[1].prompt, new RegExp(readSha));
+  assert.equal(stateMap.get("C-RO").compaction_rollover_count, 1);
+  assert.ok(logs.some((entry) => entry.event_name === "owner.sdk_context_compacted" && entry.payload?.mode === "session_rollover" && entry.payload?.input_tokens === 125000));
+});

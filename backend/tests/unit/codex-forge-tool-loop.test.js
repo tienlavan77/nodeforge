@@ -228,3 +228,31 @@ test("continues the loop when report_done fails and stops after a retry succeeds
   assert.equal(result.tool_events.at(-1).status, "completed");
   assert.equal(result.tool_events[0].status, "failed");
 });
+
+test("compacts oversized intermediate tool outputs in messages into compacted_receipt stubs across rounds", async () => {
+  const shaOld = `sha256:${"1".repeat(64)}`; const shaNew = `sha256:${"2".repeat(64)}`;
+  const seq = ["read_file", "write_diff", "run_test", "commit_changes", "report_done"];
+  const requests = []; const logs = [];
+  const agentGateway = { request: async ({ payload }) => {
+    requests.push(structuredClone(payload.messages));
+    const step = seq[requests.length - 1];
+    const input = step === "report_done" ? { summary: "compacted loop done" } : step === "read_file" || step === "write_diff" ? { path: "backend/src/target.js" } : {};
+    return { payload: { tool_use: { id: `call_${requests.length}`, name: step, input } } };
+  } };
+  const registry = {
+    read_file: { execute: async () => ({ path: "backend/src/target.js", sha256: shaOld, total_lines: 120, content: "x".repeat(3000) }) },
+    write_diff: { execute: async () => ({ path: "backend/src/target.js", sha256: shaNew }) },
+    run_test: { execute: async () => ({ ok: true }) },
+    commit_changes: { execute: async () => ({ sha: "abc" }) },
+    report_done: { execute: async (input) => ({ summary: input.summary }) }
+  };
+  const loop = createCodexForgeToolLoop({ agentGateway, projectLogger: (entry) => logs.push(entry) });
+  const result = await loop.run({ agentId: "codex-1", correlationId: "CORR-COMPACT", prompt: "Compact loop test", definitions: definitions(), registry, context: { task_id: "T-COMPACT" }, maxHistoryBytes: 512, preserveRecentItems: 2 });
+  assert.equal(result.text, "compacted loop done");
+  const readOutputMsg = requests.at(-1).find((item) => item.type === "function_call_output" && item.call_id === "call_1");
+  const parsedStub = JSON.parse(readOutputMsg.output);
+  assert.equal(parsedStub.compacted_receipt, true);
+  assert.equal(parsedStub.path, "backend/src/target.js");
+  assert.equal(parsedStub.sha256, shaNew);
+  assert.ok(logs.some((entry) => entry.event_name === "supervisor.sdk_context_compacted" && entry.payload?.mode === "history_compaction"));
+});

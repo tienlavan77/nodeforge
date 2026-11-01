@@ -35,7 +35,7 @@ const DISCOVERY_COMPLETE_RE = /(?:discovery complete|repository discovery comple
 const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
-export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent, bus, conversationCrudService, agentRoleResolver, requestSystemEngineer, amSeHandoffService } = {}) {
+export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent, bus, conversationCrudService, conversationStateStore, agentRoleResolver, requestSystemEngineer, amSeHandoffService } = {}) {
   if (!projectId || !fileService?.readFile || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   const planning = createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath: PLAN_FRAME_PATH });
   let clarificationSessions;
@@ -45,7 +45,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (!clarificationSessions) clarificationSessions = createArchitectureClarificationStore({ projectId, fileService });
     if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture is unavailable for conversation planning.");
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
-    return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture });
+    return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture, conversationStateStore });
   }
   return Object.freeze({ execute, isCommand, planningSessions: planning.sessions });
 

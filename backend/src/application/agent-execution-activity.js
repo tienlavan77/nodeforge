@@ -57,6 +57,20 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
       publish({ agentId: entry.payload?.agent_id, correlationId: entry.correlation_id, phase: "tool_started", toolName: "approval_review", summary: entry.message });
       return;
     }
+    if (["supervisor.sdk_context_compacted", "owner.sdk_context_compacted"].includes(entry.event_name)) {
+      const p = entry.payload ?? {};
+      const metrics = [
+        p.mode && `mode=${p.mode}`,
+        Number.isInteger(p.input_tokens) && `input_tokens=${p.input_tokens}`,
+        Number.isInteger(p.before_bytes) && Number.isInteger(p.after_bytes) && `bytes=${p.before_bytes}->${p.after_bytes}`,
+        Number.isInteger(p.compacted_items) && `items=${p.compacted_items}`,
+        Number.isInteger(p.compaction_rollover_count) && `rollover=${p.compaction_rollover_count}`,
+        Number.isInteger(p.receipt_position) && `receipt=${p.receipt_position}`
+      ].filter(Boolean).join(", ");
+      const summary = `${entry.message ?? "Compacted SDK context"}${metrics ? ` (${metrics})` : ""}`;
+      publish({ agentId: p.agent_id, correlationId: entry.correlation_id ?? p.execution_id, phase: "tool_completed", toolName: "context_compaction", summary });
+      return;
+    }
     const triagePhase = { started: "started", success: "completed", failed: "failed", blocked: "failed" }[entry.status];
     if (["supervisor.blocker_triage_started", "supervisor.blocker_triage_finished"].includes(entry.event_name)) {
       const agentId = entry.payload?.agent_id;

@@ -123,3 +123,7 @@ Ghi quyết định quan trọng đã duyệt thành ADR/architecture note tại
 3. Plan phân biệt rõ ràng buộc bắt buộc (`constraints`, `guardrails`), giả định (`assumptions`) và rủi ro (`risks`).
 4. Mọi facts về repository đều có mục `evidence` dẫn chứng đường dẫn thực tế đã đọc; không biến discovery failure thành fact.
 5. Không tự ghi file plan `.md`, không sửa revision đã duyệt hoặc suy diễn approval chưa được human cấp.
+
+## Forge source discovery
+
+In Forge mode, call `read_file({path})` for source metadata, `symbol_map` and `code_graph` (`imports`, `imported_by`, `calls`). Inspect the metadata and graph before selecting relevant source. Code must use `Read({file_path,symbol})` selected from prior `read_file` metadata and graph. Only `.md` files allow `Read({file_path,start_line,end_line})`. The tool rejects code line windows. Symbol reads return the entire selected symbol regardless of line count, without lines outside its bounds. Do not concatenate adjacent windows to reconstruct a whole source file or use broad `search_text` patterns to dump code. Reuse retained evidence. An empty graph with a stale or unavailable index does not prove there are no dependencies. `read_file` accepts only `path`; Markdown may include up to 250 lines.

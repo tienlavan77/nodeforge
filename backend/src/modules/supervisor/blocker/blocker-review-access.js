@@ -29,7 +29,7 @@ export async function inspectBlockerReviewAccess({ job, workspace, checkpoint, r
     }
     const tools = createReviewerForgeTools({ fileService: source, projectRoot: root, job: job.request,
       reviewer: { agent_id: "NODE-REVIEW-ACCESS-CHECK", role: "reviewer" }, ticketEvidence: { artifact, context: prior, files, paths: prior.manifest_paths } });
-    for (const file of files) if (!file.deleted) await tools.registry.Read.execute({ file_path: file.path, start_line: 1, end_line: 1 });
+    for (const file of files) if (!file.deleted) await tools.registry.read_file.execute({ path: file.path });
     // Project instructions use the reviewed commit; role rules are supplied separately by Node for each review invocation.
     let instructions = "absent_in_reviewed_commit";
     try { await tools.registry.read_file.execute({ path: "AGENTS.md" }); instructions = "readable"; }

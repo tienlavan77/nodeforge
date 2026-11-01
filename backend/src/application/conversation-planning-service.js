@@ -22,6 +22,7 @@ import { readConversationPlanSource, readRetainedConversationPlanSource, retainC
 import { assertNoMixedPlanningApproval, detectPlanUpdateTrigger, isConversationPlanMessage, parseConversationPlanCreateTrigger } from "../modules/governance/conversation-plan-trigger.js";
 import { appendArchitectureDecisions, architectureSelections, decisionError, readArchitectureDecisions } from "../modules/governance/architecture-owner-decisions.js";
 import { parseArchitectureQuestions } from "../modules/governance/architecture-question-response.js";
+import { formatDiscoveryCompactReceipt } from "./owner-context-compaction.js";
 
 const INTAKE_PATH_RE = /\/plans\/(PLAN-[A-Za-z0-9._-]+)\/conversation-intake\.json$/;
 const ANCHOR_PATH_RE = /\/plans\/(PLAN-[A-Za-z0-9._-]+)\/plan-source-r(\d+)\.json$/;
@@ -40,8 +41,21 @@ function carriedSession(previousMarkdown) {
 }
 
 // Creates one resumable conversation planning workflow bound to a project's plan stores.
-export function createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture } = {}) {
+export function createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture, conversationStateStore } = {}) {
   if (!projectId || !fileService?.readFile || !markdownPlanStore?.createRevision || typeof validateMarkdown !== "function" || !sessions?.create || typeof requestArchitecture !== "function") throw decisionError("CONVERSATION_PLANNING_UNAVAILABLE", "Conversation planning needs File Service, the Markdown plan store, gates, sessions and Architecture.");
+
+  // Business purpose: loads the Discovery Compact Receipt recorded during Phase 1 or earlier repository inspections in the same conversation so Phase 2 and Phase 3 prompts reuse verified file checksums and line ranges.
+  // Technical description: reads conversation state from conversationStateStore or session.discovery_receipt and formats it via formatDiscoveryCompactReceipt.
+  async function loadDiscoveryReceiptBlock(conversationId, session = null) {
+    const state = conversationId ? await conversationStateStore?.get?.(conversationId) : null;
+    if (state) {
+      const formatted = formatDiscoveryCompactReceipt(state);
+      if (formatted) return formatted;
+    }
+    if (typeof session?.discovery_receipt === "string" && session.discovery_receipt) return session.discovery_receipt;
+    if (session?.discovery_receipt && typeof session.discovery_receipt === "object") return formatDiscoveryCompactReceipt(session.discovery_receipt);
+    return "";
+  }
 
   // Generates revision r1 from conversation context or a specified Markdown file and its Node-generated source anchor.
   async function createFromConversation({ text, conversationId }) {
@@ -88,9 +102,10 @@ export function createConversationPlanningService({ projectId, fileService, mark
       try { pregeneratedPlan = parseArchitecturePlanJSON(rawClarification); }
       catch { throw clarifyErr; }
     }
-    const session = await sessions.create({ sourcePath: intake.path, sourceSha256: intake.sha256, conversationId, questions, generating: !questions.length });
+    const discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId);
+    const session = await sessions.create({ sourcePath: intake.path, sourceSha256: intake.sha256, conversationId, questions, generating: !questions.length, ...(discoveryReceipt ? { discovery_receipt: discoveryReceipt } : {}) });
     if (questions.length) return waitingForOwner(session, intakeRecord);
-    return sessions.claim(session.session_id, (current, save) => generate({ session: current, sourceText: combinedSourceText, planId, save, intake: intakeRecord, pregeneratedPlan }));
+    return sessions.claim(session.session_id, (current, save) => generate({ session: discoveryReceipt ? { ...current, discovery_receipt: discoveryReceipt } : current, sourceText: combinedSourceText, planId, save, intake: intakeRecord, pregeneratedPlan }));
   }
 
   // Merges one RFC 7396 update into the retained canonical base and locks the next revision.
@@ -129,7 +144,8 @@ export function createConversationPlanningService({ projectId, fileService, mark
   // the unchanged Architecture Plan schema, so malformed JSON, non-object patches, empty answers,
   // root null deletions and schema violations all fail here before anchor or Markdown writes.
   async function requestMergedPatch({ text, conversationId, baseBytes }) {
-    const patch = String(await requestArchitecture(updatePrompt(text, baseBytes), conversationId, { responseContentType: "text/plain" }) ?? "").trim();
+    const discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId);
+    const patch = String(await requestArchitecture(updatePrompt(text, baseBytes, discoveryReceipt), conversationId, { responseContentType: "text/plain" }) ?? "").trim();
     try { return mergeArchitecturePlanJSON(baseBytes, patch); }
     catch (error) {
       console.warn("Conversation plan update rejected before persistence", { code: error.code ?? "ARCHITECTURE_PLAN_JSON_INVALID", conversation_id: conversationId, reason: error.message });
@@ -190,7 +206,8 @@ export function createConversationPlanningService({ projectId, fileService, mark
       await save({ status: "generating", process_pid: process.pid, error_code: null });
       const decisions = (session.questions ?? []).map((question) => ({ question: question.title, reason: question.reason, selected: question.options.find((option) => option.id === (session.selections ?? {})[question.id]), owner_note: session.notes?.[question.id] ?? "" }));
       const retained = await readRetainedConversationPlanSource({ fileService, planId, revision: 1 });
-      const plan = retained ?? pregeneratedPlan ?? parseArchitecturePlanJSON(String(await requestArchitecture(generationPrompt(effectiveSourceText, decisions), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim());
+      const discoveryReceipt = await loadDiscoveryReceiptBlock(session.conversation_id ?? "", session);
+      const plan = retained ?? pregeneratedPlan ?? parseArchitecturePlanJSON(String(await requestArchitecture(generationPrompt(effectiveSourceText, decisions, discoveryReceipt), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim());
       await sessions.source(session);
       const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: canonicalArchitecturePlanSha256(plan) });
       await validateMarkdown(baseMarkdown);
@@ -237,11 +254,11 @@ function clarificationPrompt(sourceText) {
 }
 
 // Builds the strict full-plan JSON instruction so only AM supplies plan content.
-function generationPrompt(sourceText, decisions) {
-  return `Architecture plan generation. Call lookup_schema({"schema_id":"architecture_manager.architecture_plan.v1"}) (or lookup_schema({"task":"architecture_plan"})) to inspect the contract, complete repository discovery, then return ONLY one JSON object matching this shape: ${PLAN_JSON_SHAPE}. Include all 10 required fields with no extra keys and no null values; scope, outcomes, evidence, assumptions, outcomes[].acceptance_criteria and outcomes[].guardrails must each contain at least 1 non-empty string (record prerequisite outcome IDs like "O1" as separate items in guardrails; constraints and risks allow 0..40 items). Do not return Markdown, prose, comments, approval claims, file writes or RUN claims. Every repository fact needs an evidence entry with a real path under backend/, schemas/, ui/, web/, docs/ or workflows/, and assumptions stay explicit. Evidence location is optional; when present use positive source lines such as L17-L75 or L17-L75; L98-L106, never descriptive prose. Apply ALL confirmed owner policies consistently and never re-ask them. Node alone validates, locks the revision and appends the authoritative owner decision record.${decisions?.length ? `\n\nConfirmed owner decisions:\n${JSON.stringify(decisions)}` : ""}\n\nOwner conversation:\n${sourceText}\n\n--- End of Owner Conversation ---\nIMPORTANT: Return ONLY one valid JSON object matching architecture_manager.architecture_plan.v1 with no surrounding prose.`;
+function generationPrompt(sourceText, decisions, discoveryReceipt = "") {
+  return `Architecture plan generation. Call lookup_schema({"schema_id":"architecture_manager.architecture_plan.v1"}) (or lookup_schema({"task":"architecture_plan"})) to inspect the contract, complete repository discovery, then return ONLY one JSON object matching this shape: ${PLAN_JSON_SHAPE}. Include all 10 required fields with no extra keys and no null values; scope, outcomes, evidence, assumptions, outcomes[].acceptance_criteria and outcomes[].guardrails must each contain at least 1 non-empty string (record prerequisite outcome IDs like "O1" as separate items in guardrails; constraints and risks allow 0..40 items). Do not return Markdown, prose, comments, approval claims, file writes or RUN claims. Every repository fact needs an evidence entry with a real path under backend/, schemas/, ui/, web/, docs/ or workflows/, and assumptions stay explicit. Evidence location is optional; when present use positive source lines such as L17-L75 or L17-L75; L98-L106, never descriptive prose. Apply ALL confirmed owner policies consistently and never re-ask them. Node alone validates, locks the revision and appends the authoritative owner decision record.${decisions?.length ? `\n\nConfirmed owner decisions:\n${JSON.stringify(decisions)}` : ""}${discoveryReceipt || ""}\n\nOwner conversation:\n${sourceText}\n\n--- End of Owner Conversation ---\nIMPORTANT: Return ONLY one valid JSON object matching architecture_manager.architecture_plan.v1 with no surrounding prose.`;
 }
 
 // Builds the RFC 7396 merge-patch instruction against the retained canonical base.
-function updatePrompt(sourceText, baseJson) {
-  return `Architecture plan update. Call lookup_schema({"schema_id":"architecture_manager.architecture_plan.v1"}) if needed to verify the target contract, then return ONLY one JSON RFC 7396 merge patch against the canonical plan below: changed fields carry new values, modified arrays replace the whole array, removed nested fields use null, untouched fields are omitted, no unknown root fields are allowed, and no root required field may be null. Do not return Markdown, prose, approval claims, file writes or RUN claims. Node alone merges, revalidates the full schema, and locks the next revision.\n\nCanonical plan:\n${baseJson}\n\nOwner conversation:\n${sourceText}`;
+function updatePrompt(sourceText, baseJson, discoveryReceipt = "") {
+  return `Architecture plan update. Call lookup_schema({"schema_id":"architecture_manager.architecture_plan.v1"}) if needed to verify the target contract, then return ONLY one JSON RFC 7396 merge patch against the canonical plan below: changed fields carry new values, modified arrays replace the whole array, removed nested fields use null, untouched fields are omitted, no unknown root fields are allowed, and no root required field may be null. Do not return Markdown, prose, approval claims, file writes or RUN claims. Node alone merges, revalidates the full schema, and locks the next revision.${discoveryReceipt || ""}\n\nCanonical plan:\n${baseJson}\n\nOwner conversation:\n${sourceText}`;
 }

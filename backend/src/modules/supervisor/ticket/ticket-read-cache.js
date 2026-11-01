@@ -23,6 +23,7 @@ export function sanitizeReadCache(snapshot) {
       ...(typeof entry.sha256 === "string" ? { sha256: entry.sha256 } : {}),
       ...(Number.isInteger(entry.total_lines) ? { total_lines: entry.total_lines } : {}),
       ...(Number.isInteger(entry.size_bytes) ? { size_bytes: entry.size_bytes } : {}),
+      ...(typeof entry.symbol === "string" && entry.symbol ? { symbol: entry.symbol } : {}),
       ...(Number.isInteger(entry.offset) ? { offset: entry.offset } : {}),
       ...(Number.isInteger(entry.limit) ? { limit: entry.limit } : {}),
       ...(typeof entry.updated_by === "string" ? { updated_by: entry.updated_by } : {}),
@@ -37,9 +38,9 @@ export function snapshotReadCache(cache) {
   return sanitizeReadCache(cache);
 }
 
-// Refuses a read_file that repeats a cached path and window.
+// Refuses a read_file or Read that repeats a cached path and window.
 export function assertReadNotRepeated(cache, input) {
-  const path = typeof input?.path === "string" ? input.path : "";
+  const path = typeof (input?.path ?? input?.file_path) === "string" ? (input.path ?? input.file_path) : "";
   if (!path) return;
   const cached = cache?.[readCacheKey(input)];
   if (!cached || cached.window_invalidated === true) return;
@@ -49,7 +50,9 @@ export function assertReadNotRepeated(cache, input) {
 // Caches a successful read result for repeat-read refusal and active checksum digests.
 export function rememberRead(cache, input, result) {
   if (!cache || typeof cache !== "object" || !result || typeof result !== "object") return cache;
-  const path = typeof (input?.path ?? result.path) === "string" ? (input?.path ?? result.path) : "";
+  const path = typeof (input?.path ?? input?.file_path ?? result.path ?? result.file_path) === "string"
+    ? (input?.path ?? input?.file_path ?? result.path ?? result.file_path)
+    : "";
   const hasContent = typeof result.content === "string" || typeof result.stdout === "string";
   const validSha = typeof result.sha256 === "string" && /^sha256:[a-fA-F0-9]{64}$/.test(result.sha256);
   if (!path || (!hasContent && !validSha)) return cache;
@@ -59,6 +62,7 @@ export function rememberRead(cache, input, result) {
     ...(validSha ? { sha256: result.sha256 } : typeof result.sha256 === "string" ? { sha256: result.sha256 } : {}),
     ...(Number.isInteger(result.total_lines) ? { total_lines: result.total_lines } : {}),
     ...(Number.isInteger(result.size_bytes) ? { size_bytes: result.size_bytes } : {}),
+    ...(typeof input?.symbol === "string" && input.symbol ? { symbol: input.symbol } : {}),
     ...(Number.isInteger(input?.offset ?? input?.start_line) ? { offset: input.offset ?? input.start_line } : {}),
     ...(Number.isInteger(input?.limit ?? input?.end_line) ? { limit: input.limit ?? input.end_line } : {}),
     ...(!hasContent ? { window_invalidated: true } : {})
@@ -68,7 +72,7 @@ export function rememberRead(cache, input, result) {
 
 // Drops cached reads of a path after it is written or edited.
 export function forgetRead(cache, input) {
-  const path = typeof input?.path === "string" ? input.path : "";
+  const path = typeof (input?.path ?? input?.file_path) === "string" ? (input.path ?? input.file_path) : "";
   if (!path || !cache) return cache;
   for (const key of Object.keys(cache)) {
     if (key === path || key.startsWith(`${path}#`)) delete cache[key];
@@ -90,7 +94,13 @@ export function recordMutationChecksum(cache, { tool, input, result } = {}) {
     : typeof result?.after_checksum === "string" ? result.after_checksum
       : /\((sha256:[a-fA-F0-9]{64})\)/.exec(textReceipt)?.[1] ?? null;
   if (typeof toPath === "string" && toPath && typeof extractedSha === "string" && /^sha256:[a-fA-F0-9]{64}$/.test(extractedSha)) {
-    cache[`${toPath}#0:0`] = { path: toPath, sha256: extractedSha, updated_by: tool ?? "mutation", window_invalidated: true };
+    cache[`${toPath}#0:0`] = {
+      path: toPath,
+      sha256: extractedSha,
+      ...(Number.isInteger(result?.total_lines) ? { total_lines: result.total_lines } : {}),
+      updated_by: tool ?? "mutation",
+      window_invalidated: true
+    };
   }
   return cache;
 }
@@ -111,10 +121,11 @@ export function activeFileChecksums(cache) {
   return map;
 }
 
-// Builds the stable address of a read: path plus window, if any.
-function readCacheKey(input) {
-  const path = typeof input?.path === "string" ? input.path : "";
+// Builds the stable address of a read: path plus symbol or window, if any.
+export function readCacheKey(input) {
+  const path = typeof (input?.path ?? input?.file_path) === "string" ? (input.path ?? input.file_path) : "";
+  const symbol = typeof input?.symbol === "string" && input.symbol ? `sym:${input.symbol}` : "";
   const offset = Number.isInteger(input?.offset ?? input?.start_line) ? (input.offset ?? input.start_line) : 0;
   const limit = Number.isInteger(input?.limit ?? input?.end_line) ? (input.limit ?? input.end_line) : 0;
-  return `${path}#${offset}:${limit}`;
+  return symbol ? `${path}#${symbol}:${offset}:${limit}` : `${path}#${offset}:${limit}`;
 }

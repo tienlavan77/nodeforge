@@ -1,6 +1,8 @@
 // Summary: Runs Codex-profile Forge tool-lab as a direct Responses function-calling loop, bypassing the MCP bridge.
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { compactFunctionCallingHistory } from "../supervisor/ticket/ticket-context-compaction.js";
+import { createReadCache, recordMutationChecksum, rememberRead } from "../supervisor/ticket/ticket-read-cache.js";
 
 const DEFAULT_MAX_ROUNDS = 24;
 
@@ -10,13 +12,15 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
   return Object.freeze({ run });
 
   // Defines run function behavior for codex-forge-tool-loop.js.
-  async function run({ agentId, correlationId, prompt, definitions, registry, context, maxRounds = DEFAULT_MAX_ROUNDS, onToolEvent } = {}) {
+  async function run({ agentId, correlationId, prompt, definitions, registry, context, maxRounds = DEFAULT_MAX_ROUNDS, maxHistoryBytes, preserveRecentItems, onToolEvent } = {}) {
     if (typeof prompt !== "string" || !prompt) throw new ConfigurationError("Codex Forge tool loop requires a prompt.");
     if (!Array.isArray(definitions) || definitions.length === 0) throw new ConfigurationError("Codex Forge tool loop requires tool definitions.");
     if (!registry || typeof registry !== "object") throw new ConfigurationError("Codex Forge tool loop requires a tool registry.");
     const tools = definitions.map(toResponsesTool);
     const allowed = new Set(tools.map((tool) => tool.name));
-    const messages = [{ role: "user", content: [{ type: "input_text", text: prompt }] }];
+    let messages = [{ role: "user", content: [{ type: "input_text", text: prompt }] }];
+    const readCache = context?.readCache ?? createReadCache();
+    const changedPaths = Array.isArray(context?.changed_paths) ? [...context.changed_paths] : [];
     const toolEvents = [];
     let finalText = "";
     let rounds = 0;
@@ -47,6 +51,18 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
 
     while (rounds < maxRounds) {
       rounds += 1;
+      const compacted = compactFunctionCallingHistory(messages, {
+        readCache,
+        changedPaths,
+        ...(Number.isInteger(maxHistoryBytes) ? { maxHistoryBytes } : {}),
+        ...(Number.isInteger(preserveRecentItems) ? { preserveRecentItems } : {})
+      });
+      if (compacted.compacted) {
+        messages = compacted.history;
+        if (typeof projectLogger === "function") {
+          projectLogger({ event_name: "supervisor.sdk_context_compacted", level: "info", status: "success", message: "Compacted function-calling tool history with receipt stubs.", task_id: context?.task_id, correlation_id: correlationId, source: "codex-forge-tool-loop", payload: { agent_id: agentId, mode: "history_compaction", before_bytes: compacted.beforeBytes, after_bytes: compacted.afterBytes, compacted_items: compacted.compactedItems, round: rounds } });
+        }
+      }
       const response = await agentGateway.request({ agentId, payload: { messages, ...(cacheConfig ? { cache_config: cacheConfig } : {}), ...(previousResponseId !== undefined ? { previous_response_id: previousResponseId } : {}), ...context?.gateway_payload }, correlationId, tools });
       const payload = response?.payload ?? {};
       if (payload.response_id) previousResponseId = payload.response_id;
@@ -67,6 +83,12 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
       let result;
       try {
         result = await registry[toolUse.name].execute(toolUse.input, context);
+        if (["read_file", "Read", "sed_lines"].includes(toolUse.name)) rememberRead(readCache, toolUse.input, result);
+        if (["write_diff", "edit_diff", "delete_file", "move_file"].includes(toolUse.name)) {
+          recordMutationChecksum(readCache, { tool: toolUse.name, input: toolUse.input, result });
+          const mutatedPath = toolUse.input?.to_path ?? toolUse.input?.path ?? toolUse.input?.file_path ?? result?.path;
+          if (typeof mutatedPath === "string" && mutatedPath && !changedPaths.includes(mutatedPath)) changedPaths.push(mutatedPath);
+        }
       } catch (error) {
         event.status = "failed";
         event.error = { error_code: error?.code ?? "TOOL_EXECUTION_FAILED", message: error?.message ?? "Tool execution failed." };
@@ -80,8 +102,11 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
       // so it can fix inputs and retry, matching the MCP bridge's isError path.
       // Terminal success is still guarded: report_done only records a report
       // after the governed tools it depends on have run (see lifecycle tools).
+      const targetPath = typeof (toolUse.input?.path ?? toolUse.input?.file_path ?? result?.path ?? result?.file_path) === "string"
+        ? (toolUse.input?.path ?? toolUse.input?.file_path ?? result?.path ?? result?.file_path)
+        : undefined;
       messages.push({ type: "function_call", call_id: toolUse.id, name: toolUse.name, arguments: JSON.stringify(toolUse.input ?? {}) });
-      messages.push({ type: "function_call_output", call_id: toolUse.id, output: JSON.stringify(result ?? null) });
+      messages.push({ type: "function_call_output", call_id: toolUse.id, ...(targetPath ? { path: targetPath } : {}), output: JSON.stringify(result ?? null) });
       if (toolUse.name === "report_done" && event.status !== "failed") {
         if (typeof result?.summary === "string" && result.summary) finalText = result.summary;
         break;

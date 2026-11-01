@@ -195,3 +195,54 @@ test("the additive slash alias routes updates while quoted, fenced and interroga
     assert.equal(markdownPlanStore.list()[0].revision, 2, "only the standalone alias update added a revision");
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("Discovery Compact Receipt collected in Phase 1 is inherited by Phase 2 (generationPrompt) and Phase 3 (updatePrompt)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "conversation-discovery-receipt-"));
+  const database = await createDatabaseService({ dataDir: join(root, ".forge/runtime"), runtimeDir: "." });
+  try {
+    const fileService = createFileService({ projectRoot: root, allowPlanStorage: true, watcherIgnore: [".forge/**", "node_modules/**"] });
+    await fileService.atomicWrite({ path: "backend/src/application/conversation-planning-service.js", content: "// evidence target\n", replace: true });
+    const markdownPlanStore = createMarkdownPlanStore({ projectId: "PROJECT-A", database, fileService });
+    const sessions = createArchitectureClarificationStore({ projectId: "PROJECT-A", fileService });
+    const stateMap = new Map();
+    const conversationStateStore = {
+      get: async (id) => stateMap.get(id),
+      update: async (id, fields) => { stateMap.set(id, { ...stateMap.get(id), ...fields }); return stateMap.get(id); }
+    };
+    const fileSha = `sha256:${"e".repeat(64)}`;
+    const prompts = [];
+    const answers = [NO_QUESTIONS, PLAN_JSON, PATCH_JSON];
+    let index = 0;
+    const planning = createConversationPlanningService({
+      projectId: "PROJECT-A",
+      fileService,
+      markdownPlanStore,
+      validateMarkdown,
+      sessions,
+      conversationStateStore,
+      requestArchitecture: async (prompt, conversationId) => {
+        prompts.push(prompt);
+        if (prompts.length === 1) {
+          // Simulate AM calling Read/read_file during Phase 1 clarification discovery.
+          await conversationStateStore.update(conversationId, {
+            active_file_checksums: { "backend/src/application/conversation-planning-service.js": { sha256: fileSha, total_lines: 250, status: "read" } },
+            discovery_receipts: [{ tool: "Read", path: "backend/src/application/conversation-planning-service.js", sha256: fileSha, total_lines: 250, location: "L1-L80" }]
+          });
+        }
+        return answers[Math.min(index++, answers.length - 1)];
+      }
+    });
+    const created = await planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-DISC" });
+    assert.equal(created.revision, 1);
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1], /Discovery Compact Receipt/);
+    assert.match(prompts[1], new RegExp(fileSha));
+    assert.match(prompts[1], /L1-L80/);
+
+    const updated = await planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-DISC" });
+    assert.equal(updated.revision, 2);
+    assert.equal(prompts.length, 3);
+    assert.match(prompts[2], /Discovery Compact Receipt/);
+    assert.match(prompts[2], new RegExp(fileSha));
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
+});
