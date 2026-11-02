@@ -1,225 +1,207 @@
 <!--
-Business purpose: Materializes the exact scoped unified Git patch against base commit 131a628f042a27f0098df3dfb62f03a1a50223b4 for PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c (r1, Round 4) outside .forge/ so the independent Reviewer (RV) can inspect the verbatim scoped diff even when unfiltered git_diff exceeds size limits due to unrelated working-tree files.
-Technical description: Contains the exact unified diff hunks for the core Coding workspace implementation and supervisor browser layout files, paired with the immutable Git revision and SHA-256 manifest in PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c-r1-verification.md.
+Business purpose: Provides Part 1 of 5 of the complete, verbatim git diff between base commit 131a628f042a27f0098df3dfb62f03a1a50223b4 and review commit 452c3c353b46c8f0b92841547177a49b46d77383 for PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c (r1).
+Technical description: Generated directly from git diff 131a628f042a27f0098df3dfb62f03a1a50223b4..452c3c353b46c8f0b92841547177a49b46d77383 without manual hunk editing; bounded to <= 250 physical lines.
 -->
-# Scoped Unified Patch — PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c (r1, Round 4)
+# Scoped Unified Patch (Part 1/5: CodingPage & CodingWorkspaceMonitor) — PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c (r1)
 
-- **Base Commit SHA**: `131a628f042a27f0098df3dfb62f03a1a50223b4` (parent: `a53aeef27ba6a09c1d3634aa925e7e32fe5b9554`)
-- **Verification Manifest**: `docs/reports/PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c-r1-verification.md`
+- **Base Commit SHA**: `131a628f042a27f0098df3dfb62f03a1a50223b4` | **Review Commit SHA**: `452c3c353b46c8f0b92841547177a49b46d77383` (`tree_sha: 89f1468c05c86d280b6e0dc60a1fe25079d25ff9`)
+- **Manifest SHA-256**: `sha256:ab16b7dc1dbf31159ec783c18d513a1bae0f856cbea6b49c5eb8892a2e2b1316` | **Files in Part 1**: `ui/nextjs/app/coding/page.jsx`, `ui/nextjs/components/coding-workspace-monitor.jsx`
+- **All Patch Parts**: `docs/reports/PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c-r1-scoped-patch.md` (Part 1), `docs/reports/PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c-r1-scoped-patch-part2.md` (Part 2), `docs/reports/PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c-r1-scoped-patch-part3.md` (Part 3), `docs/reports/PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c-r1-scoped-patch-part4.md` (Part 4), `docs/reports/PLAN-PROJECT-NODEFORGE-c64cfb7b-e95f-43a8-866f-a88943f1080c-r1-scoped-patch-part5.md` (Part 5)
 
 ```diff
 diff --git a/ui/nextjs/app/coding/page.jsx b/ui/nextjs/app/coding/page.jsx
+index b991fba..bee1f1c 100644
 --- a/ui/nextjs/app/coding/page.jsx
 +++ b/ui/nextjs/app/coding/page.jsx
-@@ -43,6 +43,9 @@ export default function CodingPage() {
-   const [agentDirectory, setAgentDirectory] = useState([]);
-   const [agentActivities, setAgentActivities] = useState([]);
+@@ -52,10 +52,17 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
+   const restoredPanelMembershipRef = useRef(null);
+   const panelsHydratedRef = useRef(false);
+ 
 +  const [watcherEvents, setWatcherEvents] = useState([]);
-+  const [watcherPulseId, setWatcherPulseId] = useState(0);
++  const [watcherPulseId, setWatcherPulseId] = useState(null);
 +  const [watcherState, setWatcherState] = useState("connecting");
-   const [agentPanelRegistry, setAgentPanelRegistry] = useState(() => createCodingAgentPanelRegistry());
-   const panelPersister = useRef(null);
-@@ -54,10 +57,15 @@ export default function CodingPage() {
-     return () => { panelPersister.current?.flush(); panelPersister.current = null; };
-   }, [PROJECT_ID]);
- 
-   const setPanelSource = useCallback((source) => {
-+    setWatcherState(source);
-     setAgentPanelRegistry((current) => setCodingAgentPanelSource(current, source));
-   }, []);
 +
-+  useEffect(() => {
-+    setAgentActivities([]);
+   // Restore saved open/closed presence once before defaults or live run evidence are processed.
+   useEffect(() => {
+     panelsHydratedRef.current = false;
+     setAgentActivities([]);
 +    setWatcherEvents([]);
-+    setWatcherPulseId(0);
++    setWatcherPulseId(null);
 +    setWatcherState("connecting");
-+  }, [PROJECT_ID]);
+     restoredPanelMembershipRef.current = readCodingAgentPanelMembership(panelStateStorage, PROJECT_ID,
+       (error) => console.error("Unable to read coding panel presence", error));
+     setAgentPanelRegistry((current) => hydrateCodingAgentPanelRegistry(current, restoredPanelMembershipRef.current, agentDirectoryRef.current));
+@@ -68,6 +75,7 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
+   }, [planEvents, PROJECT_ID]);
+   // Invalidate cached execution claims whenever the live source connects or disconnects.
+   const setPanelSource = useCallback((status) => {
++    setWatcherState(status);
+     setAgentPanelRegistry((current) => setCodingAgentPanelSource(current, status));
+   }, []);
+   useEffect(() => {
+@@ -94,16 +102,6 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
+   // Write the latest membership before unmount so navigation preserves the final open/closed set.
+   useEffect(() => () => panelPersister.flush(), [panelPersister]);
  
-   const refreshAgents = useCallback(async () => {
-@@ -101,8 +109,8 @@ export default function CodingPage() {
+-  // Close only the selected project/agent panel while preserving its same-run closure policy.
+-  const onAgentPanelClose = useCallback((projectId, agentId) => {
+-    setAgentPanelRegistry((current) => closeCodingAgentPanel(current, projectId, agentId));
+-  }, []);
+-
+-  // Open the panel for the selected working agent from the dock, bypassing streamed evidence for this explicit action.
+-  const onAgentPanelOpen = useCallback((projectId, agentId) => {
+-    setAgentPanelRegistry((current) => openCodingAgentPanel(current, projectId, agentId, agentDirectoryRef.current));
+-  }, []);
+-
+   // Refresh Registry Sprint scope while preserving structured diagnostics for the active page.
+   const loadWorkspaceMonitor = useCallback((options) => dashboardLoader.load(options), [dashboardLoader]);
+   // Apply a confirmed Sprint deletion locally instead of resetting the entire Coding dashboard.
+@@ -113,7 +111,7 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
+ 
    useProjectEventStream({
-     client,
-     projectId: PROJECT_ID,
-     refreshAgents,
-     refreshGit,
--    setWatcherEvents: () => {},
--    setWatcherPulseId: () => {},
-+    setWatcherEvents,
-+    setWatcherPulseId,
-     setWatcherState: setPanelSource,
-     setAgentActivities,
-@@ -119,6 +127,9 @@ export default function CodingPage() {
-       gitStatus={gitStatus}
-       agentDirectory={agentDirectory}
-       agentActivities={agentActivities}
-+      watcherEvents={watcherEvents}
-+      watcherPulseId={watcherPulseId}
-+      watcherState={watcherState}
-       agentPanelRegistry={agentPanelRegistry}
-       onMinimizeAgentPanel={minimizeAgentPanel}
-       onCloseAgentPanel={closeAgentPanel}
+     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
+-    setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents: () => {}, setWatcherPulseId: () => {}, setWatcherState: setPanelSource,
++    setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents, setWatcherPulseId, setWatcherState: setPanelSource,
+     setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, onSprintDeleted, onTicketDeleted, onProjectEvent, agentDisplayName
+   });
+ 
+@@ -130,6 +128,6 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
+ 
+   return <div className="claude-home-shell coding-workspace-shell" data-project-id={PROJECT_ID}>
+     <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" selectedProjectId={PROJECT_ID} showConversationControls={false} />
+-    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} agentPanelRegistry={agentPanelRegistry} onAgentPanelClose={onAgentPanelClose} onAgentPanelOpen={onAgentPanelOpen} />
++    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} watcherEvents={watcherEvents} watcherPulseId={watcherPulseId} watcherState={watcherState} />
+   </div>;
+ }
 diff --git a/ui/nextjs/components/coding-workspace-monitor.jsx b/ui/nextjs/components/coding-workspace-monitor.jsx
+index fbb5e1b..e54176a 100644
 --- a/ui/nextjs/components/coding-workspace-monitor.jsx
 +++ b/ui/nextjs/components/coding-workspace-monitor.jsx
-@@ -6,16 +6,26 @@ import { WorkspaceNavigationHeader } from "./workspace-navigation-header.jsx";
- import { CodingArchitecturePlans } from "./coding-architecture-plans.jsx";
- import { SprintPlanDashboard } from "./sprint-plan-dashboard.jsx";
+@@ -1,8 +1,9 @@
+-// Present the legacy Sprint Plan controls beside active Coder and Reviewer work in Coding.
++// Present the legacy Sprint Plan controls beside unified Coding workspace monitors.
+ "use client";
+ 
+-import { useState } from "react";
+-import { codingAgentPanelKey, codingAgentProfile, codingAgentPanelActions, codingAgentPanelStatus } from "../lib/coding-agent-panel-registry.js";
++import { useEffect, useState } from "react";
 +import { displayMessageTime } from "../lib/home-page-watcher-events.js";
 +import { resolveCodingAgentActivities, resolveCodingAgentTone } from "../lib/coding-workspace-activity.js";
-+
-+export { resolveCodingAgentActivities, resolveCodingAgentTone };
+ // eslint-disable-next-line no-unused-vars -- Next resolves these component references in JSX.
+ import { SprintPlanDashboard } from "./sprint-plan-panels.jsx";
+ // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+@@ -12,15 +13,43 @@ import { CodingArchitecturePlans } from "./coding-architecture-plans.jsx";
+ // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
+ import { ConversationHeaderProjectGit } from "./conversation-project-git.jsx";
  
- export function CodingWorkspaceMonitor({
-   projectId = null,
-   gitStatus = null,
-   agentDirectory = [],
-   agentActivities = [],
-+  watcherEvents = [],
-+  watcherPulseId = 0,
-+  watcherState = "connecting",
-   dashboard = null,
-   plans = [],
-   planRequests = [],
-   checkpoints = [],
-   onRefreshCoding = null,
-   onSprintDeleted = null,
-   onTicketDeleted = null
- }) {
-+  const activities = resolveCodingAgentActivities(agentActivities, agentDirectory, projectId);
-+  const files = Array.isArray(watcherEvents) ? watcherEvents : [];
-+  const connectionTone = watcherState === "connected" ? "#059669" : watcherState === "disconnected" ? "#dc2626" : "#d97706";
-+  const connectionTitle = watcherState === "connected" ? "Watcher connected" : watcherState === "disconnected" ? "Watcher disconnected" : "Watcher reconnecting";
-@@ -32,33 +42,41 @@ export function CodingWorkspaceMonitor({
-         <section className="coding-workspace-column coding-workspace-agent" aria-label="Workspace Agent">
-           <div className="coding-workspace-column-header">
-             <span className="workspace-panel-title">Workspace Agent</span>
-           </div>
-           <div className="coding-workspace-list">
--            {/* Replaced individual agent panels with 2-row equal grid: empty upper row + 2-column lower row */}
-+            <div className="coding-workspace-row coding-workspace-row-upper" aria-label="Workspace Agent upper row" />
-+            <div className="coding-workspace-row coding-workspace-row-lower" aria-label="Workspace Agent monitors row">
-+              <article className="workspace-monitor-panel coding-agent-monitor coding-workspace-monitor-column coding-agents-activity-monitor" aria-label="Agents Activity">
-+                <div className="workspace-monitor-panel-header coding-agent-monitor-header">
-+                  <span className="workspace-panel-title">Agents Activity</span>
-+                  <span className="coding-agent-role">{activities.length}</span>
-+                </div>
-+                <div className="workspace-monitor-panel-content">
-+                  {activities.length === 0 ? <p className="workspace-monitor-empty">Waiting for agent activity...</p> : (
-+                    <ul className="workspace-monitor-list">
-+                      {activities.map((item) => (
-+                        <li key={item.key} className="workspace-monitor-item">
-+                          <span className="workspace-monitor-agent" style={{ color: item.tone }}>{item.agentName}</span>
-+                          <span className="workspace-monitor-type">{item.activityType}</span>
-+                          <span className="workspace-monitor-status">{item.status}</span>
-+                          {item.time ? <span className="workspace-monitor-time">{item.time}</span> : null}
-+                          <span className="workspace-monitor-summary">{item.detail}</span>
-+                        </li>
-+                      ))}
-+                    </ul>
-+                  )}
-+                </div>
-+              </article>
-+              <article className="workspace-monitor-panel coding-agent-monitor coding-workspace-monitor-column coding-watcher-monitor" aria-label="Watcher">
-+                <div className="workspace-monitor-panel-header coding-agent-monitor-header">
-+                  <span className="workspace-panel-title">Watcher</span>
-+                  <span className="workspace-watcher-indicators">
-+                    <span className="workspace-watcher-status-dot" title={connectionTitle} style={{ background: connectionTone }} />
-+                    {watcherPulseId > 0 ? <span key={watcherPulseId} className="workspace-watcher-pulse-dot" title="Watcher file activity received" /> : null}
-+                  </span>
-+                </div>
-+                <div className="workspace-monitor-panel-content">
-+                  {files.length === 0 ? <p className="workspace-monitor-empty">Waiting for file events...</p> : (
-+                    <ul className="workspace-monitor-list">
-+                      {files.map((event, index) => (
-+                        <li key={event.id ?? `${event.file}-${index}`} className="workspace-monitor-item">
-+                          <span className="workspace-monitor-status">{event.type === "removed" ? "Removed" : "Indexed"}</span>
-+                          {displayMessageTime(event.timestamp) ? <span className="workspace-monitor-time">{displayMessageTime(event.timestamp)}</span> : null}
-+                          <span className="workspace-monitor-summary">{event.file}</span>
-+                        </li>
-+                      ))}
-+                    </ul>
-+                  )}
-+                </div>
-+              </article>
+-// Render the legacy Sprint Plan experience alongside active Coding workspace agents.
+-export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], onAgentPanelClose, onAgentPanelOpen, agentPanelRegistry = { panels: [], activity: {}, sourceStatus: "unknown" } }) {
+-  const panels = agentPanelRegistry.panels.filter((panel) => panel.projectId === projectId);
+-  const [minimizedPanels, setMinimizedPanels] = useState({});
+-  const openKeys = new Set(panels.map((panel) => panel.key));
+-  // Dock entries follow live working evidence for validated identities in this project only, never labels or roles.
+-  const workingAgents = Object.entries(agentPanelRegistry.activity ?? {})
+-    .flatMap(([key, status]) => status === "working" ? [codingPanelIdentity(key)] : [])
+-    .filter((identity) => identity?.projectId === projectId && codingAgentProfile(agentDirectory, identity.agentId, projectId));
++export { resolveCodingAgentActivities, resolveCodingAgentTone };
++
++// Render the legacy Sprint Plan experience alongside unified Coding workspace monitors.
++export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], watcherEvents = [], watcherPulseId = null, watcherState = "connecting" }) {
++  const [watcherActive, setWatcherActive] = useState(false);
++  const [agentActive, setAgentActive] = useState(false);
++  const visibleActivities = resolveCodingAgentActivities(agentActivities, agentDirectory, projectId);
++  const scopedWatcherEvents = (Array.isArray(watcherEvents) ? watcherEvents : []).filter((event) => !projectId || !event?.project_id || event.project_id === projectId);
++  const watcherItems = scopedWatcherEvents.slice().reverse().flatMap((event, eventIndex) => {
++    const activities = Array.isArray(event?.payload?.activity) ? event.payload.activity : (event?.message ? [event.message] : []);
++    const label = event?.event_type === "watcher.file_removed" ? "Removed" : event?.event_type === "watcher.file_indexed" ? "Indexed" : (event?.timestamp ? displayMessageTime(event.timestamp) : "Watcher");
++    const time = displayMessageTime(event?.timestamp);
++    return activities.map((activity, activityIndex) => ({
++      key: `${event?.event_id ?? event?.timestamp ?? eventIndex}-${eventIndex}-${activityIndex}`,
++      meta: time && label !== time ? `${label} · ${time}` : label,
++      text: typeof activity === "string" ? activity : activity?.path ?? activity?.file_path ?? activity?.summary ?? JSON.stringify(activity)
++    }));
++  });
++  const watcherStatus = watcherState === "connected" ? "Connected" : watcherState === "error" || watcherState === "disconnected" ? "Disconnected" : "Reconnecting";
++  const indicatorClass = watcherState === "connected" ? "is-connected" : watcherState === "error" || watcherState === "disconnected" ? "is-error" : "is-connecting";
++
++  useEffect(() => {
++    const latest = scopedWatcherEvents.at(-1);
++    if (watcherState !== "connected" || (!watcherPulseId && (!latest?.timestamp || Date.now() - Date.parse(latest.timestamp) > 3000))) { setWatcherActive(false); return undefined; }
++    setWatcherActive(true);
++    const timeout = typeof window !== "undefined" ? window.setTimeout(() => setWatcherActive(false), 3000) : null;
++    return () => { if (timeout) window.clearTimeout(timeout); };
++  }, [watcherState, watcherPulseId, scopedWatcherEvents.length]);
++
++  useEffect(() => {
++    const latest = visibleActivities.at(-1);
++    if (!latest) { setAgentActive(false); return undefined; }
++    setAgentActive(true);
++    const timeout = typeof window !== "undefined" ? window.setTimeout(() => setAgentActive(false), 3000) : null;
++    return () => { if (timeout) window.clearTimeout(timeout); };
++  }, [visibleActivities.length]);
++
+   return <main className="coding-workspace-monitor" aria-label="Coding workspace monitor">
+     <header className="claude-chat-header coding-workspace-header"><h1>Coding</h1><ConversationHeaderProjectGit client={client} projectId={projectId} /></header>
+     <section className="coding-workspace-column coding-sprint-plan" aria-labelledby="coding-sprint-plan-heading">
+@@ -31,44 +60,24 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
+       </CodingSprintDashboardState>
+     </section>
+     <section className="coding-workspace-column coding-workspace-agent" aria-labelledby="coding-workspace-agent-heading">
+-      <header className="coding-workspace-column-header">
+-        <h1 id="coding-workspace-agent-heading">Workspace Agent</h1>
+-      </header>
++      <header className="coding-workspace-column-header"><h1 id="coding-workspace-agent-heading">Workspace Agent</h1></header>
+       <div className="coding-workspace-list">
+-        {panels.map((panel) => {
+-          const profile = codingAgentProfile(agentDirectory, panel.agentId, projectId);
+-          const actions = codingAgentPanelActions(agentActivities, agentDirectory, projectId, panel.agentId);
+-          const minimized = Boolean(minimizedPanels[panel.key]);
+-          const status = codingAgentPanelStatus(agentPanelRegistry, panel);
+-          const indicator = status === "working" ? " is-connected" : status === "disconnected" ? " is-error" : "";
+-          return <article key={panel.key} data-panel-key={panel.key} data-agent-id={panel.agentId} data-project-id={panel.projectId} className={`coding-agent-monitor${minimized ? " is-minimized" : ""}`}>
+-            <header className="workspace-monitor-header"><span className={`workspace-monitor-light${status === "working" ? " is-active" : ""}`} aria-hidden="true" /><strong>{profile?.agent_name ?? profile?.name ?? panel.agentId}</strong><span className={`workspace-monitor-indicator${indicator}`}>{status}</span><button type="button" aria-label={`${minimized ? "Expand" : "Minimize"} agent panel ${panel.agentId}`} onClick={() => setMinimizedPanels((current) => ({ ...current, [panel.key]: !current[panel.key] }))}>{minimized ? "□" : "−"}</button><button type="button" aria-label={`Close agent panel ${panel.agentId} in project ${panel.projectId}`} onClick={() => onAgentPanelClose?.(panel.projectId, panel.agentId)}>×</button></header>
+-            {!minimized && <div className="workspace-monitor-content" aria-live="polite">
+-              {actions.length === 0 && <p>Waiting for agent activity.</p>}
+-              {actions.slice().reverse().map((activity, index) => <article key={activity.event_id ?? index}><small>{[String(activity.payload.activity_type ?? "activity").replaceAll("_", " "), activity.payload.status, activity.timestamp ? new Date(activity.timestamp).toLocaleTimeString() : null].filter(Boolean).join(" · ")}</small><span>{activity.payload.summary}{activity.payload.tool_name ? ` (${activity.payload.tool_name})` : ""}</span></article>)}
+-            </div>}
+-          </article>;
+-        })}
+-        {panels.length === 0 && <p className="coding-workspace-empty">No agent panels are open.</p>}
++        <div className="coding-workspace-row" aria-label="Workspace Agent upper row" />
++        <div className="coding-workspace-row" aria-label="Workspace Agent monitors row">
++          <section className="coding-workspace-monitor-column coding-agent-monitor" aria-label="Agents Activity monitor">
++            <header className="workspace-monitor-header"><span className={`workspace-monitor-light${agentActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={agentActive ? "Agent working" : "Agent idle"} role="img" /><h3>Agents Activity</h3><span className={`workspace-monitor-indicator ${indicatorClass}`}>{watcherStatus}</span></header>
++            <div className="workspace-monitor-content" aria-live="polite">
++              {visibleActivities.length === 0 ? <p className="coding-workspace-empty">Waiting for agent activity.</p> : visibleActivities.slice().reverse().map((item) => <article key={item.key} data-agent-id={item.agentId}><small><strong style={{ color: item.tone }}>{item.agentName}</strong> · {item.activityType} · {item.status}{item.time ? ` · ${item.time}` : ""}</small><span>{item.detail}</span></article>)}
 +            </div>
-           </div>
-         </section>
++          </section>
++          <section className="coding-workspace-monitor-column coding-agent-monitor" aria-label="Watcher monitor">
++            <header className="workspace-monitor-header"><span className={`workspace-monitor-light${watcherActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={watcherActive ? "Watcher working" : "Watcher idle"} role="img" /><h3>Watcher</h3><span className={`workspace-monitor-indicator ${indicatorClass}`}>{watcherStatus}</span></header>
++            <div className="workspace-monitor-content" aria-live="polite">
++              {watcherItems.length === 0 ? <p className="coding-workspace-empty">Waiting for watcher events.</p> : watcherItems.map((item) => <article key={item.key}><small>{item.meta}</small><span>{item.text}</span></article>)}
++            </div>
++          </section>
++        </div>
        </div>
--      {/* Removed .workspace-monitor-dock */}
-     </main>
-   );
+     </section>
+-    <div className="workspace-monitor-dock" role="group" aria-label="Coding agent monitors">
+-      {workingAgents.map(({ agentId }) => {
+-        const profile = codingAgentProfile(agentDirectory, agentId, projectId);
+-        const key = codingAgentPanelKey(projectId, agentId);
+-        return <button key={key} type="button" aria-pressed={openKeys.has(key)} onClick={() => onAgentPanelOpen?.(projectId, agentId)}><span className="workspace-monitor-light is-active" aria-hidden="true" />{profile?.agent_name ?? profile?.name ?? agentId}</button>;
+-      })}
+-    </div>
+   </main>;
  }
-diff --git a/ui/nextjs/lib/coding-workspace-activity.js b/ui/nextjs/lib/coding-workspace-activity.js
-new file mode 100644
---- /dev/null
-+++ b/ui/nextjs/lib/coding-workspace-activity.js
-@@ -0,0 +1,63 @@
-+import { codingAgentPanelKey, codingAgentProfile } from "./coding-agent-panel-registry.js";
-+import { agentDisplayName, displayMessageTime } from "./home-page-watcher-events.js";
-+
-+const AGENT_TONES = ["#82aaff", "#7ee787", "#ffcb6b", "#c792ea", "#89ddff", "#f78c6c", "#f07178", "#c3e88d"];
-+
-+function isAccessibleMonitorColor(value) {
-+  if (typeof value !== "string") return false;
-+  const trimmed = value.trim();
-+  const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(trimmed)?.[1];
-+  if (!hex) return false;
-+  const full = hex.length === 3 ? hex.split("").map((char) => char + char).join("") : hex;
-+  const channels = [0, 2, 4].map((offset) => {
-+    const srgb = Number.parseInt(full.slice(offset, offset + 2), 16) / 255;
-+    return srgb <= 0.03928 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
-+  });
-+  const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-+  return (luminance + 0.05) / (0.014 + 0.05) >= 4.5;
-+}
-+
-+export function resolveCodingAgentTone(agentId, explicitColor) {
-+  if (isAccessibleMonitorColor(explicitColor)) return explicitColor.trim();
-+  const key = String(agentId ?? "agent").trim() || "agent";
-+  let hash = 0;
-+  for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) >>> 0;
-+  return AGENT_TONES[hash % AGENT_TONES.length];
-+}
-+
-+export function resolveCodingAgentActivities(agentActivities = [], agentDirectory = [], projectId = null) {
-+  const list = Array.isArray(agentActivities) ? agentActivities : [];
-+  const agents = Array.isArray(agentDirectory) ? agentDirectory : [];
-+  return list.filter((event) => {
-+    if (!event || (event.event_type && event.event_type !== "agent.activity")) return false;
-+    const payload = event.payload ?? {};
-+    const agentId = payload.agent_id ?? event.agent_id ?? payload.agentId;
-+    if (projectId && event.project_id && event.project_id !== projectId) return false;
-+    if (projectId && payload.project_id && payload.project_id !== projectId) return false;
-+    if (event.agent_id !== undefined && payload.agent_id !== undefined && event.agent_id !== payload.agent_id) return false;
-+    if (payload.agentId !== undefined && payload.agent_id !== undefined && payload.agentId !== payload.agent_id) return false;
-+    if (projectId && agentId && !codingAgentPanelKey(projectId, agentId)) return false;
-+    if (agents.length > 0 && projectId && agentId && !codingAgentProfile(agents, agentId, projectId)) return false;
-+    return Boolean(agentId || event.agent_name || payload.agent_name || payload.summary || event.summary || payload.tool_name || event.tool_name);
-+  }).map((event, index) => {
-+    const payload = event.payload ?? {};
-+    const agentId = payload.agent_id ?? event.agent_id ?? payload.agentId;
-+    const profile = (projectId && agentId ? codingAgentProfile(agents, agentId, projectId) : null) ?? agents.find((agent) => (agent?.agent_id ?? agent?.id) === agentId) ?? null;
-+    const resolvedName = profile?.agent_name ?? profile?.name ?? profile?.label ?? event.agent_name ?? payload.agent_name ?? agentDisplayName(agentId, agents);
-+    const identityKey = String(agentId ?? profile?.role ?? resolvedName ?? "agent");
-+    const tone = resolveCodingAgentTone(identityKey, profile?.color ?? profile?.agent_color);
-+    const activityType = String(payload.activity_type ?? event.activity_type ?? "activity").replaceAll("_", " ");
-+    const status = String(payload.status ?? event.status ?? "working");
-+    const time = displayMessageTime(event.timestamp ?? payload.timestamp);
-+    const toolName = payload.tool_name ?? event.tool_name ?? "";
-+    const summary = payload.summary ?? event.summary ?? (toolName || activityType);
-+    const detail = summary && toolName && !String(summary).includes(toolName) ? `${summary} (${toolName})` : (summary || toolName || activityType);
-+    return { key: event.event_id ?? event.id ?? `${agentId ?? "agent"}-${event.timestamp ?? index}-${index}`, agentId: agentId ?? "agent", agentName: resolvedName, activityType, status, time, toolName, summary, detail, tone };
-+  });
-+}
-diff --git a/ui/nextjs/app/styles/workspace-monitors.css b/ui/nextjs/app/styles/workspace-monitors.css
---- a/ui/nextjs/app/styles/workspace-monitors.css
-+++ b/ui/nextjs/app/styles/workspace-monitors.css
-@@ -16,13 +16,15 @@
--.coding-workspace-agent .coding-workspace-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-content: start; }
-+.coding-workspace-agent { display: flex; flex-direction: column; }
-+.coding-workspace-agent .coding-workspace-list { display: grid; flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 10px 12px; overflow: hidden; }
-+.coding-workspace-row { min-height: 0; overflow: hidden; }
-+.coding-workspace-row-upper { border: 1px dashed rgba(255, 255, 255, 0.06); border-radius: 6px; background: rgba(255, 255, 255, 0.01); }
-+.coding-workspace-row-lower { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-height: 0; }
-+.coding-workspace-monitor-column { min-height: 0; height: 100%; overflow: hidden; }
+-
+-// Recover the validated project/agent identity encoded in a registry panel key.
+-function codingPanelIdentity(key) {
+-  try {
+-    const parsed = JSON.parse(key);
+-    return Array.isArray(parsed) ? { projectId: parsed[0], agentId: parsed[1] } : null;
+-    // eslint-disable-next-line no-silent-catch -- unparseable keys are registry internals, never dock candidates
+-  } catch (error) {
+-    return null;
+-  }
+-}
 ```
