@@ -89,7 +89,8 @@
 .system-engineer-command .system-engineer-event-value { padding-left: 15px; font: 12px/1.6 'DM Mono', monospace; font-size: 12px !important; }
 .claude-message .markdown-preview-content--conversation { color: var(--app-text); }
 .conversation-markdown-badge { justify-self: start; border: 1px solid var(--app-border); border-radius: 999px; padding: 2px 8px; color: var(--app-muted); font: 10px 'DM Mono', monospace; }
-.conversation-idea-badge { justify-self: end; border: 1px solid color-mix(in srgb, var(--app-accent) 45%, var(--app-border)); border-radius: 999px; padding: 2px 8px; background: color-mix(in srgb, var(--app-accent) 14%, transparent); color: var(--app-accent); font: 600 10px 'DM Mono', monospace; }
+.conversation-idea-badge { display: inline-flex; align-items: center; gap: 5px; height: 22px; margin-left: auto; border: 1px solid color-mix(in srgb, var(--app-accent) 34%, var(--app-border)); border-radius: 6px; padding: 0 8px; background: color-mix(in srgb, var(--app-accent) 12%, var(--app-surface-alt)); color: var(--app-accent); font: 600 10px/1 'DM Mono', monospace; letter-spacing: 0.03em; box-sizing: border-box; }
+.conversation-idea-badge::before { content: ""; width: 5px; height: 5px; border-radius: 999px; background: currentColor; opacity: 0.85; }
 .conversation-markdown-export-status { margin: 4px 0; color: var(--app-muted); font: 11px 'DM Mono', monospace; overflow-wrap: anywhere; }
 .markdown-preview-content h1, .markdown-preview-content h2, .markdown-preview-content h3, .markdown-preview-content h4 { margin: 1.35em 0 .5em; line-height: 1.2; }
 .markdown-preview-content h1:first-child, .markdown-preview-content h2:first-child, .markdown-preview-content h3:first-child, .markdown-preview-content h4:first-child { margin-top: 0; }

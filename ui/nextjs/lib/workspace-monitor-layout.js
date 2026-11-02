@@ -10,14 +10,14 @@ export const MONITOR_LAYOUT_KEY = "nodeforge:workspace-monitor-layout";
 export const INITIAL_PANELS = {
   watcher: { x: 24, y: 24, width: 360, height: 260, visible: true, minimized: false },
   agent: { x: 410, y: 24, width: 360, height: 260, visible: true, minimized: false },
-  ideas: { x: 16, y: 64, width: 340, height: 360, visible: false, minimized: false },
+  notebook: { x: 16, y: 64, width: 340, height: 360, visible: false, minimized: false },
 };
 
 /**
  * Clamp one monitor panel's coordinates and dimensions so its floating window remains reachable
  * and completely within the active browser viewport across desktop, tablet, and mobile widths.
  */
-export function clampMonitorPanel(panel, defaults = INITIAL_PANELS.ideas, viewportWidth = 1440, viewportHeight = 900) {
+export function clampMonitorPanel(panel, defaults = INITIAL_PANELS.notebook, viewportWidth = 1440, viewportHeight = 900) {
   const safeWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 1440;
   const safeHeight = Number.isFinite(viewportHeight) && viewportHeight > 0 ? viewportHeight : 900;
   const minW = Math.min(safeWidth <= 640 ? 220 : 260, Math.max(120, safeWidth - 16));
@@ -66,11 +66,11 @@ export function restoreMonitorLayout(saved, viewportWidth = 1440, viewportHeight
   const safeWidth = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 1440;
   const safeHeight = Number.isFinite(viewportHeight) && viewportHeight > 0 ? viewportHeight : 900;
   return Object.fromEntries(Object.entries(basePanels).map(([name, defaults]) => {
-    const entry = saved[name];
+    const entry = saved[name] ?? (name === "notebook" ? saved.ideas : undefined);
     if (!entry || typeof entry !== "object") {
-      return [name, name === "ideas" ? clampMonitorPanel(defaults, defaults, safeWidth, safeHeight) : defaults];
+      return [name, name === "notebook" ? clampMonitorPanel(defaults, defaults, safeWidth, safeHeight) : defaults];
     }
-    if (name === "ideas") {
+    if (name === "notebook") {
       return [name, clampMonitorPanel(entry, defaults, safeWidth, safeHeight)];
     }
     return [name, {
@@ -87,14 +87,14 @@ export function restoreMonitorLayout(saved, viewportWidth = 1440, viewportHeight
 
 /**
  * Serialize only the approved window geometry and visibility/minimized state fields for storage,
- * stripping any extraneous properties so idea or draft text can never be written to localStorage.
+ * stripping any extraneous properties so notebook or draft text can never be written to localStorage.
  */
 /**
  * Business purpose: Maintains the stacking order of floating workspace monitor panels so selecting or activating a panel brings it to the top above other panels.
  * Technical description: Moves the target panel name to the end of the ordered panel stack while preserving existing relative order for remaining panels.
  */
-export function bringMonitorPanelToFront(order = ["watcher", "agent", "ideas"], name) {
-  const base = Array.isArray(order) && order.length ? order : ["watcher", "agent", "ideas"];
+export function bringMonitorPanelToFront(order = ["watcher", "agent", "notebook"], name) {
+  const base = Array.isArray(order) && order.length ? order : ["watcher", "agent", "notebook"];
   if (!name) return base;
   return [...base.filter((item) => item !== name), name];
 }
@@ -103,14 +103,14 @@ export function bringMonitorPanelToFront(order = ["watcher", "agent", "ideas"], 
  * Business purpose: Computes the CSS z-index for a floating workspace monitor panel so the active panel renders above inactive panels while staying below the monitor dock.
  * Technical description: Returns a base stacking index plus the panel's position in the order stack and a top-level boost when the panel is currently active.
  */
-export function getMonitorPanelZIndex(order = ["watcher", "agent", "ideas"], name, activePanel = null) {
-  const list = Array.isArray(order) && order.length ? order : ["watcher", "agent", "ideas"];
+export function getMonitorPanelZIndex(order = ["watcher", "agent", "notebook"], name, activePanel = null) {
+  const list = Array.isArray(order) && order.length ? order : ["watcher", "agent", "notebook"];
   const index = Math.max(0, list.indexOf(name));
   return 82 + index + (activePanel === name ? 6 : 0);
 }
 
 export function serializeMonitorLayout(panels, layoutScope = "home") {
-  const keys = layoutScope === "home" ? ["watcher", "agent", "ideas"] : ["watcher", "agent"];
+  const keys = layoutScope === "home" ? ["watcher", "agent", "notebook"] : ["watcher", "agent"];
   const output = {};
   for (const name of keys) {
     const defaults = INITIAL_PANELS[name] ?? INITIAL_PANELS.watcher;

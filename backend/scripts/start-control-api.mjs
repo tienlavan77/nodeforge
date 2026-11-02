@@ -59,8 +59,8 @@ import { createTicketHumanReviewService } from "../src/application/ticket-human-
 import { createTicketBlockerDecisionService } from "../src/application/ticket-blocker-decision-service.js";
 import { createTicketRunDispatch } from "../src/application/ticket-run-dispatch.js";
 import { reviewPhaseResume } from "../src/modules/supervisor/review/review-revision-resume.js";
-import { createIdeasStore } from "../src/modules/projects/ideas-store.js";
-import { createIdeasProjectAuth } from "../src/modules/governance/ideas-project-auth.js";
+import { createNotebookStore } from "../src/modules/projects/notebook-store.js";
+import { createNotebookProjectAuth } from "../src/modules/governance/notebook-project-auth.js";
 
 const config = readControlApiConfig();
 const { port, host } = config;
@@ -84,7 +84,7 @@ const markdownPlanStore = createMarkdownPlanStore({ projectId: config.projectId,
 const planStore = createHumanPlanStore({ projectId: config.projectId, database, fileService: planFileService, markdownPlans: markdownPlanStore });
 const sprintRegistry = createSprintRegistry({ projectId: config.projectId, database, plans: planStore });
 const planOwnerAuth = createPlanOwnerAuth({ token: process.env.NODEFORGE_PLAN_OWNER_TOKEN, ownerId: process.env.NODEFORGE_PLAN_OWNER_ID });
-const ideasAuth = createIdeasProjectAuth({
+const notebookAuth = createNotebookProjectAuth({
   planOwnerAuth,
   verifyIdentity: (headers = {}) => {
     const authHeader = headers.authorization ?? headers.Authorization;
@@ -92,11 +92,11 @@ const ideasAuth = createIdeasProjectAuth({
       ? planOwnerAuth.verify(headers)
       : (process.env.NODEFORGE_PLAN_OWNER_ID || "local-owner");
   },
-  canAccessProject: ({ projectId: targetProjectId } = {}) => targetProjectId === "__unlocated_idea__"
+  canAccessProject: ({ projectId: targetProjectId } = {}) => targetProjectId === "__unlocated_notebook__"
     || targetProjectId === config.projectId
     || Boolean(projectLifecycle?.list?.().some((entry) => entry?.projectId === targetProjectId))
 });
-const ideas = createIdeasStore({ controlDb, projectId: config.projectId });
+const notebook = createNotebookStore({ controlDb, projectId: config.projectId });
 const draftPlan = createSprintPlanDraftPersistence({ projectId: config.projectId, planStore, markdownPlanStore, sprintRegistry });
 const platform = createControlApiPlatform({ config, database, indexDb, fileService, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, agentRoleResolver, logEvent, draftPlan, sprintRegistry });
 const codeCache = storage.disposal.own(platform.codeCache, "close", 20);
@@ -202,7 +202,7 @@ const publishUnifiedStreamEvent = createUnifiedStreamPublisher({ unifiedStreamOr
 
 const services = {
   bus, communications, conversations, eventStore, indexDb: platformIndexDb, subscriptions, knowledge, roadmaps, sprintPlans, provenance, gitService, planFileService, sprintPlanLeader,
-  planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, ideasAuth, ideas, controlDb, database, agentRoleResolver, testService,
+  planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, notebookAuth, notebook, controlDb, database, agentRoleResolver, testService,
   relevantTreeSelector, decisions, agentSettings, sprintPlanUpload, sprintOrchestration, dispatchTicket, runToolLab, directCodeRequest, internalBus,
   proseTicketService, buildBuilderContext, protocolStorage, conversationStateStore, fileService, codeCache, codeSearch, agentGateway, agentConfiguration, sdkGateways: Object.fromEntries([claudeSdkGateway, { ...claudeSdkGateway, provider: "anthropic" }, codexSdkGateway, { ...ollamaSdkGateway }, openaiSdkGateway, ...["xai", "alibaba", "zhipu", "deepseek"].map((provider) => ({ ...openaiSdkGateway, provider }))].map((gateway) => [gateway.provider, gateway])), projectRoot: config.cwd, publishUnifiedStreamEvent,
   ticketCrudService: createTicketCrudService({ roadmaps, sprintRegistry, proseTicketService, ticketFileStore, publisher: eventPublisher, agentStream: ({ agentId, payload, correlationId }) => agentGateway.stream({ agentId, payload, correlationId }), agentRoleResolver, sprintLeader: ticketSprintLeader }),

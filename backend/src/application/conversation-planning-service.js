@@ -41,9 +41,84 @@ function carriedSession(previousMarkdown) {
 }
 
 // Creates one resumable conversation planning workflow bound to a project's plan stores.
-export function createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture, conversationStateStore, maxSelfHealAttempts = 2 } = {}) {
+export function createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture, conversationStateStore, communications, maxSelfHealAttempts = 2 } = {}) {
   if (!projectId || !fileService?.readFile || !markdownPlanStore?.createRevision || typeof validateMarkdown !== "function" || !sessions?.create || typeof requestArchitecture !== "function") throw decisionError("CONVERSATION_PLANNING_UNAVAILABLE", "Conversation planning needs File Service, the Markdown plan store, gates, sessions and Architecture.");
   const maxRetries = Number.isInteger(maxSelfHealAttempts) && maxSelfHealAttempts >= 0 ? maxSelfHealAttempts : 2;
+
+  // Business purpose: extracts the readable text body from either a standard conversation message or a System Engineer SDK conversation_turn activity snapshot so marked ideas can be fed into plan generation.
+  // Technical description: inspects payload.sdk_event.entries when the message is a system_engineer conversation_turn activity, otherwise returns trimmed payload.text or payload.content.
+  function extractMessageText(message) {
+    const payload = message?.payload ?? {};
+    if (message?.message_type === "agent.activity" && payload.agent_role === "system_engineer" && payload.sdk_event?.type === "conversation_turn") {
+      return (payload.sdk_event.entries ?? []).filter((entry) => entry.type === "text" && typeof entry.text === "string").map((entry) => entry.text).join("\n").trim();
+    }
+    return String(payload.text ?? payload.content ?? "").trim();
+  }
+
+  // Business purpose: strips standalone plan creation trigger lines from follow-up conversation text so the plan command itself is not duplicated into an idea's context.
+  // Technical description: splits text by line, removes lines that match parseConversationPlanCreateTrigger, and returns the trimmed remainder.
+  function stripTriggerLines(rawText) {
+    return String(rawText ?? "").split(/\r?\n/).filter((line) => !parseConversationPlanCreateTrigger(line)).join("\n").trim();
+  }
+
+  // Business purpose: retrieves conversation history, identifies each marked agent idea in chronological order, and groups subsequent related exchanges into the corresponding idea before plan creation.
+  // Technical description: queries direct and linked conversation messages from communications, deduplicates SE turn snapshots, anchors each group on an agent message with payload.is_idea set to true, attaches follow-up messages (with trigger lines stripped) to their active or referenced idea group, and returns ordered idea group descriptors.
+  function extractMarkedIdeaGroups(conversationId, triggerText) {
+    const direct = conversationId && typeof communications?.getByConversationId === "function"
+      ? communications.getByConversationId(conversationId)
+      : (typeof communications?.getAll === "function" ? communications.getAll().filter((m) => !conversationId || m.conversation_id === conversationId) : []);
+    const linked = conversationId && typeof communications?.getByLinkedConversationId === "function"
+      ? communications.getByLinkedConversationId(conversationId).filter((m) => !direct.some((item) => item.id === m.id || (item.correlation_id && item.correlation_id === m.correlation_id)))
+      : [];
+    const allMessages = [...direct, ...linked].filter((m) => !m.project_id || m.project_id === projectId);
+    const seTurnCorrelations = new Set(allMessages.filter((m) => m.message_type === "agent.activity" && m.payload?.sdk_event?.type === "conversation_turn" && m.correlation_id).map((m) => m.correlation_id));
+    const ordered = allMessages
+      .filter((m) => !(m.message_type === "system_engineer.message.received" && m.correlation_id && seTurnCorrelations.has(m.correlation_id)))
+      .sort((a, b) => String(a.timestamp ?? "").localeCompare(String(b.timestamp ?? "")));
+    const isOwnerMsg = (m) => m.message_type === "owner.message" || m.sender?.role === "project_owner" || m.sender?.role === "owner";
+    const isAgentIdeaMsg = (m) => Boolean(m.payload?.is_idea) && !isOwnerMsg(m) && Boolean(extractMessageText(m));
+    const ideaPromptOwnerIds = new Set();
+    const ownerByCorrelation = new Map();
+    for (const msg of ordered) {
+      if (isOwnerMsg(msg) && msg.correlation_id) ownerByCorrelation.set(msg.correlation_id, msg);
+    }
+    for (const msg of ordered) {
+      if (isAgentIdeaMsg(msg) && msg.correlation_id && ownerByCorrelation.has(msg.correlation_id)) {
+        ideaPromptOwnerIds.add(ownerByCorrelation.get(msg.correlation_id).id);
+      }
+    }
+    const groups = [];
+    for (const msg of ordered) {
+      if (isAgentIdeaMsg(msg)) {
+        const ideaText = extractMessageText(msg);
+        const ownerMsg = msg.correlation_id ? ownerByCorrelation.get(msg.correlation_id) : null;
+        const ownerText = ownerMsg ? stripTriggerLines(extractMessageText(ownerMsg)) : "";
+        const ideaIndex = groups.length + 1;
+        groups.push({ idea_index: ideaIndex, idea_message_id: msg.id, owner_message_id: ownerMsg?.id ?? null, owner_text: ownerText, idea_text: ideaText, follow_ups: [] });
+        continue;
+      }
+      if (!groups.length || ideaPromptOwnerIds.has(msg.id)) continue;
+      if (msg.message_type === "owner.command.result" || msg.message_type === "owner.command.error" || String(msg.message_type ?? "").endsWith(".error")) continue;
+      const cleaned = stripTriggerLines(extractMessageText(msg));
+      if (!cleaned) continue;
+      const refMatch = /\b(?:ý\s+tưởng|idea)\s*#?(\d+)\b/i.exec(cleaned);
+      const refIndex = refMatch ? Number(refMatch[1]) - 1 : -1;
+      const targetGroup = refIndex >= 0 && refIndex < groups.length ? groups[refIndex] : groups[groups.length - 1];
+      targetGroup.follow_ups.push({ id: msg.id, role: isOwnerMsg(msg) ? "Owner" : "Agent", text: cleaned });
+    }
+    const extraTriggerNotes = stripTriggerLines(triggerText);
+    return groups.map((group) => {
+      const followUpBlock = group.follow_ups.map((item) => `${item.role} (${item.id}):\n${item.text}`).join("\n\n");
+      const combined = [
+        `--- Marked Idea #${group.idea_index} (${group.idea_message_id}) ---`,
+        ...(group.owner_text ? [`Owner Request (${group.owner_message_id}):\n${group.owner_text}`] : []),
+        `Agent Idea (${group.idea_message_id}):\n${group.idea_text}`,
+        ...(followUpBlock ? [`--- Follow-up Discussion for Idea #${group.idea_index} ---\n${followUpBlock}`] : []),
+        ...(extraTriggerNotes ? [`--- Additional Planning Notes ---\n${extraTriggerNotes}`] : [])
+      ].join("\n\n");
+      return { idea_index: group.idea_index, idea_message_id: group.idea_message_id, owner_message_id: group.owner_message_id, idea_text: group.idea_text, follow_up_count: group.follow_ups.length, combined_text: combined };
+    });
+  }
 
   // Business purpose: loads the Discovery Compact Receipt recorded during Phase 1 or earlier repository inspections in the same conversation so Phase 2 and Phase 3 prompts reuse verified file checksums and line ranges.
   // Technical description: reads conversation state from conversationStateStore or session.discovery_receipt and formats it via formatDiscoveryCompactReceipt.
@@ -80,11 +155,45 @@ export function createConversationPlanningService({ projectId, fileService, mark
     throw decisionError("ARCHITECTURE_QUESTIONS_INVALID", "Architecture returned malformed question JSON.");
   }
 
-  // Generates revision r1 from conversation context or a specified Markdown file and its Node-generated source anchor.
+  // Generates revision r1 from conversation context, marked ideas, or a specified Markdown file and its Node-generated source anchor.
   async function createFromConversation({ text, conversationId }) {
     assertNoMixedPlanningApproval(text);
     const parsed = parseConversationPlanCreateTrigger(text);
     if (!parsed) throw decisionError("PLAN_TRIGGER_REQUIRED", "No standalone plan create trigger is present; the message stays normal conversation.");
+    if (parsed.source_kind === "marked_ideas") {
+      const ideaGroups = extractMarkedIdeaGroups(conversationId, text);
+      if (!ideaGroups.length) {
+        throw Object.assign(decisionError("PLAN_IDEAS_EMPTY", "Không có ý tưởng nào được đánh dấu trong cuộc trao đổi để tạo kế hoạch. Vui lòng đánh dấu ít nhất một ý tưởng trước khi tạo plan."), { statusCode: 409 });
+      }
+      const createdPlans = [];
+      for (const group of ideaGroups) {
+        const planId = `PLAN-${projectId}-${randomUUID()}`;
+        const intakeRecord = {
+          schema_version: 1, project_id: projectId, conversation_id: conversationId, trigger: parsed.line,
+          source_kind: "marked_ideas", idea_index: group.idea_index, idea_message_id: group.idea_message_id,
+          ...(group.owner_message_id ? { owner_message_id: group.owner_message_id } : {}),
+          delivery_target: parsed.delivery_target, text: group.combined_text
+        };
+        const intake = await retainConversationIntakeSource({ fileService, planId, intake: intakeRecord });
+        const { questions, pregeneratedPlan } = await requestClarificationWithSelfHeal(group.combined_text, conversationId);
+        const discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId);
+        const session = await sessions.create({ sourcePath: intake.path, sourceSha256: intake.sha256, conversationId, questions, generating: !questions.length, ...(discoveryReceipt ? { discovery_receipt: discoveryReceipt } : {}) });
+        const itemResult = questions.length
+          ? waitingForOwner(session, intakeRecord)
+          : await sessions.claim(session.session_id, (current, save) => generate({ session: discoveryReceipt ? { ...current, discovery_receipt: discoveryReceipt } : current, sourceText: group.combined_text, planId, save, intake: intakeRecord, pregeneratedPlan }));
+        createdPlans.push(itemResult);
+      }
+      if (createdPlans.length === 1) return { ...createdPlans[0], idea_count: 1, plans: createdPlans };
+      const primary = createdPlans[0];
+      const allCreated = createdPlans.every((item) => item.revision_created);
+      const anyCreated = createdPlans.some((item) => item.revision_created);
+      const planLabels = createdPlans.map((item) => item.revision_created ? `${item.plan_id} r${item.revision}` : `${item.plan_id} (chờ làm rõ)`).join(", ");
+      return {
+        ...primary, source_kind: "marked_ideas", delivery_target: parsed.delivery_target, idea_count: createdPlans.length, plans: createdPlans,
+        revision_created: anyCreated, status: allCreated ? primary.status : "awaiting_owner_decisions",
+        text: `Đã tạo ${createdPlans.length} kế hoạch từ ${createdPlans.length} ý tưởng đã đánh dấu: ${planLabels}. Chưa RUN.`
+      };
+    }
     let combinedSourceText = String(text ?? "");
     let sourceFileSha256 = null;
     if (parsed.source_kind === "markdown_file") {
@@ -289,16 +398,16 @@ export function createConversationPlanningService({ projectId, fileService, mark
 
 // Presents a clarification pause as a successful non-creation with no plan revision.
 function waitingForOwner(session, intake) {
-  const extra = intake && (intake.delivery_target !== "none" || intake.source_kind === "markdown_file")
-    ? { delivery_target: intake.delivery_target ?? "none", source_kind: intake.source_kind ?? "conversation", ...(intake.source_file_path ? { source_file_path: intake.source_file_path, source_file_sha256: intake.source_file_sha256 } : {}) }
+  const extra = intake && (intake.delivery_target !== "none" || intake.source_kind === "markdown_file" || intake.source_kind === "marked_ideas")
+    ? { delivery_target: intake.delivery_target ?? "none", source_kind: intake.source_kind ?? "conversation", ...(intake.source_file_path ? { source_file_path: intake.source_file_path, source_file_sha256: intake.source_file_sha256 } : {}), ...(intake.idea_message_id ? { idea_message_id: intake.idea_message_id, idea_index: intake.idea_index } : {}) }
     : {};
   return { command: "/plan", status: "awaiting_owner_decisions", session_id: session.session_id, conversation_id: session.conversation_id, source_summary_path: session.source_path, source_summary_sha256: session.source_sha256, plan_id: planIdFromIntakePath(session.source_path), ...extra, text: `Architecture cần owner chốt ${session.questions.length} quyết định trước khi tạo plan. Chưa lưu revision.`, run_started: false, revision_created: false };
 }
 
 // Returns the authoritative identity, rendered Markdown and review status for one locked revision.
 function createdResult(plan, session, intake) {
-  const extra = intake && (intake.delivery_target !== "none" || intake.source_kind === "markdown_file")
-    ? { delivery_target: intake.delivery_target ?? "none", source_kind: intake.source_kind ?? "conversation", ...(intake.source_file_path ? { source_file_path: intake.source_file_path, source_file_sha256: intake.source_file_sha256 } : {}) }
+  const extra = intake && (intake.delivery_target !== "none" || intake.source_kind === "markdown_file" || intake.source_kind === "marked_ideas")
+    ? { delivery_target: intake.delivery_target ?? "none", source_kind: intake.source_kind ?? "conversation", ...(intake.source_file_path ? { source_file_path: intake.source_file_path, source_file_sha256: intake.source_file_sha256 } : {}), ...(intake.idea_message_id ? { idea_message_id: intake.idea_message_id, idea_index: intake.idea_index } : {}) }
     : {};
   return { command: "/plan", status: plan.status ?? "awaiting_human_approval", session_id: session?.session_id ?? null, plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, file_id: plan.plan_id, path: plan.file_path, source_summary_path: plan.source_path, source_summary_sha256: plan.source_sha256, conversation_id: plan.conversation_id, markdown: plan.markdown, ...extra, text: `Đã tạo plan ${plan.plan_id} r${plan.revision}. Vào trang Coding để xem và approve plan. Chưa RUN.`, run_started: false, revision_created: true };
 }

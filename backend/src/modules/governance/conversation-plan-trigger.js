@@ -11,8 +11,8 @@
 // begin with a blockquote marker. Matching is exact per line, never substring search
 // over whole prose, so mixed messages are detected by counting distinct trigger kinds.
 
-const HANDOFF_SUFFIX_EN = "(?:(?:\\s*,\\s*|\\s+and\\s+)(?:please\\s+)?(?:hand\\s*off|assign|delegate)(?:\\s+(?:it|the\\s+work|work|this))?\\s+to\\s+(?<target_en>se|sl|system\\s+engineer|sprint\\s+leader))?";
-const HANDOFF_SUFFIX_VI = "(?:(?:\\s*,\\s*|\\s+và\\s+)(?:giao\\s+việc|chuyển\\s+giao|bàn\\s+giao)\\s+cho\\s+(?<target_vi>se|sl|system\\s+engineer|sprint\\s+leader))?";
+const HANDOFF_SUFFIX_EN = "(?:(?:\\s*,\\s*|\\s+and\\s+)(?:please\\s+)?(?:hand\\s*off|assign|delegate)(?:\\s+(?:it|the\\s+work|work|this|them))?\\s+to\\s+(?<target_en>se|sl|system\\s+engineer|sprint\\s+leader))?";
+const HANDOFF_SUFFIX_VI = "(?:(?:\\s*,\\s*|\\s+và\\s+)(?:giao(?:\\s+việc)?|chuyển\\s+giao|bàn\\s+giao)\\s+cho\\s+(?<target_vi>se|sl|system\\s+engineer|sprint\\s+leader))?";
 
 // Recognized standalone English/Vietnamese imperative create-plan phrases from conversation.
 const CONVERSATION_CREATE_PHRASES = [
@@ -60,6 +60,34 @@ function normalizeDeliveryTarget(raw) {
 
 // Business purpose: parses a standalone plan creation trigger line in owner conversation so the planning workflow can accept either the active conversation or a specified Markdown document as its input source and optionally trigger automatic handoff to Sprint Leader or System Engineer.
 // Technical description: scans non-fenced, non-quoted, non-interrogative lines against conversation and file creation regex patterns and returns an object containing line, source_kind, source_path, and delivery_target, or null when no trigger is present.
+const MARKED_IDEAS_CREATE_PHRASES = [
+  new RegExp(`^(?:please\\s+)?(?:create|generate|draft|make)\\s+(?:an?\\s+|the\\s+)?(?:new\\s+)?(?:architecture\\s+)?plans?\\s+from\\s+(?:the\\s+|all\\s+)?(?:marked\\s+)?ideas?(?:\\s+in\\s+(?:this|the)\\s+conversation)?\\b${HANDOFF_SUFFIX_EN}[.!]?$`, "i"),
+  new RegExp(`^(?:please\\s+)?tạo\\s+(?:các\\s+)?kế\\s+hoạch(?:\\s+kiến\\s+trúc)?\\s+từ\\s+(?:các\\s+|những\\s+|danh\\s+sách\\s+)?ý\\s+tưởng(?:\\s+đã\\s+đánh\\s+dấu)?(?:\\s+trong\\s+cuộc\\s+trao\\s+đổi)?${HANDOFF_SUFFIX_VI}[.!]?$`, "i"),
+  new RegExp(`^\\/(?:plan-ideas|plan-marked-ideas)(?:\\s+(?<target_en>se|sl|system\\s+engineer|sprint\\s+leader))?[.!]?$`, "i")
+];
+
+const IDEA_SYNTHESIS_PHRASES = [
+  /^(?:(?:please|hãy|vui\s+lòng|nhờ\s+bạn)\s+)?(?:tổng\s+hợp|tóm\s+tắt|gom(?:\s+nhóm)?|chốt|lưu|ghi\s+nhận|đánh\s+dấu)(?:\s+.*)?\s+(?:thành\s+)?(?:một\s+|các\s+)?ý\s+tưởng(?:\s+.*)?[.!]?$/i,
+  /^(?:please\s+)?(?:summarize|synthesi[sz]e|consolidate|compile|capture|save|record|mark|turn)\b.*\b(?:as\s+(?:an?\s+)?|into\s+(?:an?\s+)?)?ideas?\b.*[.!]?$/i
+];
+
+const AGENT_IDEA_HEADING_RE = /(?:^|\r?\n)\s*(?:#{1,4}\s*(?:ý\s+tưởng|tổng\s+hợp\s+ý\s+tưởng|idea|idea\s+summary)\b|\*\*(?:ý\s+tưởng|tổng\s+hợp\s+ý\s+tưởng|idea|idea\s+summary)\s*[:：]|\[idea\])/i;
+
+// Business purpose: detects a standalone owner request in conversation asking the agent to synthesize or summarize related exchanges into an idea.
+// Technical description: scans non-fenced, non-quoted, non-interrogative lines that are not plan creation triggers against IDEA_SYNTHESIS_PHRASES and returns the first matching line or null.
+export function detectIdeaSynthesisTrigger(text) {
+  if (parseConversationPlanCreateTrigger(text)) return null;
+  return firstMatchingLine(text, IDEA_SYNTHESIS_PHRASES);
+}
+
+// Business purpose: determines whether an agent response message should be persisted and streamed with is_idea set to true automatically or via explicit caller state.
+// Technical description: preserves any explicit boolean flag, otherwise checks whether the originating owner prompt matched detectIdeaSynthesisTrigger or the agent reply text matches AGENT_IDEA_HEADING_RE.
+export function isIdeaSummaryResponse({ ownerText = "", agentText = "", explicitIdea } = {}) {
+  if (typeof explicitIdea === "boolean") return explicitIdea;
+  if (detectIdeaSynthesisTrigger(ownerText) !== null) return true;
+  return AGENT_IDEA_HEADING_RE.test(String(agentText ?? ""));
+}
+
 export function parseConversationPlanCreateTrigger(text) {
   const lines = String(text ?? "").split(/\r?\n/);
   let fenced = false;
@@ -68,6 +96,17 @@ export function parseConversationPlanCreateTrigger(text) {
     if (fenced) continue;
     const line = rawLine.trim();
     if (!line || line.endsWith("?") || line.endsWith("？") || line.startsWith(">")) continue;
+    for (const pattern of MARKED_IDEAS_CREATE_PHRASES) {
+      const match = pattern.exec(line);
+      if (match) {
+        return {
+          line,
+          source_kind: "marked_ideas",
+          source_path: null,
+          delivery_target: normalizeDeliveryTarget(match.groups?.target_en ?? match.groups?.target_vi)
+        };
+      }
+    }
     for (const pattern of CONVERSATION_CREATE_PHRASES) {
       const match = pattern.exec(line);
       if (match) {

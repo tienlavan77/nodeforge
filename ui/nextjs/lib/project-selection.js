@@ -109,7 +109,7 @@ function assertCurrent(selection) {
 }
 
 const globalOperations = new Set(["getAgents", "getAgent", "createAgent", "saveAgentSettings", "testAgentConnection", "sendOwnerMessage"]);
-const objectOperations = new Set(["listIdeas", "createIdea", "getIdea", "updateIdea", "deleteIdea", "createConversation", "listConversations", "postHumanDecision", "getConversationAuditHistory", "postOwnerMessage", "getConversationMessages", "saveConversationMarkdown", "connectConversationStream", "sendOwnerMessage", "connectProjectStream"]);
+const objectOperations = new Set(["listNotebook", "createNotebook", "getNotebook", "updateNotebook", "deleteNotebook", "createConversation", "listConversations", "postHumanDecision", "getConversationAuditHistory", "postOwnerMessage", "getConversationMessages", "saveConversationMarkdown", "connectConversationStream", "sendOwnerMessage", "connectProjectStream"]);
 
 // Bind existing operation-specific request shapes and callbacks to one immutable selection generation.
 export function bindProjectClient(client, explicitProjectId) {
