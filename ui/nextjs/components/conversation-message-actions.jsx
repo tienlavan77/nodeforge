@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { resizeInlineEditTextarea } from "../lib/conversation-message-revisions.js";
 
 // Copies message text through the modern clipboard API or the browser fallback.
@@ -85,12 +85,19 @@ export function ConversationMessageActions({ message, onEdit, onRetry, children 
 }
 
 // Renders copy and share actions for agent responses without exposing owner-only mutations.
-export function ConversationAgentMessageActions({ message, children, client, projectId }) {
+export function ConversationAgentMessageActions({ message, children, client, projectId, onToggleIdea }) {
   const [copied, setCopied] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [isIdea, setIsIdea] = useState(() => Boolean(message?.is_idea));
+  const [togglingIdea, setTogglingIdea] = useState(false);
   const text = String(message?.text ?? "");
   const isMarkdown = message?.content_type === "text/markdown";
+  const isAgent = (message?.from ?? "agent") === "agent";
+
+  useEffect(() => {
+    setIsIdea(Boolean(message?.is_idea));
+  }, [message?.id, message?.source_message_id, message?.is_idea]);
 
   // Copies an agent response and keeps feedback local to the selected transcript item.
   async function handleCopy() {
@@ -149,7 +156,38 @@ export function ConversationAgentMessageActions({ message, children, client, pro
     }
   }
 
+  // Business purpose: toggles the idea mark on an agent response with immediate badge feedback and rolls back if backend persistence fails.
+  // Technical description: applies an optimistic boolean flip to local and parent message state, calls client.setConversationMessageIdea for the conversation message, and restores the previous state with an error status on rejection.
+  async function handleToggleIdea() {
+    const targetMessageId = message?.source_message_id ?? message?.id;
+    if (!isAgent || togglingIdea || !client?.setConversationMessageIdea || !projectId || !message?.conversation_id || !targetMessageId) return;
+    const previousIdea = isIdea;
+    const nextIdea = !previousIdea;
+    setTogglingIdea(true);
+    setExportStatus("");
+    setIsIdea(nextIdea);
+    onToggleIdea?.(message, nextIdea);
+    try {
+      const result = await client.setConversationMessageIdea({
+        projectId,
+        conversationId: message.conversation_id,
+        messageId: targetMessageId,
+        isIdea: nextIdea
+      });
+      const resolvedIdea = typeof result?.is_idea === "boolean" ? result.is_idea : nextIdea;
+      setIsIdea(resolvedIdea);
+      onToggleIdea?.(message, resolvedIdea);
+    } catch (error) {
+      setIsIdea(previousIdea);
+      onToggleIdea?.(message, previousIdea);
+      setExportStatus(error?.message ?? "Could not update idea mark.");
+    } finally {
+      setTogglingIdea(false);
+    }
+  }
+
   return <>
+    {isAgent && isIdea && <span className="conversation-idea-badge">Idea</span>}
     {isMarkdown && <span className="conversation-markdown-badge">Markdown</span>}
     {children}
     <div className="claude-message-actions" aria-label="Agent message actions">
@@ -159,6 +197,9 @@ export function ConversationAgentMessageActions({ message, children, client, pro
       <button type="button" onClick={() => void handleShare()} disabled={!text} aria-label="Share agent message" title="Share">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
       </button>
+      {isAgent && <button type="button" className={isIdea ? "is-idea-active" : ""} onClick={() => void handleToggleIdea()} disabled={togglingIdea || !text || !client?.setConversationMessageIdea || !projectId || !message?.conversation_id || !(message?.source_message_id ?? message?.id)} aria-pressed={isIdea} aria-label={isIdea ? "Remove idea mark" : "Mark as idea"} title={isIdea ? "Remove idea" : "Mark as idea"}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6m-5 3h4M12 3a6 6 0 0 0-3.8 10.6c.5.4.8 1 .8 1.7V16h6v-.7c0-.7.3-1.3.8-1.7A6 6 0 0 0 12 3Z" /></svg>
+      </button>}
       {isMarkdown && <>
         <button type="button" onClick={handleDownload} disabled={!text} aria-label="Download Markdown" title="Download .md">↓</button>
         <button type="button" onClick={() => void handleSaveFile()} disabled={exporting || !text || !client} aria-label="Save Markdown to project" title="Write file">{exporting ? "…" : "↳"}</button>

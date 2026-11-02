@@ -30,7 +30,7 @@ export function isProtectedPath(path, { operation = "read", forIndex = false, ro
   if (typeof path !== "string" || !path) return true;
   if (role === "coder") return !isCoderProjectPath(path);
   const normalized = path.replaceAll("\\", "/").replace(/^\.\//, "");
-  if (role === "system_engineer" && (normalized === ".forge" || normalized.startsWith(".forge/") || isProjectGitkeepPath(normalized))) return false;
+  if ((role === "system_engineer" || role === "reviewer" && operation === "read") && (normalized === ".forge" || normalized.startsWith(".forge/") || isProjectGitkeepPath(normalized))) return false;
   const runtimePath = normalized === FORGE_STATE_DIR || normalized.startsWith(STATE_DIR_PREFIX);
   if (runtimePath) return false;
   if (matches(normalized)) return true;

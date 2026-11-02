@@ -22,7 +22,7 @@ import { sprintArchitectureDecisions } from "../../src/modules/governance/sprint
 import { architectureSessionFromRecord, renderArchitecturePlanMarkdown } from "../../src/modules/governance/architecture-plan-json.js";
 import { retainConversationPlanSource } from "../../src/modules/governance/conversation-plan-source.js";
 import { createOwnerChatCommandService } from "../../src/application/owner-chat-command-service.js";
-import { formatHumanReadableHandoffBrief } from "../../src/application/am-se-handoff-service.js";
+import { formatHumanReadableHandoffBrief, parseAmReviewVerdict, parseSePlanCritique } from "../../src/application/am-se-handoff-service.js";
 import { createConversationCrudService } from "../../src/application/conversation-crud-service.js";
 
 const planJSON = JSON.stringify({ title: "Conversation plan", objective: "Deliver API", background: "Owner conversation",
@@ -257,7 +257,79 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
   conversations.ensure({ id: `CONV-SE-${seRes.plan_id}`, project_id: "PROJECT-A", agent_id: "se-1", title: "Legacy handoff" });
   assert.equal(conversations.list({ projectId: "PROJECT-A", agentId: "se-1" }).length, 0, "legacy internal sessions stay out of the sidebar");
   assert.ok(conversations.get(`CONV-SE-${seRes.plan_id}`), "legacy history remains accessible for audit");
+
+  // 3. AM -> SE -> RV -> SE -> RV -> AM -> SE -> RV -> AM full cycle with independent Reviewer (RV) gate.
+  const cycleSeCalls = [];
+  const cycleRvCalls = [];
+  const cycleAmCalls = [];
+  const cycleBusMessages = [];
+  const cycleCommandService = createOwnerChatCommandService({
+    projectId: "PROJECT-A",
+    fileService: f.fileService,
+    planStore: f.plans,
+    markdownPlanStore: f.markdownPlans,
+    handoffApprovedPlan: (args) => f.service().handoff(args),
+    sprintRegistry: f.registry,
+    bus: { send: (msg) => { cycleBusMessages.push(msg); return msg; } },
+    conversationCrudService: conversations,
+    agentRoleResolver: {
+      resolveProfile: (role) => {
+        if (role === "system_engineer") return { agent_id: "se-1", role: "system_engineer" };
+        if (role === "reviewer") return { agent_id: "rv-1", role: "reviewer" };
+        if (role === "architecture_manager") return { agent_id: "am-1", role: "architecture_manager" };
+        return { agent_id: "SL-A", role: "sprint_lead" };
+      }
+    }
+  });
+
+  const cycleRes = await cycleCommandService.execute({
+    text: "tạo kế hoạch từ docs/spec.md, giao việc cho SE",
+    conversationId: "CONV-ARCH-RV",
+    project_id: "PROJECT-A",
+    approvedOwnerId: "OWNER",
+    requestArchitecture: async (prompt) => {
+      if (prompt.startsWith("Architecture clarification discovery")) return '{"questions":[]}';
+      if (prompt.startsWith("Architecture acceptance review")) {
+        cycleAmCalls.push(prompt);
+        return cycleAmCalls.length === 1
+          ? "AM nhận thấy cần bổ sung thêm 1 kiểm thử biên cho O1.\n[VERDICT: REVISE]"
+          : "AM nghiệm thu đạt toàn bộ O1 sau khi RV đã xác nhận.\n[VERDICT: PASS]";
+      }
+      return planJSON;
+    },
+    requestSystemEngineer: async (req) => {
+      cycleSeCalls.push(req);
+      if (req.phase === "plan_critique") return "SE đồng thuận phương án.\n[CRITIQUE: ALIGNED]";
+      return `SE hoàn thành thực thi vòng ${req.round}.`;
+    },
+    requestReviewer: async (req) => {
+      cycleRvCalls.push(req);
+      return req.round === 1
+        ? "RV phát hiện thiếu test cho trường hợp lỗi ở vòng 1.\n[VERDICT: REVISE]"
+        : `RV xác nhận code và test vòng ${req.round} đạt chuẩn.\n[VERDICT: PASS]`;
+    }
+  });
+
+  assert.equal(cycleRes.status, "completed");
+  assert.equal(cycleRes.rounds_completed, 3);
+  assert.equal(cycleRvCalls.length, 3, "RV reviews every SE implementation round");
+  assert.equal(cycleAmCalls.length, 2, "AM is NOT called in round 1 when RV returns REVISE; AM is called only in rounds 2 and 3 after RV returns PASS");
+  assert.match(cycleSeCalls[2].prompt, /Yêu cầu chỉnh sửa vòng 2 từ Reviewer độc lập \(RV\)/, "Round 1 RV REVISE routes directly back to SE");
+  assert.match(cycleAmCalls[0], /Independent Reviewer \(RV\) round 2 assessment \(\[VERDICT: PASS\]\)/, "AM receives RV PASS assessment alongside SE report");
+  assert.match(cycleSeCalls[3].prompt, /Hướng dẫn điều chỉnh vòng 3 từ Architecture Manager/, "Round 2 AM REVISE routes to SE for round 3");
+  assert.equal(cycleRes.history.filter((h) => h.phase === "implementation").length, 3);
+  assert.equal(cycleRes.history.find((h) => h.round === 1).stage, "rv_review");
+  assert.equal(cycleRes.history.find((h) => h.round === 1).rv_verdict, "REVISE");
+  assert.equal(cycleRes.history.find((h) => h.round === 2).stage, "am_acceptance");
+  assert.equal(cycleRes.history.find((h) => h.round === 2).rv_verdict, "PASS");
+  assert.equal(cycleRes.history.find((h) => h.round === 2).verdict, "REVISE");
+  assert.equal(cycleRes.history.find((h) => h.round === 3).verdict, "PASS");
+  assert.ok(cycleBusMessages.some((m) => m.message_type === "reviewer.message.received" && m.sender.role === "reviewer"));
   assert.match(formatHumanReadableHandoffBrief(JSON.parse(planJSON), { planId: "PLAN-1", sourceKind: "markdown_file", sourceFilePath: "docs/spec.md" }), /docs\/spec\.md/);
+  const parsedVerdict = parseAmReviewVerdict("Khi RV trả `[VERDICT: REVISE]` hoặc `[VERDICT: PASS]` đều hoạt động đúng.\nKết luận: đạt yêu cầu.\n`[VERDICT: PASS]`");
+  assert.equal(parsedVerdict.verdict, "PASS");
+  assert.doesNotMatch(parsedVerdict.cleanText, /`\[VERDICT: PASS\]`$/);
+  assert.equal(parseSePlanCritique("Phân tích hoàn tất.\n**[CRITIQUE: ALIGNED]**").status, "ALIGNED");
 
   // 3. Conversation SL handoff retry phrase ("giao lại cho SL") resumes/handoffs the latest plan in the conversation without regenerating the plan.
   assert.equal(commandService.isCommand("chạy giao lại cho SL giúp đi!"), true);

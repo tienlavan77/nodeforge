@@ -100,17 +100,19 @@ export function useProjectEventStream({
               if (!chunk) return current;
               setAgentTyping(true);
               const contentType = effectiveAgentContentType(payload);
-              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, correlation_id: payload.correlation_id, conversation_id: payload.conversation_id, stream_key: key, text: chunk, content_type: contentType, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, stream: true, reveal: true }];
+              const hasExplicitIdea = typeof payload.is_idea === "boolean";
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, correlation_id: payload.correlation_id, conversation_id: payload.conversation_id, stream_key: key, text: chunk, content_type: contentType, from: "agent", is_idea: Boolean(payload.is_idea), has_explicit_idea: hasExplicitIdea, nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, stream: true, reveal: true }];
               const next = [...current];
-              next[index] = { ...next[index], conversation_id: payload.conversation_id ?? next[index].conversation_id, text: `${next[index].text ?? ""}${chunk}`, content_type: contentType, stream: true, reveal: true };
+              next[index] = { ...next[index], conversation_id: payload.conversation_id ?? next[index].conversation_id, text: `${next[index].text ?? ""}${chunk}`, content_type: contentType, is_idea: hasExplicitIdea ? payload.is_idea : Boolean(next[index].is_idea), has_explicit_idea: Boolean(next[index].has_explicit_idea || hasExplicitIdea), stream: true, reveal: true };
               return next;
             }
             if (event.event_type === "conversation.message.received" || event.event_type === "conversation.message.completed") {
               setAgentTyping(false);
               const contentType = effectiveAgentContentType(payload);
-              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, source_message_id: payload.message_id, correlation_id: payload.correlation_id, conversation_id: payload.conversation_id, stream_key: key, text: payload.text ?? "", content_type: contentType, from: "agent", nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, reveal: true }];
+              const hasExplicitIdea = typeof payload.is_idea === "boolean";
+              if (index < 0) return [...current, { id: payload.message_id ?? event.event_id, source_message_id: payload.message_id, correlation_id: payload.correlation_id, conversation_id: payload.conversation_id, stream_key: key, text: payload.text ?? "", content_type: contentType, from: "agent", is_idea: Boolean(payload.is_idea), has_explicit_idea: hasExplicitIdea, nickname: agentDisplayName(payload.agent_id, agentDirectoryRef.current), timestamp, reveal: true }];
               const next = [...current];
-              next[index] = { ...next[index], id: payload.message_id ?? next[index].id, source_message_id: payload.message_id ?? next[index].source_message_id, conversation_id: payload.conversation_id ?? next[index].conversation_id, text: payload.text ?? next[index].text, content_type: contentType, stream: false, timestamp };
+              next[index] = { ...next[index], id: payload.message_id ?? next[index].id, source_message_id: payload.message_id ?? next[index].source_message_id, conversation_id: payload.conversation_id ?? next[index].conversation_id, text: payload.text ?? next[index].text, content_type: contentType, is_idea: hasExplicitIdea ? payload.is_idea : Boolean(next[index].is_idea), has_explicit_idea: Boolean(next[index].has_explicit_idea || hasExplicitIdea), stream: false, timestamp };
               return next;
             }
             return current;

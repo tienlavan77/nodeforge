@@ -219,6 +219,14 @@ export function createNodeClient(explicitProjectId) {
         fallbackError: "Node could not save this Markdown response."
       });
     },
+    // Business purpose: toggles or sets the persistent idea flag on an agent response message in the active conversation.
+    // Technical description: sends a POST request to the conversation message idea endpoint with project_id and optional boolean is_idea, returning the updated idea state.
+    async setConversationMessageIdea({ projectId, conversationId, messageId, isIdea }) {
+      return requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/idea`, { project: projectId }), {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId, ...(typeof isIdea === "boolean" ? { is_idea: isIdea } : {}) }),
+        fallbackError: "Node could not update the idea mark for this message."
+      });
+    },
     connectConversationStream({ projectId, conversationId, afterMessageId, onMessage, onReplayComplete, onError }) {
       if (typeof onMessage !== "function") throw new Error("Conversation stream requires an onMessage handler.");
       const source = createReconnectingEventSource((cursor) => forgeV1("/stream", { project: projectId, ...(cursor ? { after: cursor } : {}) }), { afterEventId: afterMessageId });

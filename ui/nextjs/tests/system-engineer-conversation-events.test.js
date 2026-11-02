@@ -55,6 +55,44 @@ test("command_execution and raw envelopes do not enter the SE chat transcript", 
 });
 
 // A saved turn and its live snapshots refer to one card and filter out command_execution blocks.
+test("newer SE stream snapshots without an explicit is_idea flag preserve a marked Idea badge", () => {
+  const first = activity(1, { type: "conversation_turn", entries: [{ id: "T-1", type: "text", text: "Initial reply" }] });
+  const initialMessages = appendSystemEngineerConversationEvent([], first, "CHAT", "SE");
+  assert.equal(initialMessages[0].is_idea, false);
+
+  const markedMessages = initialMessages.map((msg) => ({ ...msg, is_idea: true, has_explicit_idea: true }));
+
+  const newerSnapshotWithoutFlag = {
+    ...activity(1, { type: "conversation_turn", entries: [{ id: "T-1", type: "text", text: "Updated reply text" }] }),
+    event_id: "LIVE-2",
+    payload: {
+      activity_id: "ACT-2",
+      agent_role: "system_engineer",
+      conversation_id: "CHAT",
+      correlation_id: "RUN-1",
+      sdk_sequence: 2,
+      sdk_event: { type: "conversation_turn", entries: [{ id: "T-1", type: "text", text: "Updated reply text" }] }
+    }
+  };
+  const afterSnapshot = appendSystemEngineerConversationEvent(markedMessages, newerSnapshotWithoutFlag, "CHAT", "SE");
+  assert.equal(afterSnapshot.length, 1);
+  assert.equal(afterSnapshot[0].text, "Updated reply text");
+  assert.equal(afterSnapshot[0].is_idea, true);
+
+  const explicitUnmarkSnapshot = {
+    ...newerSnapshotWithoutFlag,
+    event_id: "LIVE-3",
+    payload: {
+      ...newerSnapshotWithoutFlag.payload,
+      activity_id: "ACT-3",
+      sdk_sequence: 3,
+      is_idea: false
+    }
+  };
+  const afterExplicitUnmark = appendSystemEngineerConversationEvent(afterSnapshot, explicitUnmarkSnapshot, "CHAT", "SE");
+  assert.equal(afterExplicitUnmark[0].is_idea, false);
+});
+
 test("reloaded turn replaces the live card and retains only text blocks in chat", () => {
   const first = { ...activity(1, { type: "conversation_turn", entries: [{ id: "INTRO", type: "text", text: "Checking" }] }), payload: { ...activity(1).payload, correlation_id: "RUN", sdk_event: { type: "conversation_turn", entries: [{ id: "INTRO", type: "text", text: "Checking" }] } } };
   const live = appendSystemEngineerConversationEvent([], first, "CHAT", "Engineer");

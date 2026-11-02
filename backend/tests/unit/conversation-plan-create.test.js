@@ -168,3 +168,73 @@ test("parseConversationPlanCreateTrigger parses all combinations of (conversatio
     assert.equal(parseConversationPlanCreateTrigger(ignored), null, ignored);
   }
 });
+
+test("self-healing planning loop repairs clarification, JSON schema, and missing evidence errors within retry limit and halts safely when exhausted", async () => {
+  const f = await fixture();
+  try {
+    const receiptState = {
+      active_file_checksums: { "backend/src/application/owner-chat-command-service.js": { sha256: "sha256:" + "a".repeat(64), total_lines: 185, status: "read" } },
+      discovery_receipts: [{ tool: "read_file", path: "backend/src/application/owner-chat-command-service.js", sha256: "sha256:" + "a".repeat(64), total_lines: 185 }]
+    };
+    const serviceWithState = createOwnerChatCommandService({
+      projectId: "PROJECT-A",
+      fileService: f.fileService,
+      planStore: createHumanPlanStore({ projectId: "PROJECT-A", database: f.database, fileService: f.fileService }),
+      markdownPlanStore: createMarkdownPlanStore({ projectId: "PROJECT-A", database: f.database, fileService: f.fileService }),
+      conversationStateStore: { get: async () => receiptState },
+      maxSelfHealAttempts: 2
+    });
+
+    const missingEvidencePlan = JSON.stringify({
+      ...JSON.parse(PLAN_JSON),
+      evidence: [{ path: "docs/non-existent-file.md", location: "L1-L10", fact: "Missing file reference." }]
+    });
+    const prompts = [];
+    let clarifyCalls = 0;
+    let genCalls = 0;
+    const created = await serviceWithState.execute({
+      text: "Create the architecture plan",
+      conversationId: "CONV-SELF-HEAL",
+      requestArchitecture: async (prompt) => {
+        prompts.push(prompt);
+        if (prompt.startsWith("Architecture clarification discovery")) {
+          clarifyCalls += 1;
+          return clarifyCalls === 1 ? "not valid json {" : '{"questions":[]}';
+        }
+        genCalls += 1;
+        if (genCalls === 1) return '{"malformed_plan":';
+        if (genCalls === 2) return missingEvidencePlan;
+        return PLAN_JSON;
+      }
+    });
+
+    assert.equal(created.revision_created, true);
+    assert.equal(created.revision, 1);
+    assert.equal(clarifyCalls, 2, "Clarification self-healed on retry 1");
+    assert.equal(genCalls, 3, "Plan generation self-healed after malformed JSON (retry 1) and DISCOVERY_INCOMPLETE missing evidence (retry 2)");
+    assert.match(prompts[1], /SELF-HEALING CLARIFICATION RETRY 1\/2/);
+    assert.match(prompts[1], /backend\/src\/application\/owner-chat-command-service\.js/, "Discovery Compact Receipt preserved during clarification retry");
+    assert.match(prompts[3], /SELF-HEALING PLAN GENERATION RETRY 1\/2 — ERROR ARCHITECTURE_PLAN_JSON_INVALID/);
+    assert.match(prompts[4], /SELF-HEALING PLAN GENERATION RETRY 2\/2 — ERROR DISCOVERY_INCOMPLETE/);
+    assert.match(prompts[4], /docs\/non-existent-file\.md/, "Missing evidence path diagnostic included in repair prompt");
+    assert.match(prompts[4], /backend\/src\/application\/owner-chat-command-service\.js/, "Discovery Compact Receipt preserved across generation retries");
+
+    // Exhausted retries halt safely without persisting an invalid revision
+    const failPrompts = [];
+    await assert.rejects(
+      () => serviceWithState.execute({
+        text: "Create the architecture plan",
+        conversationId: "CONV-EXHAUSTED",
+        requestArchitecture: async (prompt) => {
+          failPrompts.push(prompt);
+          if (prompt.startsWith("Architecture clarification discovery")) return '{"questions":[]}';
+          return missingEvidencePlan;
+        }
+      }),
+      (error) => error.code === "DISCOVERY_INCOMPLETE" && /docs\/non-existent-file\.md/.test(error.message)
+    );
+    assert.equal(failPrompts.length, 4, "1 clarification + 1 initial generation + 2 self-heal retries before halting");
+  } finally {
+    await f.close();
+  }
+});
