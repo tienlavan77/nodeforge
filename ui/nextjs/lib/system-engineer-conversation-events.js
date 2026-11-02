@@ -21,6 +21,8 @@ export function systemEngineerConversationEvent({ id, payload, timestamp }, nick
     return { id: activityId, source_message_id: id, conversation_id: payload.conversation_id, correlation_id: payload.correlation_id,
       stream_key: `agent:${payload.correlation_id}`, se_event: effectiveEvent, sdk_sequence: payload.sdk_sequence,
       timestamp: entries[0]?.timestamp ?? timestamp, text, from: "agent", nickname: nickname ?? payload.agent_id,
+      is_idea: Boolean(payload.is_idea),
+      has_explicit_idea: typeof payload.is_idea === "boolean",
       retryable: false, status: payload.status, stream: payload.status === "working" };
   }
   return null;
@@ -38,7 +40,8 @@ export function appendSystemEngineerConversationEvent(messages, event, conversat
   const previous = messages[position];
   if (previous.id === message.id || previous.sdk_sequence >= message.sdk_sequence) return messages;
   const next = [...messages];
-  next[position] = { ...message, timestamp: previous.timestamp };
+  const resolvedIdea = message.has_explicit_idea ? message.is_idea : Boolean(previous.is_idea);
+  next[position] = { ...message, is_idea: resolvedIdea, timestamp: previous.timestamp };
   return withoutSystemEngineerReplyDuplicates(next);
 }
 

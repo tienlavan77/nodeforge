@@ -13,7 +13,7 @@ export function createConversationAuditHistoryService({ communications, eventSto
   if (eventStore !== undefined && typeof eventStore?.getAll !== "function") throw new ConfigurationError("Conversation Audit History Event Store must provide getAll().");
   if (history !== undefined && typeof history?.getByProject !== "function") throw new ConfigurationError("Conversation Audit History Store must provide getByProject().");
 
-  return Object.freeze({ query });
+  return Object.freeze({ query, setMessageIdea });
   // Defines query function behavior for conversation-audit-history-service.js.
   function query({ projectId, agentId, conversationId, correlationId, type, cursor, limit = 25, order = "asc", chatOnly = false } = {}) {
     if (projectId !== undefined) assertId(projectId, "project");
@@ -52,14 +52,54 @@ export function createConversationAuditHistoryService({ communications, eventSto
     const items = ordered.slice(start, start + limit).map((record) => structuredClone(record));
     return { items, next_cursor: start + items.length < ordered.length ? String(start + items.length) : null };
   }
+
+  // Business purpose: toggles or sets the persistent idea flag on an agent response message within a specific conversation and project.
+  // Technical description: validates projectId, conversationId, messageId, and optional boolean isIdea, verifies the target message belongs to the conversation and is an agent response rather than an owner or system/failure message, and persists is_idea via the communication store.
+  function setMessageIdea({ projectId, conversationId, messageId, isIdea } = {}) {
+    assertId(projectId, "project");
+    assertId(conversationId, "conversation");
+    assertId(messageId, "message");
+    if (isIdea !== undefined && typeof isIdea !== "boolean") {
+      throw Object.assign(new ConfigurationError("Conversation message idea flag must be a boolean."), { statusCode: 400, code: "MESSAGE_IDEA_INPUT_INVALID" });
+    }
+    const candidates = typeof communications?.getByConversationId === "function"
+      ? [...communications.getByConversationId(conversationId), ...(typeof communications?.getByLinkedConversationId === "function" ? communications.getByLinkedConversationId(conversationId) : [])]
+      : communications.getAll().filter((entry) => entry.conversation_id === conversationId || entry.payload?.linked_conversation_id === conversationId);
+    const direct = typeof communications?.getById === "function" ? communications.getById(messageId) : undefined;
+    const message = direct ?? candidates.find((entry) => entry.id === messageId || entry.payload?.activity_id === messageId);
+    if (!message || (message.project_id && message.project_id !== projectId) || (message.conversation_id !== conversationId && message.payload?.linked_conversation_id !== conversationId)) {
+      throw Object.assign(new ConfigurationError("Conversation message not found."), { statusCode: 404, code: "CONVERSATION_MESSAGE_NOT_FOUND" });
+    }
+    const kind = classifyMessage(message);
+    const isAgentReply = kind !== "owner" && kind !== "failure" && (
+      message.message_type === "owner.command.result"
+      || String(message.message_type ?? "").endsWith(".message.received")
+      || (message.message_type === "agent.activity" && message.payload?.agent_role === "system_engineer" && message.payload?.sdk_event?.type === "conversation_turn")
+      || kind === "agent"
+    );
+    if (!isAgentReply) {
+      throw Object.assign(new ConfigurationError("Only agent response messages can be marked as an idea."), { statusCode: 400, code: "MESSAGE_IDEA_AGENT_ONLY" });
+    }
+    const nextIdea = isIdea === undefined ? !message.payload?.is_idea : isIdea;
+    if (typeof communications?.updatePayload === "function") {
+      communications.updatePayload(message.id, { is_idea: nextIdea });
+    } else if (message.payload && typeof message.payload === "object") {
+      message.payload.is_idea = nextIdea;
+    }
+    return { message_id: messageId, conversation_id: conversationId, project_id: projectId, is_idea: nextIdea };
+  }
 }
 
 // Maps a communication message to an audit history record.
 function messageRecord(message, index) {
+  const kind = classifyMessage(message);
+  const role = roleForMessage(message);
+  const isAgent = kind !== "owner" && kind !== "failure" && (message.message_type === "owner.command.result" || role === "agent");
   return {
-    id: message.id, kind: classifyMessage(message), role: roleForMessage(message), author: message.sender?.id ?? null, sequence: index, timestamp: message.timestamp,
+    id: message.id, kind, role, author: message.sender?.id ?? null, sequence: index, timestamp: message.timestamp,
     agent_id: message.message_type === "agent.activity" && message.payload?.agent_role === "system_engineer" ? message.payload.agent_id : message.sender.id, sender: message.sender.id, sender_role: message.sender?.role ?? null, receiver: message.recipient.id,
     conversation_id: message.conversation_id ?? null, correlation_id: message.correlation_id ?? null,
+    is_idea: isAgent && Boolean(message.payload?.is_idea),
     type: message.message_type, content: redact(message.payload)
   };
 }

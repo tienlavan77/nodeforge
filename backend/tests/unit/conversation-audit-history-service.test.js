@@ -41,6 +41,120 @@ test("conversation transcript pages include saved messages instead of recent too
   assert.equal(service.query({ projectId: "PROJECT-141", conversationId: "CONV-141", limit: 2, order: "desc" }).items[0].type, "agent.activity");
 });
 
+test("persists agent message idea toggle across history queries and rejects owner or mismatched conversation messages", async () => {
+  const stored = [
+    message("MSG-OWNER", "2026-04-06T00:00:01.000Z", "owner", "project_owner", "architecture-manager", "owner.chat.submitted", { text: "Need architecture" }),
+    message("MSG-AGENT", "2026-04-06T00:00:02.000Z", "architecture-manager", "architecture_manager", "NODE", "architecture.message.received", { text: "Here is an idea" }),
+    message("MSG-FAILED", "2026-04-06T00:00:03.000Z", "NODE", "node", "owner", "conversation.message.failed", { text: "Failed" })
+  ];
+  const communications = {
+    getAll: () => stored,
+    getById: (id) => stored.find((entry) => entry.id === id),
+    getByConversationId: (conversationId) => stored.filter((entry) => entry.conversation_id === conversationId),
+    updatePayload: (id, patch) => {
+      const target = stored.find((entry) => entry.id === id);
+      if (target) target.payload = { ...target.payload, ...patch };
+      return target;
+    }
+  };
+  const service = createConversationAuditHistoryService({ communications });
+  const routes = createForgeV1ConversationRoutes({
+    conversationCrudService: { get: (id) => id === "CONV-141" ? { id, project_id: "PROJECT-141" } : null },
+    conversationAuditHistoryService: service
+  });
+
+  const initialHistory = await routes.routeConversation({
+    method: "GET",
+    parts: ["conversations", "CONV-141", "messages"],
+    url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages"),
+    body: {},
+    projectId: "PROJECT-141"
+  });
+  assert.equal(initialHistory.body.items.find((item) => item.id === "MSG-AGENT").is_idea, false);
+  assert.equal(initialHistory.body.items.find((item) => item.id === "MSG-OWNER").is_idea, false);
+
+  const marked = await routes.routeConversation({
+    method: "POST",
+    parts: ["conversations", "CONV-141", "messages", "MSG-AGENT", "idea"],
+    url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages/MSG-AGENT/idea"),
+    body: { is_idea: true },
+    projectId: "PROJECT-141"
+  });
+  assert.equal(marked.status, 200);
+  assert.equal(marked.body.is_idea, true);
+
+  const afterMark = await routes.routeConversation({
+    method: "GET",
+    parts: ["conversations", "CONV-141", "messages"],
+    url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages"),
+    body: {},
+    projectId: "PROJECT-141"
+  });
+  assert.equal(afterMark.body.items.find((item) => item.id === "MSG-AGENT").is_idea, true);
+
+  const unmarked = await routes.routeConversation({
+    method: "POST",
+    parts: ["conversations", "CONV-141", "messages", "MSG-AGENT", "idea"],
+    url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages/MSG-AGENT/idea"),
+    body: { is_idea: false },
+    projectId: "PROJECT-141"
+  });
+  assert.equal(unmarked.body.is_idea, false);
+
+  const afterUnmark = await routes.routeConversation({
+    method: "GET",
+    parts: ["conversations", "CONV-141", "messages"],
+    url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages"),
+    body: {},
+    projectId: "PROJECT-141"
+  });
+  assert.equal(afterUnmark.body.items.find((item) => item.id === "MSG-AGENT").is_idea, false);
+
+  await assert.rejects(
+    () => routes.routeConversation({
+      method: "POST",
+      parts: ["conversations", "CONV-141", "messages", "MSG-OWNER", "idea"],
+      url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages/MSG-OWNER/idea"),
+      body: { is_idea: true },
+      projectId: "PROJECT-141"
+    }),
+    { statusCode: 400, code: "MESSAGE_IDEA_AGENT_ONLY" }
+  );
+
+  await assert.rejects(
+    () => routes.routeConversation({
+      method: "POST",
+      parts: ["conversations", "CONV-141", "messages", "MSG-FAILED", "idea"],
+      url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages/MSG-FAILED/idea"),
+      body: { is_idea: true },
+      projectId: "PROJECT-141"
+    }),
+    { statusCode: 400, code: "MESSAGE_IDEA_AGENT_ONLY" }
+  );
+
+  await assert.rejects(
+    () => routes.routeConversation({
+      method: "POST",
+      parts: ["conversations", "CONV-141", "messages", "MSG-AGENT", "idea"],
+      url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages/MSG-AGENT/idea"),
+      body: { is_idea: true },
+      projectId: "OTHER-PROJECT"
+    }),
+    { statusCode: 404 }
+  );
+
+  await assert.rejects(
+    () => routes.routeConversation({
+      method: "POST",
+      parts: ["conversations", "CONV-141", "messages", "MSG-UNKNOWN", "idea"],
+      url: new URL("http://localhost/forge/v1/conversations/CONV-141/messages/MSG-UNKNOWN/idea"),
+      body: { is_idea: true },
+      projectId: "PROJECT-141"
+    }),
+    { statusCode: 404, code: "CONVERSATION_MESSAGE_NOT_FOUND" }
+  );
+});
+
 function message(id, timestamp, sender, role, receiver, type, payload) {
   return { id, project_id: "PROJECT-141", sender: { id: sender, role }, recipient: { id: receiver, role: receiver === "NODE" ? "node" : "architecture_manager" }, message_type: type, conversation_id: "CONV-141", correlation_id: "CORR-141", payload, timestamp };
 }

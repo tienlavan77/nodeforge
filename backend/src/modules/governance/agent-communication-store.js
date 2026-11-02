@@ -27,7 +27,7 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
   const storageRoot = database ? dirname(database.databasePath ?? "") : undefined;
   if (database) try { initIndex(); } catch (error) { if (error?.code !== "ENOENT") throw error; }
 
-  return Object.freeze({ append, getById, getAll, getBySender, getByReceiver, getByCorrelationId, getByConversationId, getByLinkedConversationId, load });
+  return Object.freeze({ append, updatePayload, getById, getAll, getBySender, getByReceiver, getByCorrelationId, getByConversationId, getByLinkedConversationId, load });
 
   // Business purpose: tracks linked conversation message IDs in memory so dual-stream history queries resolve in O(1) without scanning all conversation files.
   // Technical description: records message.id under message.payload.linked_conversation_id in linkedByConversation when present.
@@ -68,6 +68,31 @@ export function createAgentCommunicationStore({ validateMessage = createAgentMes
       ]);
     }
     if (!database) messages.push(stored);
+    messagesById.set(stored.id, database ? true : stored);
+    trackLinkedConversation(stored);
+    return structuredClone(stored);
+  }
+
+  // Business purpose: persists metadata updates (such as idea flags) on an existing conversation message without altering its identity or sequence.
+  // Technical description: merges the provided patch object into the target message payload, validates and redacts the updated message, appends a new raw JSONL slice when backed by SQLite, and updates the in-memory or SQLite pointer.
+  function updatePayload(id, patch) {
+    assertId(id, "message");
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new ConfigurationError("Agent Message payload patch must be an object.");
+    const current = getById(id);
+    if (!current) return undefined;
+    const nextPayload = current.payload && typeof current.payload === "object" && !Array.isArray(current.payload)
+      ? { ...current.payload, ...patch }
+      : { ...patch };
+    const updated = { ...current, payload: nextPayload };
+    validateMessage(updated);
+    const stored = Object.freeze(redact(structuredClone(updated)));
+    if (database) {
+      const location = appendRawMessage(storageRoot, stored, fileService);
+      database.run("UPDATE agent_communications SET raw_file = ?, byte_offset = ?, byte_length = ? WHERE message_id = ?", [location.raw_file, location.byte_offset, location.byte_length, stored.id]);
+    } else {
+      const index = messages.findIndex((entry) => entry.id === stored.id);
+      if (index >= 0) messages[index] = stored;
+    }
     messagesById.set(stored.id, database ? true : stored);
     trackLinkedConversation(stored);
     return structuredClone(stored);

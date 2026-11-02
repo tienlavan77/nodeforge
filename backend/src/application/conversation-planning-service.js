@@ -41,8 +41,9 @@ function carriedSession(previousMarkdown) {
 }
 
 // Creates one resumable conversation planning workflow bound to a project's plan stores.
-export function createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture, conversationStateStore } = {}) {
+export function createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions, requestArchitecture, conversationStateStore, maxSelfHealAttempts = 2 } = {}) {
   if (!projectId || !fileService?.readFile || !markdownPlanStore?.createRevision || typeof validateMarkdown !== "function" || !sessions?.create || typeof requestArchitecture !== "function") throw decisionError("CONVERSATION_PLANNING_UNAVAILABLE", "Conversation planning needs File Service, the Markdown plan store, gates, sessions and Architecture.");
+  const maxRetries = Number.isInteger(maxSelfHealAttempts) && maxSelfHealAttempts >= 0 ? maxSelfHealAttempts : 2;
 
   // Business purpose: loads the Discovery Compact Receipt recorded during Phase 1 or earlier repository inspections in the same conversation so Phase 2 and Phase 3 prompts reuse verified file checksums and line ranges.
   // Technical description: reads conversation state from conversationStateStore or session.discovery_receipt and formats it via formatDiscoveryCompactReceipt.
@@ -55,6 +56,28 @@ export function createConversationPlanningService({ projectId, fileService, mark
     if (typeof session?.discovery_receipt === "string" && session.discovery_receipt) return session.discovery_receipt;
     if (session?.discovery_receipt && typeof session.discovery_receipt === "object") return formatDiscoveryCompactReceipt(session.discovery_receipt);
     return "";
+  }
+
+  // Business purpose: requests Clarification Discovery from Architecture Manager with a bounded self-healing retry loop when the returned JSON question response is malformed or violates the clarification schema.
+  // Technical description: attempts parseArchitectureQuestions (with pregeneratedPlan fallback) and retries up to maxRetries times with detailed error diagnostics and the preserved Discovery Compact Receipt.
+  async function requestClarificationWithSelfHeal(combinedSourceText, conversationId) {
+    let prompt = clarificationPrompt(combinedSourceText);
+    let lastRaw = "";
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      lastRaw = String(await requestArchitecture(prompt, conversationId, { responseContentType: "text/plain" }) ?? "").trim();
+      try {
+        return { questions: parseArchitectureQuestions(lastRaw), pregeneratedPlan: null };
+      } catch (clarifyErr) {
+        try {
+          return { questions: [], pregeneratedPlan: parseArchitecturePlanJSON(lastRaw) };
+        } catch {
+          if (attempt >= maxRetries) throw clarifyErr;
+          const discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId);
+          prompt = clarificationRepairPrompt(combinedSourceText, clarifyErr, lastRaw, discoveryReceipt, attempt + 1, maxRetries);
+        }
+      }
+    }
+    throw decisionError("ARCHITECTURE_QUESTIONS_INVALID", "Architecture returned malformed question JSON.");
   }
 
   // Generates revision r1 from conversation context or a specified Markdown file and its Node-generated source anchor.
@@ -92,16 +115,7 @@ export function createConversationPlanningService({ projectId, fileService, mark
       text: combinedSourceText
     };
     const intake = await retainConversationIntakeSource({ fileService, planId, intake: intakeRecord });
-    const rawClarification = String(await requestArchitecture(clarificationPrompt(combinedSourceText), conversationId, { responseContentType: "text/plain" }) ?? "").trim();
-    let questions = [];
-    let pregeneratedPlan = null;
-    try {
-      questions = parseArchitectureQuestions(rawClarification);
-    } catch (clarifyErr) {
-      // eslint-disable-next-line no-silent-catch -- Rethrows clarifyErr when the response is not a pregenerated Architecture Plan JSON object.
-      try { pregeneratedPlan = parseArchitecturePlanJSON(rawClarification); }
-      catch { throw clarifyErr; }
-    }
+    const { questions, pregeneratedPlan } = await requestClarificationWithSelfHeal(combinedSourceText, conversationId);
     const discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId);
     const session = await sessions.create({ sourcePath: intake.path, sourceSha256: intake.sha256, conversationId, questions, generating: !questions.length, ...(discoveryReceipt ? { discovery_receipt: discoveryReceipt } : {}) });
     if (questions.length) return waitingForOwner(session, intakeRecord);
@@ -125,10 +139,8 @@ export function createConversationPlanningService({ projectId, fileService, mark
     const target = markdownPlanStore.list().find((entry) => entry.conversation_id === conversationId && ANCHOR_PATH_RE.test(entry.source_path ?? ""));
     if (!target) throw decisionError("PLAN_UPDATE_TARGET_MISSING", "There is no conversation-created plan revision to update. Create a plan first.");
     const baseBytes = await readConversationPlanSource({ fileService, path: target.source_path, sha256: target.source_sha256 });
-    const merged = await requestMergedPatch({ text, conversationId, baseBytes, planId: target.plan_id });
     const revision = target.revision + 1;
-    const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId: target.plan_id, revision, sourceSha256: canonicalArchitecturePlanSha256(merged) });
-    await validateMarkdown(baseMarkdown);
+    const { merged, baseMarkdown } = await requestMergedPatch({ text, conversationId, baseBytes, planId: target.plan_id, revision });
     const anchor = await retainFencedPlanSource({ planId: target.plan_id, baseRevision: target.revision, revision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
     const previous = await markdownPlanStore.getRevision({ planId: target.plan_id, revision: target.revision });
     const decisionSession = carriedSession(previous.markdown) ?? { session_id: `${target.plan_id}-R${revision}`, source_path: anchor.path, source_sha256: anchor.sha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
@@ -143,14 +155,31 @@ export function createConversationPlanningService({ projectId, fileService, mark
   // Technical description: the shared merge engine revalidates the whole merged document against
   // the unchanged Architecture Plan schema, so malformed JSON, non-object patches, empty answers,
   // root null deletions and schema violations all fail here before anchor or Markdown writes.
-  async function requestMergedPatch({ text, conversationId, baseBytes }) {
-    const discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId);
-    const patch = String(await requestArchitecture(updatePrompt(text, baseBytes, discoveryReceipt), conversationId, { responseContentType: "text/plain" }) ?? "").trim();
-    try { return mergeArchitecturePlanJSON(baseBytes, patch); }
-    catch (error) {
-      console.warn("Conversation plan update rejected before persistence", { code: error.code ?? "ARCHITECTURE_PLAN_JSON_INVALID", conversation_id: conversationId, reason: error.message });
-      throw decisionError("ARCHITECTURE_PLAN_PATCH_INVALID", `Architecture must return a valid RFC 7396 JSON merge patch payload for the canonical plan; Node never infers a plan from conversation text. No revision was created.`);
+  async function requestMergedPatch({ text, conversationId, baseBytes, planId, revision }) {
+    let discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId);
+    let prompt = updatePrompt(text, baseBytes, discoveryReceipt);
+    let lastRaw = "";
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      lastRaw = String(await requestArchitecture(prompt, conversationId, { responseContentType: "text/plain" }) ?? "").trim();
+      try {
+        const merged = mergeArchitecturePlanJSON(baseBytes, lastRaw);
+        const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId, revision, sourceSha256: canonicalArchitecturePlanSha256(merged) });
+        await validateMarkdown(baseMarkdown);
+        return { merged, baseMarkdown };
+      } catch (error) {
+        const isPatchParseError = error.code === "ARCHITECTURE_PLAN_JSON_INVALID" || error.code === "ARCHITECTURE_PLAN_PATCH_INVALID";
+        if (attempt >= maxRetries) {
+          console.warn("Conversation plan update rejected before persistence", { code: error.code ?? "ARCHITECTURE_PLAN_JSON_INVALID", conversation_id: conversationId, reason: error.message });
+          if (isPatchParseError) {
+            throw decisionError("ARCHITECTURE_PLAN_PATCH_INVALID", `Architecture must return a valid RFC 7396 JSON merge patch payload for the canonical plan; Node never infers a plan from conversation text. No revision was created. (${error.message})`);
+          }
+          throw error;
+        }
+        discoveryReceipt = await loadDiscoveryReceiptBlock(conversationId) || discoveryReceipt;
+        prompt = updateRepairPrompt(text, baseBytes, error, lastRaw, discoveryReceipt, attempt + 1, maxRetries);
+      }
     }
+    throw decisionError("ARCHITECTURE_PLAN_PATCH_INVALID", "Architecture must return a valid RFC 7396 JSON merge patch payload for the canonical plan.");
   }
 
   // Locks the next revision anchor behind the retained base so a stale update cannot overwrite it.
@@ -186,6 +215,37 @@ export function createConversationPlanningService({ projectId, fileService, mark
     });
   }
 
+  // Business purpose: generates and validates revision r1 with a bounded self-healing loop when Architecture Manager returns invalid JSON, violates schema, or references missing evidence paths.
+  // Technical description: validates the candidate plan via parseArchitecturePlanJSON, renderArchitecturePlanMarkdown, and validateMarkdown; on recoverable schema/evidence failures, prompts AM to repair within maxRetries while preserving the Discovery Compact Receipt.
+  async function requestValidatedGeneration({ session, effectiveSourceText, decisions, planId, retained, pregeneratedPlan }) {
+    if (retained) {
+      const baseMarkdown = renderArchitecturePlanMarkdown({ plan: retained, planId, revision: 1, sourceSha256: canonicalArchitecturePlanSha256(retained) });
+      await validateMarkdown(baseMarkdown);
+      return { plan: retained, baseMarkdown };
+    }
+    let discoveryReceipt = await loadDiscoveryReceiptBlock(session.conversation_id ?? "", session);
+    let prompt = generationPrompt(effectiveSourceText, decisions, discoveryReceipt);
+    let lastRaw = pregeneratedPlan ? canonicalizeArchitecturePlanJSON(pregeneratedPlan) : "";
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        const plan = attempt === 0 && pregeneratedPlan
+          ? pregeneratedPlan
+          : parseArchitecturePlanJSON(lastRaw = String(await requestArchitecture(prompt, session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim());
+        await sessions.source(session);
+        const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: canonicalArchitecturePlanSha256(plan) });
+        await validateMarkdown(baseMarkdown);
+        return { plan, baseMarkdown };
+      } catch (error) {
+        const recoverable = ["ARCHITECTURE_PLAN_JSON_INVALID", "ARCHITECTURE_PLAN_INVALID", "DISCOVERY_INCOMPLETE"].includes(error.code);
+        if (!recoverable || attempt >= maxRetries) throw error;
+        await sessions.source(session);
+        discoveryReceipt = await loadDiscoveryReceiptBlock(session.conversation_id ?? "", session) || discoveryReceipt;
+        prompt = generationRepairPrompt(effectiveSourceText, decisions, error, lastRaw, discoveryReceipt, attempt + 1, maxRetries);
+      }
+    }
+    throw decisionError("PLAN_GENERATION_FAILED", "Architecture plan generation failed after self-healing retries.");
+  }
+
   // Locks one revision: Node renders, appends authoritative decisions, then stores anchor-bound bytes.
   async function generate({ session, sourceText, planId, save, intake: suppliedIntake, pregeneratedPlan = null }) {
     let intake = suppliedIntake;
@@ -206,11 +266,8 @@ export function createConversationPlanningService({ projectId, fileService, mark
       await save({ status: "generating", process_pid: process.pid, error_code: null });
       const decisions = (session.questions ?? []).map((question) => ({ question: question.title, reason: question.reason, selected: question.options.find((option) => option.id === (session.selections ?? {})[question.id]), owner_note: session.notes?.[question.id] ?? "" }));
       const retained = await readRetainedConversationPlanSource({ fileService, planId, revision: 1 });
-      const discoveryReceipt = await loadDiscoveryReceiptBlock(session.conversation_id ?? "", session);
-      const plan = retained ?? pregeneratedPlan ?? parseArchitecturePlanJSON(String(await requestArchitecture(generationPrompt(effectiveSourceText, decisions, discoveryReceipt), session.conversation_id ?? "", { responseContentType: "text/plain" }) ?? "").trim());
+      const { plan, baseMarkdown } = await requestValidatedGeneration({ session, effectiveSourceText, decisions, planId, retained, pregeneratedPlan });
       await sessions.source(session);
-      const baseMarkdown = renderArchitecturePlanMarkdown({ plan, planId, revision: 1, sourceSha256: canonicalArchitecturePlanSha256(plan) });
-      await validateMarkdown(baseMarkdown);
       const anchor = await retainConversationPlanSource({ fileService, planId, revision: 1, canonicalBytes: canonicalizeArchitecturePlanJSON(plan) });
       const stored = await markdownPlanStore.createRevision({ planId, expectedRevision: 0, markdown: appendArchitectureDecisions(baseMarkdown, session), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId: session.conversation_id ?? null });
       const result = createdResult(stored, session, intake);
@@ -261,4 +318,29 @@ function generationPrompt(sourceText, decisions, discoveryReceipt = "") {
 // Builds the RFC 7396 merge-patch instruction against the retained canonical base.
 function updatePrompt(sourceText, baseJson, discoveryReceipt = "") {
   return `Architecture plan update. Call lookup_schema({"schema_id":"architecture_manager.architecture_plan.v1"}) if needed to verify the target contract, then return ONLY one JSON RFC 7396 merge patch against the canonical plan below: changed fields carry new values, modified arrays replace the whole array, removed nested fields use null, untouched fields are omitted, no unknown root fields are allowed, and no root required field may be null. Do not return Markdown, prose, approval claims, file writes or RUN claims. Node alone merges, revalidates the full schema, and locks the next revision.${discoveryReceipt || ""}\n\nCanonical plan:\n${baseJson}\n\nOwner conversation:\n${sourceText}`;
+}
+
+/**
+ * Business purpose: builds the self-healing prompt when Architecture Manager's Phase 1 clarification response fails JSON parsing or question schema validation.
+ * Technical description: appends the error code, diagnostic message, previous draft, and preserved Discovery Compact Receipt to the base clarification prompt.
+ */
+function clarificationRepairPrompt(sourceText, error, previousDraft, discoveryReceipt = "", attempt = 1, maxRetries = 2) {
+  return `${clarificationPrompt(sourceText)}${discoveryReceipt || ""}\n\n[SELF-HEALING CLARIFICATION RETRY ${attempt}/${maxRetries} — ERROR ${error?.code ?? "ARCHITECTURE_QUESTIONS_INVALID"}]: Your previous response failed validation: ${error?.message ?? "Invalid JSON question response"}. Return ONLY valid JSON {"questions":[]} or {"questions":[...]} with no surrounding prose.\n\nPrevious invalid draft:\n${previousDraft}`;
+}
+
+/**
+ * Business purpose: builds the self-healing prompt when Architecture Manager's Phase 2 plan generation response fails JSON parsing, schema validation, or repository evidence checks.
+ * Technical description: combines the base generationPrompt with the preserved Discovery Compact Receipt, exact error code/message, missing evidence diagnostics, and the previous draft so AM can repair without re-reading verified files.
+ */
+function generationRepairPrompt(sourceText, decisions, error, previousDraft, discoveryReceipt = "", attempt = 1, maxRetries = 2) {
+  const missingInfo = Array.isArray(error?.missing_evidence_paths) && error.missing_evidence_paths.length ? ` Missing or unreadable evidence path(s): ${error.missing_evidence_paths.join(", ")}.` : "";
+  return `${generationPrompt(sourceText, decisions, discoveryReceipt)}\n\n[SELF-HEALING PLAN GENERATION RETRY ${attempt}/${maxRetries} — ERROR ${error?.code ?? "ARCHITECTURE_PLAN_JSON_INVALID"}]: Your previous draft failed validation: ${error?.message ?? "Invalid plan JSON"}.${missingInfo} Fix all schema or evidence errors (use read-only discovery tools if you need to verify real repository paths) and return ONLY one valid JSON object matching architecture_manager.architecture_plan.v1.\n\nPrevious draft:\n${previousDraft}`;
+}
+
+/**
+ * Business purpose: builds the self-healing prompt when Architecture Manager's Phase 3 RFC 7396 merge patch fails JSON parsing, schema revalidation, or evidence checks.
+ * Technical description: combines the base updatePrompt with the preserved Discovery Compact Receipt, error code/message, and previous patch draft so AM emits a valid RFC 7396 JSON merge patch.
+ */
+function updateRepairPrompt(sourceText, baseJson, error, previousDraft, discoveryReceipt = "", attempt = 1, maxRetries = 2) {
+  return `${updatePrompt(sourceText, baseJson, discoveryReceipt)}\n\n[SELF-HEALING PLAN UPDATE RETRY ${attempt}/${maxRetries} — ERROR ${error?.code ?? "ARCHITECTURE_PLAN_PATCH_INVALID"}]: Your previous merge patch failed validation: ${error?.message ?? "Invalid RFC 7396 merge patch"}. Return ONLY one valid RFC 7396 JSON merge patch object against the canonical plan with no surrounding prose.\n\nPrevious invalid patch draft:\n${previousDraft}`;
 }

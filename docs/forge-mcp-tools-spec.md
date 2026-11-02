@@ -6,9 +6,11 @@ Tên tool khi đăng ký qua `mcpServers: { forge: forgeTools }` sẽ có dạng
 
 ---
 
-## 1. `read_file`
+## 1. `read_file` và `Read`
 
-**Chức năng:** Đọc toàn bộ nội dung một file trong repo qua File Service (Code Index). Dùng khi đã biết đường dẫn cụ thể — thường sau khi có kết quả từ `search_code`.
+**Chức năng:**
+- `read_file({ path })`: Với file code (non-`.md`), trả về metadata (`sha256`, `total_lines`, `code_lines`), `symbol_map` và `code_graph` (không trả nội dung code thô); với file Markdown (`.md`), trả về metadata kèm tối đa `250` dòng đầu.
+- `Read({ file_path, symbol })` / `Read({ file_path, start_line, end_line })`: Với file code, bắt buộc đọc trọn vẹn theo `symbol` từ `symbol_map` (không giới hạn số dòng của symbol, từ chối đọc theo cửa sổ dòng); với file `.md`, đọc theo cửa sổ `start_line`/`end_line` tối đa `80` dòng vật lý mỗi lần.
 
 **Input**
 ```typescript
@@ -20,7 +22,7 @@ Tên tool khi đăng ký qua `mcpServers: { forge: forgeTools }` sẽ có dạng
 ```typescript
 { content: [{ type: "text", text: string }] }
 ```
-`text` = toàn bộ nội dung file dạng raw, không bọc JSON.
+`text` = metadata kèm `symbol_map`/`code_graph` (hoặc nội dung tối đa 250 dòng đầu đối với `.md`) và `sha256` toàn file.
 
 **Output — lỗi (file không tồn tại)**
 ```typescript
@@ -63,16 +65,19 @@ Ghi chú: không trả điểm `rank`/`score` số thô cho agent đọc (bm25 r
 quyết định: dổi cho phù hợp với agent
 ---
 
-## 3. `write_diff`
+## 3. `write_diff` và `edit_diff`
 
-**Chức năng:** Ghi đè toàn bộ nội dung một file (full-file replace — không phải unified_diff/patch ở giai đoạn này). Từ chối nếu path nằm trong danh sách bảo vệ.
+**Chức năng:**
+- `write_diff`: Ghi toàn bộ nội dung một file sau khi kiểm tra `before_checksum`. Áp dụng giới hạn tối đa `250` dòng cho file Markdown (`.md`) và tối đa `400` `code_lines` (không tính dòng trống và dòng chỉ chứa comment) cho file code (non-`.md`). Từ chối nếu vượt ngưỡng (`CONTENT_TOO_LARGE` / `DESTRUCTIVE_OVERWRITE`) hoặc nếu path nằm trong danh sách bảo vệ.
+- `edit_diff`: Thay thế đoạn mã cục bộ theo `anchor` chính xác kèm kiểm tra `before_checksum` và ngưỡng `250` dòng cho `.md` / `400` `code_lines` cho file code.
 
 **Input**
 ```typescript
-{ path: z.string(), content: z.string() }
+{ path: z.string(), content: z.string(), before_checksum: z.string().nullable() }
 ```
 - `path`: đường dẫn file cần ghi
 - `content`: toàn bộ nội dung file mới
+- `before_checksum`: `sha256` toàn file từ `read_file`/`Read` (hoặc `null` khi tạo file mới)
 
 **Output — thành công**
 ```typescript

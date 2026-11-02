@@ -111,7 +111,8 @@ test("an invalid or ambiguous AM answer creates no revision and asks AM to emit 
         assert.match(error.message, /Architecture must return a valid RFC 7396 JSON merge patch payload/, "Node answers by requiring the AM payload, never inferring one");
         return true;
       });
-      assert.equal(f.prompts.length, promptsBefore + 1, "one update prompt, never a full regeneration guess");
+      assert.equal(f.prompts.length, promptsBefore + 3, "bounded self-healing update retries only, never a full regeneration guess");
+      assert.ok(f.prompts.slice(promptsBefore).every((p) => p.startsWith("Architecture plan update")), "every retry stays an update prompt");
       const heads = f.markdownPlanStore.list();
       assert.equal(heads.length, 1);
       assert.equal(heads[0].revision, 1, "a rejected patch never creates a revision");
@@ -245,4 +246,17 @@ test("Discovery Compact Receipt collected in Phase 1 is inherited by Phase 2 (ge
     assert.match(prompts[2], /Discovery Compact Receipt/);
     assert.match(prompts[2], new RegExp(fileSha));
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("self-healing update loop repairs malformed or invalid RFC 7396 merge patch within retry limit and locks r2", async () => {
+  const f = await fixture(['{"questions":[]}', PLAN_JSON, '{"objective": null}', PATCH_JSON]);
+  try {
+    const created = await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-HEAL-UPD" });
+    assert.equal(created.revision, 1);
+    const updated = await f.planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-HEAL-UPD" });
+    assert.equal(updated.revision, 2);
+    assert.equal(f.prompts.length, 4, "1 clarification + 1 r1 generation + 1 failed patch + 1 self-healed patch");
+    assert.match(f.prompts[3], /SELF-HEALING PLAN UPDATE RETRY 1\/2/);
+    assert.match(f.prompts[3], /Plan field objective cannot be deleted by null/);
+  } finally { await f.close(); }
 });
