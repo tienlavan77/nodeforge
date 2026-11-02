@@ -1,7 +1,8 @@
-// Prevents the sidebar-free Coding page from being squeezed into Home's 350px conversation track.
+// Prevents the sidebar-free Coding page from being squeezed into Home's 350px conversation track and verifies the 2-row Workspace Agent monitor layout.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { resolveCodingAgentActivities, resolveCodingAgentTone } from "../lib/coding-workspace-activity.js";
 
 const page = await readFile(new URL("../app/coding/page.jsx", import.meta.url), "utf8");
 const styles = await readFile(new URL("../app/styles/workspace-monitors.css", import.meta.url), "utf8");
@@ -45,21 +46,35 @@ test("Coding places a shared page header with project and Git status above both 
   const wiring = page.match(/<CodingWorkspaceMonitor\b[^>]*\/>/)?.[0];
   assert.match(wiring, /\bprojectId\s*=\s*\{PROJECT_ID\}/);
   assert.match(wiring, /\bclient\s*=\s*\{client\}/);
+  assert.match(wiring, /\bwatcherState\s*=\s*\{watcherState\}/);
 });
 
-test("Coding agent list adapts to one, two or at most three columns without widening panels", () => {
-  assert.equal(declarations(".coding-workspace-list")["grid-template-columns"], "minmax(0, 1fr)");
-  assert.equal(declarations(".coding-workspace-agent")["container-type"], "inline-size");
-  for (const [width, columns] of [[490, 2], [740, 3]]) {
-    assert.match(styles, new RegExp(`@container\\s+coding-agents\\s*\\(min-width:\\s*${width}px\\)\\s*\\{\\s*\\.coding-workspace-list\\s*\\{[^}]*grid-template-columns:\\s*repeat\\(${columns},\\s*minmax\\(0,\\s*1fr\\)\\)`));
-  }
-  assert.doesNotMatch(styles, /grid-template-columns:\s*repeat\([4-9]/);
-  assert.equal(declarations(".coding-agent-monitor")["min-width"], "0");
-  assert.equal(declarations(".coding-agent-monitor header")["flex-wrap"], "wrap");
-  assert.equal(declarations(".coding-agent-monitor header > button")["flex-shrink"], "0");
+test("Coding Workspace Agent uses a 2-row equal grid without conflicting percentage height and two equal lower monitor columns", () => {
+  const agentCol = declarations(".coding-workspace-agent");
+  assert.equal(agentCol.display, "flex");
+  assert.equal(agentCol["flex-direction"], "column");
+  assert.equal(agentCol["container-type"], "inline-size");
+  const list = declarations(".coding-workspace-list");
+  assert.equal(list.display, "grid");
+  assert.equal(list.flex, "1");
+  assert.equal(list["min-height"], "0");
+  assert.equal(list["grid-template-columns"], "minmax(0, 1fr)");
+  assert.equal(list["grid-template-rows"], "minmax(0, 1fr) minmax(0, 1fr)");
+  const row = declarations(".coding-workspace-row");
+  assert.equal(row.display, "grid");
+  assert.equal(row["grid-template-columns"], "repeat(2, minmax(0, 1fr))");
+  assert.equal(row["min-height"], "0");
+  assert.equal(row.height, undefined);
+  const monitorCol = declarations(".coding-workspace-monitor-column");
+  assert.equal(monitorCol.display, "flex");
+  assert.equal(monitorCol["flex-direction"], "column");
+  assert.equal(monitorCol["min-width"], "0");
+  assert.equal(monitorCol["min-height"], "0");
+  assert.equal(monitorCol.overflow, "hidden");
+  assert.doesNotMatch(monitor, /workspace-monitor-dock/);
 });
 
-test("Only Coding monitor chrome loses padding while panels cap height with scrolling content", () => {
+test("Only Coding monitor chrome loses padding while monitor content scrolls inside bounded columns", () => {
   assert.equal(declarations(".workspace-monitor-header").padding, "0 10px 0 14px");
   assert.equal(declarations(".workspace-monitor-header").flex, "none");
   assert.equal(declarations(".coding-agent-monitor .workspace-monitor-header").padding, "0");
@@ -71,18 +86,21 @@ test("Only Coding monitor chrome loses padding while panels cap height with scro
   const panel = declarations(".coding-agent-monitor");
   assert.equal(panel.display, "flex");
   assert.equal(panel["flex-direction"], "column");
-  assert.equal(panel["max-height"], "50vh");
   assert.equal(panel["box-sizing"], "border-box");
   assert.equal(panel.overflow, "hidden");
 });
 
-test("Coding restores navigation before the workspace without conversation controls", () => {
+test("Coding restores navigation before the workspace without conversation controls and resets realtime monitor state on project switch", () => {
   assert.match(page, /className="claude-home-shell coding-workspace-shell"/);
   assert.ok(page.indexOf("<ConversationSidebar") < page.indexOf("<CodingWorkspaceMonitor"));
   assert.match(page, /showConversationControls=\{false\}/);
   assert.match(page, /open=\{openSidebar\} onOpen=\{\(\) => setOpenSidebar\(true\)\} onClose=\{\(\) => setOpenSidebar\(false\)\}/);
+  assert.match(page, /setAgentActivities\(\[\]\)/);
+  assert.match(page, /setWatcherEvents\(\[\]\)/);
+  assert.match(page, /setWatcherPulseId\(null\)/);
+  assert.match(page, /setWatcherState\("connecting"\)/);
   assert.match(styles, /\.claude-home-shell\.coding-workspace-shell[^{]*\{[^}]*grid-template-columns:\s*350px minmax\(0, 1fr\);[^}]*grid-template-rows:\s*minmax\(0, 1fr\)/);
-  assert.ok(globals.indexOf('styles/workspace-monitors.css') > globals.indexOf('styles/home-workspace.css'));
+  assert.ok(globals.indexOf("styles/workspace-monitors.css") > globals.indexOf("styles/home-workspace.css"));
 });
 
 test("Coding fills the viewport and keeps scrollable columns without changing Home or the internal split", () => {
@@ -96,4 +114,59 @@ test("Coding fills the viewport and keeps scrollable columns without changing Ho
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?padding-left:\s*56px/);
   assert.match(styles, /coding-workspace-shell \.conversation-mobile-rail[^{]*\{[^}]*display:\s*flex;[^}]*top:\s*0/);
   assert.match(styles, /@media \(min-width: 641px\)[\s\S]*?responsive-region--conversations[^{]*\{[^}]*position:\s*static/);
+});
+
+test("Unified Agents Activity resolver formats multiple agents, missing optional fields, deterministic tones, and project isolation", () => {
+  const directory = [
+    { agent_id: "coder-1", agent_name: "Alpha Coder", role: "coder", project_id: "PROJ-A" },
+    { agent_id: "reviewer-1", name: "Beta Reviewer", role: "reviewer", project_id: "PROJ-A" },
+    { agent_id: "leader-1", label: "Sprint Lead", role: "sprint_leader", project_id: "PROJ-A" }
+  ];
+  const activities = [
+    { event_id: "ev-1", event_type: "agent.activity", project_id: "PROJ-A", timestamp: "2026-11-02T10:00:00.000Z", payload: { agent_id: "coder-1", activity_type: "tool_started", status: "working", summary: "Inspecting layout", tool_name: "read_file" } },
+    { event_id: "ev-2", event_type: "agent.activity", project_id: "PROJ-A", payload: { agent_id: "reviewer-1", tool_name: "search_text" } },
+    { event_id: "ev-foreign", event_type: "agent.activity", project_id: "PROJ-B", payload: { agent_id: "coder-1", summary: "Foreign project" } }
+  ];
+  const resolved = resolveCodingAgentActivities(activities, directory, "PROJ-A");
+  assert.equal(resolved.length, 2);
+  assert.equal(resolved[0].agentName, "Alpha Coder");
+  assert.equal(resolved[0].activityType, "tool started");
+  assert.equal(resolved[0].status, "working");
+  assert.equal(resolved[0].detail, "Inspecting layout (read_file)");
+  assert.ok(resolved[0].time.length > 0);
+  assert.equal(resolved[1].agentName, "Beta Reviewer");
+  assert.equal(resolved[1].activityType, "activity");
+  assert.equal(resolved[1].status, "working");
+  assert.equal(resolved[1].detail, "search_text");
+  assert.equal(resolved[0].tone, resolveCodingAgentTone("coder-1"));
+  assert.equal(resolveCodingAgentTone("coder-1"), resolveCodingAgentTone("coder-1"));
+  assert.equal(resolveCodingAgentTone("coder-1", "#7ee787"), "#7ee787");
+  assert.equal(resolveCodingAgentTone("coder-1", "transparent"), resolveCodingAgentTone("coder-1"));
+  assert.equal(resolveCodingAgentTone("coder-1", "#123456"), resolveCodingAgentTone("coder-1"));
+  assert.equal(resolveCodingAgentTone("coder-1", "rgba(0, 0, 0, 0)"), resolveCodingAgentTone("coder-1"));
+  const conflicting = resolveCodingAgentActivities([
+    { event_id: "C-1", event_type: "agent.activity", project_id: "PROJ-A", agent_color: "transparent", payload: { agent_id: "coder-1", summary: "First step", agent_color: "#000000" } },
+    { event_id: "C-2", event_type: "agent.activity", project_id: "PROJ-A", agent_color: "#ffcb6b", payload: { agent_id: "coder-1", summary: "Second step", agent_color: "#89ddff" } },
+    { event_id: "C-3", event_type: "agent.activity", project_id: "PROJ-A", agent_color: "#f07178", payload: { agent_id: "coder-1", summary: "Third step" } }
+  ], directory, "PROJ-A");
+  assert.equal(conflicting.length, 3);
+  assert.equal(conflicting[0].tone, resolveCodingAgentTone("coder-1"));
+  assert.equal(conflicting[1].tone, conflicting[0].tone);
+  assert.equal(conflicting[2].tone, conflicting[0].tone);
+
+  const rollingBuffer = [
+    { event_id: "R-1", event_type: "agent.activity", project_id: "PROJ-A", agent_color: "#ffcb6b", payload: { agent_id: "coder-1", summary: "Oldest event", agent_color: "#ffcb6b" } },
+    { event_id: "R-2", event_type: "agent.activity", project_id: "PROJ-A", agent_color: "#89ddff", payload: { agent_id: "coder-1", summary: "Newer event", agent_color: "#89ddff" } }
+  ];
+  const beforeEviction = resolveCodingAgentActivities(rollingBuffer, directory, "PROJ-A");
+  const afterEviction = resolveCodingAgentActivities(rollingBuffer.slice(1), directory, "PROJ-A");
+  assert.equal(beforeEviction.length, 2);
+  assert.equal(afterEviction.length, 1);
+  assert.equal(beforeEviction[0].tone, resolveCodingAgentTone("coder-1"));
+  assert.equal(beforeEviction[1].tone, beforeEviction[0].tone);
+  assert.equal(afterEviction[0].tone, beforeEviction[1].tone);
+
+  const profiledDirectory = [{ agent_id: "coder-1", project_id: "PROJ-A", role: "coder", agent_name: "Coder One", color: "#ffcb6b" }];
+  assert.equal(resolveCodingAgentActivities(rollingBuffer, profiledDirectory, "PROJ-A")[0].tone, "#ffcb6b");
+  assert.equal(resolveCodingAgentActivities(rollingBuffer.slice(1), profiledDirectory, "PROJ-A")[0].tone, "#ffcb6b");
 });
