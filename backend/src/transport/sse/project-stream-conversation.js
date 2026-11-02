@@ -80,6 +80,7 @@ function projectConversationMessage(message) {
       text: payload.text ?? null,
       chunk: payload.chunk ?? payload.text ?? null,
       ...(["text/plain", "text/markdown"].includes(payload.content_type) ? { content_type: payload.content_type } : {}),
+      ...(typeof payload.is_idea === "boolean" ? { is_idea: payload.is_idea } : {}),
       done: eventType !== "conversation.message.delta"
     }
   };
@@ -138,6 +139,7 @@ function projectConversationEvent(event) {
       text: payload.text ?? null,
       chunk: payload.chunk ?? payload.text ?? null,
       ...(typeof payload.content_type === "string" ? { content_type: payload.content_type } : {}),
+      ...(typeof payload.is_idea === "boolean" ? { is_idea: payload.is_idea } : {}),
       done: eventType === "conversation.message.received" || payload.done === true
     }
   };

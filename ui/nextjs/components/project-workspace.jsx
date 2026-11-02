@@ -4,7 +4,7 @@
 import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
 import { getProjectSelection, refreshProjects, selectProject, subscribeProjectSelection } from "../lib/project-selection.js";
 import { readSelectedProject } from "../lib/project-navigation.js";
-import { getIdeasSession } from "../lib/ideas-session.js";
+import { getNotebookSession } from "../lib/notebook-session.js";
 
 const initialSelection = { projects: [], projectId: null, generation: 0, loaded: false, error: null };
 
@@ -15,8 +15,8 @@ export function ProjectWorkspace({ children, projectId }) {
   const [error, setError] = useState(null);
   const [retry, setRetry] = useState(0);
   // Keep an unconfirmed notebook save visible if admission removes the panel from the workspace.
-  const ideasSession = getIdeasSession(projectId ?? admitted ?? "");
-  const ideasState = useSyncExternalStore(ideasSession.subscribe, ideasSession.getSnapshot, ideasSession.getSnapshot);
+  const notebookSession = getNotebookSession(projectId ?? admitted ?? "");
+  const notebookState = useSyncExternalStore(notebookSession.subscribe, notebookSession.getSnapshot, notebookSession.getSnapshot);
   useEffect(() => {
     let active = true;
     setAdmitted(null); setError(null);
@@ -57,7 +57,7 @@ export function ProjectWorkspace({ children, projectId }) {
   if (!error && !selection.error) return <main className="project-workspace-state"><p role="status">Opening project…</p></main>;
   return <main className="project-workspace-state">
     <p role="alert">{error || selection.error || "This project is unavailable. Choose an available project."}</p>
-    {ideasState.uncertain && <p role="alert">Chưa xác nhận lưu ý tưởng. Bản nháp được giữ trong phiên UI; chọn lại project khi có thể để đối chiếu.</p>}
+    {notebookState.uncertain && <p role="alert">Chưa xác nhận lưu sổ tay. Bản nháp được giữ trong phiên UI; chọn lại project khi có thể để đối chiếu.</p>}
     <button type="button" onClick={() => setRetry((current) => current + 1)}>Retry</button>
   </main>;
 }

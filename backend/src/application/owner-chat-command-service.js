@@ -52,7 +52,7 @@ const DISCOVERY_COMPLETE_RE = /(?:discovery complete|repository discovery comple
 const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
-export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent, bus, conversationCrudService, conversationStateStore, agentRoleResolver, requestSystemEngineer, requestReviewer, amSeHandoffService, maxSelfHealAttempts } = {}) {
+export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent, communications, bus, conversationCrudService, conversationStateStore, agentRoleResolver, requestSystemEngineer, requestReviewer, amSeHandoffService, maxSelfHealAttempts } = {}) {
   if (!projectId || !fileService?.readFile || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   const planning = createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath: PLAN_FRAME_PATH });
   let clarificationSessions;
@@ -62,7 +62,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (!clarificationSessions) clarificationSessions = createArchitectureClarificationStore({ projectId, fileService });
     if (typeof requestArchitecture !== "function") throw fail("ARCHITECTURE_UNAVAILABLE", "Architecture is unavailable for conversation planning.");
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
-    return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture, conversationStateStore, maxSelfHealAttempts });
+    return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture, conversationStateStore, communications: communications ?? bus?.store ?? null, maxSelfHealAttempts });
   }
   return Object.freeze({ execute, isCommand, planningSessions: planning.sessions });
 
@@ -87,38 +87,45 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
   }
 
   // Business purpose: executes Phase 1 AM-SE plan critique and Phase 2 automatic handoff to Sprint Leader or System Engineer (with independent Reviewer RV verification) when the owner's plan creation trigger specified a delivery target.
-  // Technical description: delegates both sl and se delivery targets to amSeHandoffService.startHandoff so AM and SE critique and align on the plan before auto-approving and handing off to SL or SE.
+  // Technical description: delegates both sl and se delivery targets to amSeHandoffService.startHandoff for a single plan or each plan in a multi-idea batch before auto-approving and handing off to SL or SE.
   async function applyAutoHandoffIfRequested(created, { conversationId, approvedOwnerId, requestArchitecture, requestSystemEngineer: turnRequestSe, requestReviewer: turnRequestRv }) {
     if (!created?.revision_created || !created.delivery_target || created.delivery_target === "none") return created;
     const ownerId = approvedOwnerId || "project-owner";
-    if (created.delivery_target === "sl" || created.delivery_target === "se") {
-      seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer });
+    if (created.delivery_target !== "sl" && created.delivery_target !== "se") return created;
+    seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer });
+    // Business purpose: runs the AM-SE critique and SL or SE handoff for one generated plan revision.
+    // Technical description: invokes seHandoff.startHandoff with the plan identity and intake metadata and formats the resulting status payload.
+    const handoffOne = async (planItem) => {
+      if (!planItem?.revision_created) return planItem;
       const handoff = await seHandoff.startHandoff({
-        plan: { plan_id: created.plan_id, revision: created.revision, sha256: created.sha256, source_path: created.source_summary_path },
-        intake: { source_kind: created.source_kind ?? "conversation", source_file_path: created.source_file_path ?? null, delivery_target: created.delivery_target },
-        deliveryTarget: created.delivery_target, conversationId, approvedOwnerId: ownerId, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer
+        plan: { plan_id: planItem.plan_id, revision: planItem.revision, sha256: planItem.sha256, source_path: planItem.source_summary_path },
+        intake: { source_kind: planItem.source_kind ?? "conversation", source_file_path: planItem.source_file_path ?? null, idea_message_id: planItem.idea_message_id ?? null, delivery_target: planItem.delivery_target ?? created.delivery_target },
+        deliveryTarget: planItem.delivery_target ?? created.delivery_target, conversationId, approvedOwnerId: ownerId, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer
       });
-      if (created.delivery_target === "sl") {
+      if ((planItem.delivery_target ?? created.delivery_target) === "sl") {
         return {
-          ...created,
-          ...handoff,
-          command: "/plan",
-          status: "handed_to_node",
-          delivery_target: "sl",
+          ...planItem, ...handoff, command: "/plan", status: "handed_to_node", delivery_target: "sl",
           text: `Đã tạo kế hoạch ${handoff.plan_id} r${handoff.revision}, hoàn tất phản biện thống nhất AM ↔ SE (${handoff.critique_rounds_completed} vòng) và giao việc cho SL. Sprint Leader đã tạo ${handoff.sprint_id} (trạng thái: ${handoff.sprint_status ?? "ready"}). Chưa RUN.`
         };
       }
       return {
-        ...created,
-        ...handoff,
-        command: "/plan",
-        delivery_target: "se",
+        ...planItem, ...handoff, command: "/plan", delivery_target: "se",
         text: handoff.status === "completed"
           ? `Đã tạo kế hoạch ${handoff.plan_id} r${handoff.revision}, phản biện thống nhất AM ↔ SE (${handoff.critique_rounds_completed} vòng), giao việc cho SE và hoàn tất nghiệm thu sau ${handoff.rounds_completed} vòng.`
           : `Đã tạo kế hoạch ${handoff.plan_id} r${handoff.revision}, phản biện thống nhất AM ↔ SE (${handoff.critique_rounds_completed} vòng) và bàn giao cho SE thực thi (${handoff.status}).`
       };
+    };
+    if (Array.isArray(created.plans) && created.plans.length > 1) {
+      const handedOffPlans = [];
+      for (const item of created.plans) handedOffPlans.push(await handoffOne(item));
+      const primary = handedOffPlans[0];
+      return {
+        ...created, ...primary, plans: handedOffPlans, idea_count: handedOffPlans.length,
+        text: handedOffPlans.map((item) => item.text).join("\n")
+      };
     }
-    return created;
+    const single = await handoffOne(created);
+    return Array.isArray(created.plans) ? { ...single, plans: [single], idea_count: 1 } : single;
   }
 
   // Runs create or update planning from one owner conversation message with its provider request.

@@ -81,7 +81,7 @@ export function createProjectApplicationRegistry({ projectLifecycle, defaultAppl
       return undefined;
     }
     record.services ??= { ...application.services,
-      ...(runtime.ideas ? { ideas: runtime.ideas } : {}),
+      ...(runtime.notebook ? { notebook: runtime.notebook } : {}),
       ...(runtime.controlDb ? { controlDb: runtime.controlDb } : {}),
       // Rechecks live admission when cached routers or streams use this service bundle.
       assertAdmission() {

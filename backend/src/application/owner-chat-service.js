@@ -8,6 +8,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { createOwnerAgentStream } from "./owner-agent-stream.js";
 import { isConversationPlanMessage } from "./conversation-planning-service.js";
+import { detectIdeaSynthesisTrigger, isIdeaSummaryResponse } from "../modules/governance/conversation-plan-trigger.js";
 
 const require = createRequire(import.meta.url);
 const commonSchema = require("../../../schemas/core/common.schema.json");
@@ -156,7 +157,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
       text += chunk.text;
       if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, content_type: contentType, chunk_index: index++ }, `COMMAND-DELTA-${index}`));
     }
-    const response = responseMessage(message, "architecture.message.received", { text, content_type: contentType, agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
+    const isIdea = isIdeaSummaryResponse({ ownerText: input?.payload?.text, agentText: text });
+    const response = responseMessage(message, "architecture.message.received", { text, content_type: contentType, ...(isIdea ? { is_idea: true } : {}), agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
     if (exposeText) bus.send(response);
     return text;
   }
@@ -185,6 +187,15 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
   }
   // Adds available project context to agent requests.
   async function enrichAgentText(message, agentId) {
+    const store = communications ?? bus?.store;
+    if (detectIdeaSynthesisTrigger(message.payload?.text) && typeof store?.getByConversationId === "function" && message.conversation_id) {
+      const history = store.getByConversationId(message.conversation_id)
+        .filter((entry) => entry.id !== message.id && (entry.message_type === "owner.message" || String(entry.message_type ?? "").endsWith(".message.received")))
+        .slice(-10)
+        .map((entry) => `${entry.message_type === "owner.message" ? "Owner" : "Agent"}: ${String(entry.payload?.text ?? "").trim()}`)
+        .filter(Boolean);
+      if (history.length) return `${message.payload.text}\n\n--- Related Conversation Exchanges to Synthesize into an Idea ---\n${history.join("\n\n")}`;
+    }
     if (agentId !== "builder" || typeof buildAgentContext !== "function") return message.payload.text;
     try {
       const context = await buildAgentContext({ message, agentId });
@@ -201,9 +212,10 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     try {
       const result = await agentRequest({ agentId, payload: { text: await enrichAgentText(message, agentId), response_content_type: message.payload.response_content_type, ...(message.payload.task ? { task: message.payload.task } : {}) }, correlationId: message.correlation_id });
       const contentType = isSupportedContentType(result.payload?.content_type) ? result.payload.content_type : message.payload.response_content_type === "text/markdown" ? "text/markdown" : "text/plain";
-      const responsePayload = { ...(result.payload ?? {}), content_type: contentType, ...(contentType === "text/markdown" ? { markdown_provenance: "owner-markdown-opt-in-v1" } : {}) };
+      const isIdea = isIdeaSummaryResponse({ ownerText: message.payload?.text, agentText: result.payload?.text, explicitIdea: result.payload?.is_idea ?? message.payload?.is_idea });
+      const responsePayload = { ...(result.payload ?? {}), content_type: contentType, ...(isIdea ? { is_idea: true } : {}), ...(contentType === "text/markdown" ? { markdown_provenance: "owner-markdown-opt-in-v1" } : {}) };
       persistProtocolMessage({ ...message, payload: responsePayload }, message.payload.round ?? 1, "response");
-      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, content_type: contentType, response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text: result.payload?.text, content_type: contentType, ...(isIdea ? { is_idea: true } : {}), response_id: result.payload?.response_id, agent_status: "COMPLETED" }));
       await onAgentCompleted?.({ message, agentId, text: result.payload?.text ?? "" });
     } catch (error) {
       bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: normalizeErrorContract({ error, requestId: message.correlation_id }), agent_status: "FAILED" }));

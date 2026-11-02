@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import Ajv2020 from "ajv/dist/2020.js";
 import { ConfigurationError } from "../shared/errors.js";
+import { isIdeaSummaryResponse } from "../modules/governance/conversation-plan-trigger.js";
 
 const require = createRequire(import.meta.url);
 const agentToolSchema = require("../../../schemas/agent/agent-tool.schema.json");
@@ -100,9 +101,10 @@ export function createOwnerAgentStream({ bus, agentStream, onAgentCompleted, exe
       if (submittedCode) emitProgress(message, agentId, "Đang chạy kiểm tra sau khi ghi file…", "PROGRESS-VERIFY");
       if (agentId === "builder" && !submittedCode) throw new ConfigurationError("Builder must return submit_code before completing a coding task.");
       if (!submittedCode && !text.trim()) throw new ConfigurationError("Agent ended without submit_code or a non-empty response.");
+      const isIdea = isIdeaSummaryResponse({ ownerText: message.payload?.text, agentText: text, explicitIdea: message.payload?.is_idea });
       await bus.flush();
-      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, content_type: contentType, agent_status: "COMPLETED" }, "COMPLETED"));
-      persistProtocolMessage({ ...message, payload: { ...message.payload, text, content_type: contentType, ...(contentType === "text/markdown" ? { markdown_provenance: "owner-markdown-opt-in-v1" } : {}) } }, message.payload.round ?? 1, "response");
+      bus.send(responseMessage(message, streamEventType(agentId, "message.received"), { text, content_type: contentType, ...(isIdea ? { is_idea: true } : {}), agent_status: "COMPLETED" }, "COMPLETED"));
+      persistProtocolMessage({ ...message, payload: { ...message.payload, text, content_type: contentType, ...(isIdea ? { is_idea: true } : {}), ...(contentType === "text/markdown" ? { markdown_provenance: "owner-markdown-opt-in-v1" } : {}) } }, message.payload.round ?? 1, "response");
       await onAgentCompleted?.({ message, agentId, text });
     } catch (error) {
       if (error?.code !== "EXECUTION_PAUSED") bus.send(responseMessage(message, streamEventType(agentId, "error"), { error: error.message, agent_status: "FAILED" }, "ERROR"));

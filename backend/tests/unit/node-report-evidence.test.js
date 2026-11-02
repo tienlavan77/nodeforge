@@ -99,8 +99,8 @@ test("report_done cannot accept a Coder claim or passing build in place of appro
 
 // Prevents UI test hints or poisoned draft missing_checks from overriding an aggregate backend_tests step.
 test("UI criterion test hints and supplemental backend_tests receipts satisfy aggregate backend_tests without poisoning missing_checks", () => {
-  const uiPath = "ui/nextjs/tests/ideas-draft-safety.test.js";
-  const backendPath = "backend/tests/integration/ideas-runtime-authorization.test.js";
+  const uiPath = "ui/nextjs/tests/notebook-draft-safety.test.js";
+  const backendPath = "backend/tests/integration/notebook-runtime-authorization.test.js";
   const ticket = {
     acceptance_criteria: ["UI draft safety works"],
     verification_plan: [

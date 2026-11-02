@@ -155,6 +155,67 @@ test("persists agent message idea toggle across history queries and rejects owne
   );
 });
 
+test("O1: owner chat auto-marks synthesized idea responses in agent-communication-store, projects is_idea across history/contract/SSE stream, and preserves manual toggling", async () => {
+  const { createAgentCommunicationStore } = await import("../../src/modules/governance/agent-communication-store.js");
+  const { createAgentCommunicationBus } = await import("../../src/modules/governance/agent-communication-bus.js");
+  const { createOwnerChatService } = await import("../../src/application/owner-chat-service.js");
+  const { toConversationChatHistory } = await import("../../src/agents/agent-contract.js");
+  const { projectConversationMessages } = await import("../../src/transport/sse/project-stream-conversation.js");
+
+  const store = createAgentCommunicationStore();
+  const streamedEvents = [];
+  const bus = createAgentCommunicationBus({ store });
+  bus.subscribe("NODE", (msg) => {
+    for (const evt of projectConversationMessages(msg)) streamedEvents.push(evt);
+  });
+
+  const ownerChat = createOwnerChatService({
+    bus,
+    communications: store,
+    streamBatchMs: 5,
+    agentStream: async function* ({ payload }) {
+      yield { text: `## Ý tưởng: Tổng hợp trao đổi\nĐã tổng hợp từ ngữ cảnh: ${payload.text.slice(0, 40)}` };
+      yield { completed: true };
+    }
+  });
+
+  ownerChat.submit({
+    message_id: "MSG-OWNER-SYNTH-1",
+    project_id: "PROJECT-141",
+    conversation_id: "CONV-141",
+    correlation_id: "CORR-SYNTH-1",
+    timestamp: "2026-11-02T02:00:00.000Z",
+    payload: { text: "Hãy tổng hợp các trao đổi trên thành một ý tưởng.", response_content_type: "text/markdown" }
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const storedReply = store.getById("MSG-ARCHITECTURE-COMPLETED-MSG-OWNER-SYNTH-1");
+  assert.ok(storedReply, "Completed agent reply is persisted in agent-communication-store");
+  assert.equal(storedReply.payload.is_idea, true, "payload.is_idea is automatically set to true");
+
+  const receivedStreamEvent = streamedEvents.find((evt) => evt.event_type === "conversation.message.received" && evt.payload.message_id === storedReply.id);
+  assert.ok(receivedStreamEvent, "SSE conversation.message.received event is projected");
+  assert.equal(receivedStreamEvent.payload.is_idea, true, "SSE payload carries is_idea: true");
+
+  const auditService = createConversationAuditHistoryService({ communications: store });
+  const historyBeforeToggle = await auditService.query({ projectId: "PROJECT-141", conversationId: "CONV-141", chatOnly: true });
+  const replyRecord = historyBeforeToggle.items.find((item) => item.id === storedReply.id);
+  assert.equal(replyRecord?.is_idea, true);
+
+  const contractHistory = toConversationChatHistory(historyBeforeToggle.items);
+  assert.equal(contractHistory.find((item) => item.id === storedReply.id)?.is_idea, true);
+  assert.equal(contractHistory.find((item) => item.id === "MSG-OWNER-SYNTH-1")?.is_idea, false);
+
+  const toggledOff = auditService.setMessageIdea({ projectId: "PROJECT-141", conversationId: "CONV-141", messageId: storedReply.id, isIdea: false });
+  assert.equal(toggledOff.is_idea, false);
+  assert.equal(store.getById(storedReply.id)?.payload?.is_idea, false);
+
+  const toggledOn = auditService.setMessageIdea({ projectId: "PROJECT-141", conversationId: "CONV-141", messageId: storedReply.id });
+  assert.equal(toggledOn.is_idea, true);
+  assert.equal(store.getById(storedReply.id)?.payload?.is_idea, true);
+});
+
 function message(id, timestamp, sender, role, receiver, type, payload) {
   return { id, project_id: "PROJECT-141", sender: { id: sender, role }, recipient: { id: receiver, role: receiver === "NODE" ? "node" : "architecture_manager" }, message_type: type, conversation_id: "CONV-141", correlation_id: "CORR-141", payload, timestamp };
 }

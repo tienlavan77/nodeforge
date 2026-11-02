@@ -1,0 +1,88 @@
+/* Keep the project notebook within the viewport as a floating monitor window.
+ * Its independent scroll area prevents long entries from changing conversation geometry.
+ * Native controls remain keyboard accessible, with a visible focus indicator in both themes. */
+.notebook-panel {
+  position: fixed; z-index: 82;
+  display: flex; flex-direction: column;
+  min-width: 260px; min-height: 120px;
+  max-width: calc(100vw - 24px); max-height: calc(100vh - 24px);
+  box-sizing: border-box; overflow: auto; resize: both;
+  overscroll-behavior: contain; pointer-events: auto;
+  border: 1px solid var(--app-border, #777); border-radius: 10px;
+  background: var(--app-panel, #fff); color: var(--app-text, #222);
+  box-shadow: 0 12px 36px #0005; white-space: normal;
+}
+.notebook-panel.is-active-panel { z-index: 89; border-color: var(--app-accent, #629dff); }
+.notebook-panel.is-minimized { min-height: 0; resize: none; }
+.notebook-panel[hidden] { display: none; }
+.notebook-panel .workspace-monitor-header {
+  display: flex; min-height: 42px; flex: none; align-items: center;
+  gap: 6px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--app-border, #777);
+  cursor: move; touch-action: none; user-select: none;
+}
+.notebook-panel.is-minimized .workspace-monitor-header { border-bottom: 0; }
+.notebook-panel .workspace-monitor-header strong {
+  overflow: hidden; flex: 1; font-size: 13px; text-overflow: ellipsis; white-space: nowrap;
+}
+.notebook-panel .workspace-monitor-header button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; line-height: 1; flex: none;
+  border: 1px solid var(--app-border, #777); border-radius: 6px;
+  background: transparent; color: var(--app-text, #222); cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.notebook-panel .workspace-monitor-header button:hover:not(:disabled) {
+  border-color: var(--app-accent, #629dff);
+  background: color-mix(in srgb, var(--app-accent, #629dff) 14%, transparent);
+  color: var(--app-accent, #629dff);
+}
+.notebook-panel .workspace-monitor-content {
+  min-height: 0; flex: 1; overflow: auto; padding: 12px 14px; font-family: inherit;
+}
+.notebook-panel form { display: flex; flex-direction: column; gap: 8px; }
+.notebook-panel textarea {
+  box-sizing: border-box; width: 100%; min-height: 80px; padding: 8px 10px;
+  font: inherit; font-family: inherit; font-size: 12px !important; resize: vertical;
+  background: var(--app-bg, #fff); color: inherit; border: 1px solid var(--app-border, #777); border-radius: 6px;
+}
+.notebook-panel .notebook-lists-container { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.notebook-panel .notebook-list-section { display: flex; flex-direction: column; gap: 4px; }
+.notebook-panel .notebook-list-heading { margin: 0; font-size: 12px; font-weight: 600; color: var(--app-muted, #666); text-transform: uppercase; letter-spacing: 0.03em; }
+.notebook-panel ul { list-style: none; margin: 4px 0 0; padding: 0; min-height: 16px; }
+.notebook-panel li { padding: 8px 4px; border-top: 1px solid var(--app-border, #777); transition: background-color 0.12s ease, opacity 0.12s ease; }
+.notebook-panel li[draggable="true"] { cursor: grab; }
+.notebook-panel li.is-dragging { opacity: 0.5; cursor: grabbing; }
+.notebook-panel li.is-drag-over { background: color-mix(in srgb, var(--app-accent, #629dff) 12%, transparent); border-top: 2px solid var(--app-accent, #629dff); }
+.notebook-panel p { overflow-wrap: anywhere; white-space: pre-wrap; margin: 0 0 8px; font-size: 12px !important; }
+.notebook-panel .notebook-todo-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+.notebook-panel .notebook-todo-checkbox { margin: 3px 0 0; width: 12px; height: 12px; flex: none; cursor: pointer; accent-color: var(--app-accent, #629dff); }
+.notebook-panel .notebook-todo-content { flex: 1; min-width: 0; margin: 0; font-size: 12px !important; line-height: 1.4; color: var(--app-text, #222); }
+.notebook-panel .notebook-todo-content.is-done,
+.notebook-panel li.is-done .notebook-todo-content { text-decoration: line-through; opacity: 0.68; }
+.notebook-panel .notebook-entry-form button[type="submit"],
+.notebook-panel .notebook-entry-submit { align-self: flex-end; width: fit-content; }
+.notebook-panel .notebook-actions { display: flex; align-items: center; flex: none; gap: 4px; margin-left: auto; margin-top: 3px; margin-right: -4px; padding-right: 4px; }
+.notebook-panel .notebook-icon-btn {
+  box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 12px; min-width: 12px; height: 12px; min-height: 12px;
+  flex: 0 0 12px; padding: 0; margin: 0; line-height: 1; overflow: hidden;
+  border: 1px solid var(--app-border, #777); border-radius: 2px;
+  background: transparent; color: var(--app-text, #222); cursor: pointer;
+}
+.notebook-panel .notebook-icon-btn svg {
+  width: 8px; height: 8px; display: block; flex: none; pointer-events: none;
+}
+.notebook-panel .notebook-icon-btn:hover:not(:disabled) {
+  border-color: var(--app-accent, #629dff);
+  background: color-mix(in srgb, var(--app-accent, #629dff) 14%, transparent);
+  color: var(--app-accent, #629dff);
+}
+.notebook-panel .notebook-delete-confirm { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.notebook-panel .notebook-delete-confirm p { margin: 0; width: 100%; font-size: 13px; }
+.notebook-panel button { max-width: 100%; white-space: normal; }
+.notebook-panel :focus-visible { outline: 2px solid #629dff; outline-offset: 3px; }
+.workspace-monitor-dock { flex-wrap: wrap; max-width: calc(100vw - 32px); z-index: 91; }
+@media (max-width: 640px) {
+  .notebook-panel { min-width: 220px; max-width: calc(100vw - 16px); }
+}

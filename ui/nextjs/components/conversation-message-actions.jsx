@@ -187,23 +187,25 @@ export function ConversationAgentMessageActions({ message, children, client, pro
   }
 
   return <>
-    {isAgent && isIdea && <span className="conversation-idea-badge">Idea</span>}
     {isMarkdown && <span className="conversation-markdown-badge">Markdown</span>}
     {children}
     <div className="claude-message-actions" aria-label="Agent message actions">
-      <button type="button" className={copied ? "is-copied" : ""} onClick={() => void handleCopy()} disabled={!text} aria-label={copied ? "Copied agent message" : "Copy agent message"} title={copied ? "Copied" : "Copy"}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M5 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" />}</svg>
-      </button>
-      <button type="button" onClick={() => void handleShare()} disabled={!text} aria-label="Share agent message" title="Share">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
-      </button>
-      {isAgent && <button type="button" className={isIdea ? "is-idea-active" : ""} onClick={() => void handleToggleIdea()} disabled={togglingIdea || !text || !client?.setConversationMessageIdea || !projectId || !message?.conversation_id || !(message?.source_message_id ?? message?.id)} aria-pressed={isIdea} aria-label={isIdea ? "Remove idea mark" : "Mark as idea"} title={isIdea ? "Remove idea" : "Mark as idea"}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6m-5 3h4M12 3a6 6 0 0 0-3.8 10.6c.5.4.8 1 .8 1.7V16h6v-.7c0-.7.3-1.3.8-1.7A6 6 0 0 0 12 3Z" /></svg>
-      </button>}
-      {isMarkdown && <>
-        <button type="button" onClick={handleDownload} disabled={!text} aria-label="Download Markdown" title="Download .md">↓</button>
-        <button type="button" onClick={() => void handleSaveFile()} disabled={exporting || !text || !client} aria-label="Save Markdown to project" title="Write file">{exporting ? "…" : "↳"}</button>
-      </>}
+      <div className="claude-message-actions-left">
+        <button type="button" className={copied ? "is-copied" : ""} onClick={() => void handleCopy()} disabled={!text} aria-label={copied ? "Copied agent message" : "Copy agent message"} title={copied ? "Copied" : "Copy"}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">{copied ? <path d="m5 12 4 4L19 6" /> : <path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M5 8h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2Z" />}</svg>
+        </button>
+        <button type="button" onClick={() => void handleShare()} disabled={!text} aria-label="Share agent message" title="Share">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" /></svg>
+        </button>
+        {isAgent && <button type="button" className={isIdea ? "is-idea-active" : ""} onClick={() => void handleToggleIdea()} disabled={togglingIdea || !text || !client?.setConversationMessageIdea || !projectId || !message?.conversation_id || !(message?.source_message_id ?? message?.id)} aria-pressed={isIdea} aria-label={isIdea ? "Remove idea mark" : "Mark as idea"} title={isIdea ? "Remove idea" : "Mark as idea"}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6m-5 3h4M12 3a6 6 0 0 0-3.8 10.6c.5.4.8 1 .8 1.7V16h6v-.7c0-.7.3-1.3.8-1.7A6 6 0 0 0 12 3Z" /></svg>
+        </button>}
+        {isMarkdown && <>
+          <button type="button" onClick={handleDownload} disabled={!text} aria-label="Download Markdown" title="Download .md">↓</button>
+          <button type="button" onClick={() => void handleSaveFile()} disabled={exporting || !text || !client} aria-label="Save Markdown to project" title="Write file">{exporting ? "…" : "↳"}</button>
+        </>}
+      </div>
+      {isAgent && isIdea && <span className="conversation-idea-badge">Idea</span>}
     </div>
     {exportStatus && <p className="conversation-markdown-export-status" role="status">{exportStatus}</p>}
   </>;

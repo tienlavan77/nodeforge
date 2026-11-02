@@ -165,7 +165,7 @@ test("conversation message actions expose owner copy, edit, and retry controls w
   assert.match(stylesSource, /\.claude-message\.is-owner \.claude-message-actions/);
   assert.match(stylesSource, /\.claude-message\.is-agent \.claude-message-actions/);
   assert.match(stylesSource, /\.claude-message-actions button\.is-idea-active/);
-  assert.match(homeConversationStyles, /\.conversation-idea-badge/);
+  assert.match(homeConversationStyles, /\.conversation-idea-badge\s*\{[^}]*margin-left:\s*auto/);
 });
 
 test("ConversationAgentMessageActions component marks and unmarks an Idea, updates badge and parent callback, and rolls back on API failure", async () => {
@@ -227,6 +227,10 @@ test("ConversationAgentMessageActions component marks and unmarks an Idea, updat
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.ok(getIdeaBadge(), "Idea badge should render when marked");
   assert.equal(getIdeaBadge().props.children, "Idea");
+  const actionsBar = harness.findNodes((n) => n.type === "div" && n.props?.className === "claude-message-actions")[0];
+  assert.ok(actionsBar, "Agent message actions bar should exist");
+  const badgeInsideActions = Array.isArray(actionsBar.props?.children) && actionsBar.props.children.some((child) => child?.type === "span" && child?.props?.className === "conversation-idea-badge");
+  assert.ok(badgeInsideActions, "Idea badge should render inside claude-message-actions");
   assert.equal(getIdeaButton().props["aria-pressed"], true);
   assert.equal(getIdeaButton().props["aria-label"], "Remove idea mark");
   assert.equal(apiCalls.length, 1);
