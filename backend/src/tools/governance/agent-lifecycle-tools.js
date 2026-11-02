@@ -13,7 +13,7 @@ import { extractorRegistry } from "../../modules/index/parser/index.js";
 import { hasFileHeaderComment, extractFunctionSignatures, findFunctionDeclarationLine, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage } from "./agent-code-conventions.js";
 import { discoveryNotice, recordRead, resetExploration } from "../discovery/exploration-state.js";
 const MAX_CONTENT = 200000;
-const WRITE_DIFF_MAX_LINES = 250;
+const WRITE_DIFF_MAX_LINES = 400;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
 const safePath = (value, operation = "read", role) => {
@@ -75,13 +75,14 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
 
 
 // createWriteDiffTool - handles createWriteDiffTool operation.
-export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxLines = WRITE_DIFF_MAX_LINES } = {}) {
+export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxLines } = {}) {
   if (typeof fileService?.atomicWrite !== "function" || typeof fileService?.readFile !== "function") throw new ConfigurationError("write_diff requires File Service readFile and atomicWrite.");
   return Object.freeze({ name: "write_diff", async execute(input = {}, context = {}) {
     const path = safePath(input.path, "write", context.agent_identity?.role); assertCoderProjectAccess(context.agent_identity?.role, "write", path); assertAllowed(path, context, "write"); if (typeof input.content !== "string") throw error("CONTENT_INVALID", "content must be a string.");
+    const effectiveLimit = maxLines ?? (/\.md$/i.test(path) ? DOCUMENT_LINE_LIMIT : WRITE_DIFF_MAX_LINES);
     const lineCount = input.content ? input.content.split("\n").length - Number(input.content.endsWith("\n")) : 0;
     const codeLines = countBudgetLines(input.content);
-    if (codeLines > maxLines) throw error("CONTENT_TOO_LARGE", `write_diff content has ${codeLines} code lines, limit is ${maxLines}. Split the module or use edit_diff for localized changes.`, { line_count: lineCount, code_lines: codeLines, total_lines: input.content.split("\n").length, limit: maxLines });
+    if (codeLines > effectiveLimit) throw error("CONTENT_TOO_LARGE", `write_diff content has ${codeLines} code lines, limit is ${effectiveLimit}. Split the module or use edit_diff for localized changes.`, { line_count: lineCount, code_lines: codeLines, total_lines: input.content.split("\n").length, limit: effectiveLimit });
     let current;
     try {
       current = await fileService.readFile({ path });
@@ -99,7 +100,7 @@ export function createWriteDiffTool({ fileService, codeCache, changeLedger, maxL
       if (typeof input.before_checksum !== "string" || input.before_checksum !== actual) throw error("CHECKSUM_MISMATCH", `Checksum mismatch for ${path}.`, checksumDiagnostics(input.before_checksum, true));
       const currentLines = current ? current.split("\n").length - Number(current.endsWith("\n")) : 0;
       const currentCodeLines = countBudgetLines(current);
-      if (currentCodeLines > maxLines) throw error("DESTRUCTIVE_OVERWRITE", `${path} has ${currentCodeLines} code lines, over the ${maxLines}-line write_diff limit. Use edit_diff with an exact anchor for localized changes.`, { path, current_lines: currentLines, code_lines: currentCodeLines, total_lines: current.split("\n").length, limit: maxLines });
+      if (currentCodeLines > effectiveLimit) throw error("DESTRUCTIVE_OVERWRITE", `${path} has ${currentCodeLines} code lines, over the ${effectiveLimit}-line write_diff limit. Use edit_diff with an exact anchor for localized changes.`, { path, current_lines: currentLines, code_lines: currentCodeLines, total_lines: current.split("\n").length, limit: effectiveLimit });
     }
     assertSummaryEnforced(input.content, current, path);
     assertEditSummaryEnforced(current ?? "", input.content, path);
@@ -135,8 +136,9 @@ export function createEditDiffTool({ fileService, codeCache, changeLedger, maxCh
     if (parts.length === 1) throw error("ANCHOR_NOT_FOUND", `Anchor was not found in ${path}. Read the file again and copy the exact text.`, { path });
     if (occurrence === "first" && parts.length > 2) throw error("ANCHOR_NOT_UNIQUE", `Anchor occurs ${parts.length - 1} times in ${path}; include more surrounding lines to make it unique.`, { path, occurrences: parts.length - 1 });
     const replaced = parts.join(input.replacement);
+    const effectiveLimit = /\.md$/i.test(path) ? DOCUMENT_LINE_LIMIT : WRITE_DIFF_MAX_LINES;
     const codeLines = countBudgetLines(replaced);
-    if (codeLines > WRITE_DIFF_MAX_LINES && codeLines > countBudgetLines(current)) throw error("CONTENT_TOO_LARGE", `edit_diff would increase the code-line budget to ${codeLines}; split the module before adding code beyond ${WRITE_DIFF_MAX_LINES} lines.`, { line_count: replaced.split("\n").length - Number(replaced.endsWith("\n")), code_lines: codeLines, total_lines: replaced.split("\n").length, limit: WRITE_DIFF_MAX_LINES });
+    if (codeLines > effectiveLimit && codeLines > countBudgetLines(current)) throw error("CONTENT_TOO_LARGE", `edit_diff would increase the code-line budget to ${codeLines}; split the module before adding code beyond ${effectiveLimit} lines.`, { line_count: replaced.split("\n").length - Number(replaced.endsWith("\n")), code_lines: codeLines, total_lines: replaced.split("\n").length, limit: effectiveLimit });
     const newFunctions = assertEditSummaryEnforced(current, replaced, path);
     if (changeLedger) await changeLedger.write({ path, before: current, after: replaced });
     else await fileService.atomicWrite({ path, content: replaced, replace: true });
