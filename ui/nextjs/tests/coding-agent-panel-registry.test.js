@@ -230,36 +230,22 @@ test("AC-10: Sprint Plan component contracts and Coding ingress wiring remain in
     assert.ok(tag);
     for (const attribute of attributes) assert.ok(tag.replace(/\s/g, "").includes(attribute.replace(/\s/g, "")));
   }
-  assert.match(monitor, /key\s*=\s*\{panel\.key\}/);
   assert.match(page, /planEvents\.publish\(event\)/);
   assert.match(page, /updateCodingAgentPanelRegistry\(current,\s*PROJECT_ID,\s*\[event\]/);
   assert.match(page, /setWatcherState\s*:\s*setPanelSource/);
-  const closeControl = monitor.match(/<button\b[\s\S]*?>\s*×\s*<\/button>/)?.[0];
-  assert.ok(closeControl);
-  assert.match(closeControl, /type\s*=\s*"button"/);
-  assert.match(closeControl, /aria-label\s*=\s*\{`Close agent panel \$\{panel\.agentId\} in project \$\{panel\.projectId\}`\}/);
-  assert.match(closeControl, /onAgentPanelClose\?\.\(panel\.projectId,\s*panel\.agentId\)/);
-  assert.match(page, /closeCodingAgentPanel\(current,\s*projectId,\s*agentId\)/);
-  assert.match(page, /onAgentPanelClose\s*=\s*\{onAgentPanelClose\}/);
+  assert.match(page, /setWatcherState\(status\)/);
+  assert.match(page, /watcherState=\{watcherState\}/);
 });
 
-test("AC-16: the monitor reuses System panel chrome and exposes a dock that opens a panel by exact agent identity", async () => {
+test("AC-16: the monitor reuses System panel chrome for unified Agents Activity and Watcher monitors without individual agent panels or dock", async () => {
   const monitor = await readFile(new URL("../components/coding-workspace-monitor.jsx", import.meta.url), "utf8");
-  const page = await readFile(new URL("../app/coding/page.jsx", import.meta.url), "utf8");
-  // Same floating-panel design tokens used by the System workspace monitors.
-  assert.match(monitor, /className=\{`coding-agent-monitor\$\{minimized \? " is-minimized" : ""\}`\}/);
+  assert.match(monitor, /className="coding-workspace-monitor-column coding-agent-monitor"/);
   assert.match(monitor, /className="workspace-monitor-header"/);
   assert.match(monitor, /className="workspace-monitor-content"/);
   assert.match(monitor, /workspace-monitor-light/);
   assert.match(monitor, /workspace-monitor-indicator/);
-  assert.match(monitor, /<div className="workspace-monitor-dock" role="group"/);
-  // Dock entries open the panel for the exact agent ID of a currently working, validated identity.
-  const dockButton = monitor.match(/<button key=\{key\}[\s\S]*?<\/button>/)?.[0];
-  assert.ok(dockButton);
-  assert.match(dockButton, /aria-pressed=\{openKeys\.has\(key\)\}/);
-  assert.match(dockButton, /onAgentPanelOpen\?\.\(projectId, agentId\)/);
-  assert.match(monitor, /status === "working"[\s\S]*codingAgentProfile\(agentDirectory, identity\.agentId, projectId\)/);
-  assert.match(page, /openCodingAgentPanel\(current, projectId, agentId, agentDirectoryRef\.current\)/);
-  assert.match(page, /onAgentPanelOpen=\{onAgentPanelOpen\}/);
+  assert.doesNotMatch(monitor, /workspace-monitor-dock/);
+  assert.match(monitor, /<h3>Agents Activity<\/h3>/);
+  assert.match(monitor, /<h3>Watcher<\/h3>/);
 });
 

@@ -52,10 +52,17 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
   const restoredPanelMembershipRef = useRef(null);
   const panelsHydratedRef = useRef(false);
 
+  const [watcherEvents, setWatcherEvents] = useState([]);
+  const [watcherPulseId, setWatcherPulseId] = useState(null);
+  const [watcherState, setWatcherState] = useState("connecting");
+
   // Restore saved open/closed presence once before defaults or live run evidence are processed.
   useEffect(() => {
     panelsHydratedRef.current = false;
     setAgentActivities([]);
+    setWatcherEvents([]);
+    setWatcherPulseId(null);
+    setWatcherState("connecting");
     restoredPanelMembershipRef.current = readCodingAgentPanelMembership(panelStateStorage, PROJECT_ID,
       (error) => console.error("Unable to read coding panel presence", error));
     setAgentPanelRegistry((current) => hydrateCodingAgentPanelRegistry(current, restoredPanelMembershipRef.current, agentDirectoryRef.current));
@@ -68,6 +75,7 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
   }, [planEvents, PROJECT_ID]);
   // Invalidate cached execution claims whenever the live source connects or disconnects.
   const setPanelSource = useCallback((status) => {
+    setWatcherState(status);
     setAgentPanelRegistry((current) => setCodingAgentPanelSource(current, status));
   }, []);
   useEffect(() => {
@@ -94,16 +102,6 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
   // Write the latest membership before unmount so navigation preserves the final open/closed set.
   useEffect(() => () => panelPersister.flush(), [panelPersister]);
 
-  // Close only the selected project/agent panel while preserving its same-run closure policy.
-  const onAgentPanelClose = useCallback((projectId, agentId) => {
-    setAgentPanelRegistry((current) => closeCodingAgentPanel(current, projectId, agentId));
-  }, []);
-
-  // Open the panel for the selected working agent from the dock, bypassing streamed evidence for this explicit action.
-  const onAgentPanelOpen = useCallback((projectId, agentId) => {
-    setAgentPanelRegistry((current) => openCodingAgentPanel(current, projectId, agentId, agentDirectoryRef.current));
-  }, []);
-
   // Refresh Registry Sprint scope while preserving structured diagnostics for the active page.
   const loadWorkspaceMonitor = useCallback((options) => dashboardLoader.load(options), [dashboardLoader]);
   // Apply a confirmed Sprint deletion locally instead of resetting the entire Coding dashboard.
@@ -113,7 +111,7 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
 
   useProjectEventStream({
     client, projectId: PROJECT_ID, activeConversationIdRef, agentDirectoryRef,
-    setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents: () => {}, setWatcherPulseId: () => {}, setWatcherState: setPanelSource,
+    setMessages: () => {}, setAgentTyping: () => {}, setWatcherEvents, setWatcherPulseId, setWatcherState: setPanelSource,
     setAgentProcess: () => {}, setAgentActivities, loadDashboard: loadWorkspaceMonitor, onSprintDeleted, onTicketDeleted, onProjectEvent, agentDisplayName
   });
 
@@ -130,6 +128,6 @@ export default function CodingPage({ projectId: propProjectId } = {}) {
 
   return <div className="claude-home-shell coding-workspace-shell" data-project-id={PROJECT_ID}>
     <ConversationSidebar open={openSidebar} onOpen={() => setOpenSidebar(true)} onClose={() => setOpenSidebar(false)} agentSectionTitle="Code" selectedProjectId={PROJECT_ID} showConversationControls={false} />
-    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} agentPanelRegistry={agentPanelRegistry} onAgentPanelClose={onAgentPanelClose} onAgentPanelOpen={onAgentPanelOpen} />
+    <CodingWorkspaceMonitor planEvents={planEvents} projectId={PROJECT_ID} dashboard={dashboardState.dashboard} dashboardState={dashboardState} client={client} onRefresh={loadWorkspaceMonitor} onSprintDeleted={onSprintDeleted} onTicketDeleted={onTicketDeleted} agentActivities={agentActivities} agentDirectory={agents} watcherEvents={watcherEvents} watcherPulseId={watcherPulseId} watcherState={watcherState} />
   </div>;
 }

@@ -45,8 +45,8 @@ test("home route composes the conversation workspace from existing components", 
   assert.ok(systemPage.includes("setAgentProcess"));
   assert.ok(codingMonitor.includes('<h1 id="coding-sprint-plan-heading">Sprint Plan</h1>'));
   assert.ok(codingMonitor.includes('<h1 id="coding-workspace-agent-heading">Workspace Agent</h1>'));
-  assert.match(codingMonitor, /codingAgentPanelActions\(agentActivities,\s*agentDirectory,\s*projectId,\s*panel\.agentId\)/);
-  assert.match(legacyCodePage, /agentPanelRegistry\s*=\s*\{agentPanelRegistry\}/);
+  assert.match(codingMonitor, /resolveCodingAgentActivities\(agentActivities,\s*agentDirectory,\s*projectId\)/);
+  assert.match(legacyCodePage, /watcherState\s*=\s*\{watcherState\}/);
   assert.ok(codingMonitor.includes('import { SprintPlanDashboard } from "./sprint-plan-panels.jsx"'));
   assert.ok(codingMonitor.includes("<SprintPlanDashboard dashboard={dashboard}"));
   assert.ok(legacyCodePage.includes("createCodingDashboardLoader"));

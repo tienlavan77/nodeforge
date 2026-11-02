@@ -8,7 +8,7 @@ import { matchesBrowserEvidence } from "../../src/modules/supervisor/browser/bro
 
 const step = { kind: "browser", criterion_ids: ["AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6", "AC-8", "AC-9", "AC-10"], viewports: [375, 768, 1440], assertions: CODING_BROWSER_ASSERTIONS.slice(17, 22) };
 
-test("Chromium: all five approved layout assertions execute across every viewport", { skip: process.env.NODEFORGE_BROWSER_TEST !== "1", timeout: 90000 }, async (context) => {
+test("Chromium: all five approved layout assertions execute across every viewport", { timeout: 90000 }, async (context) => {
   const archive = process.env.NODEFORGE_BROWSER_COMMIT ? await materializeTicketArchive({ projectRoot: process.cwd(), commitSha: process.env.NODEFORGE_BROWSER_COMMIT }) : null;
   if (archive) context.after(archive.cleanup);
   const receipt = await runBrowserVerification({ step, sourceRoot: archive?.path ?? process.cwd(), projectRoot: process.cwd() });

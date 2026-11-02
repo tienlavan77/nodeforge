@@ -1,8 +1,9 @@
-// Present the legacy Sprint Plan controls beside active Coder and Reviewer work in Coding.
+// Present the legacy Sprint Plan controls beside unified Coding workspace monitors.
 "use client";
 
-import { useState } from "react";
-import { codingAgentPanelKey, codingAgentProfile, codingAgentPanelActions, codingAgentPanelStatus } from "../lib/coding-agent-panel-registry.js";
+import { useEffect, useState } from "react";
+import { displayMessageTime } from "../lib/home-page-watcher-events.js";
+import { resolveCodingAgentActivities, resolveCodingAgentTone } from "../lib/coding-workspace-activity.js";
 // eslint-disable-next-line no-unused-vars -- Next resolves these component references in JSX.
 import { SprintPlanDashboard } from "./sprint-plan-panels.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -12,15 +13,43 @@ import { CodingArchitecturePlans } from "./coding-architecture-plans.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationHeaderProjectGit } from "./conversation-project-git.jsx";
 
-// Render the legacy Sprint Plan experience alongside active Coding workspace agents.
-export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], onAgentPanelClose, onAgentPanelOpen, agentPanelRegistry = { panels: [], activity: {}, sourceStatus: "unknown" } }) {
-  const panels = agentPanelRegistry.panels.filter((panel) => panel.projectId === projectId);
-  const [minimizedPanels, setMinimizedPanels] = useState({});
-  const openKeys = new Set(panels.map((panel) => panel.key));
-  // Dock entries follow live working evidence for validated identities in this project only, never labels or roles.
-  const workingAgents = Object.entries(agentPanelRegistry.activity ?? {})
-    .flatMap(([key, status]) => status === "working" ? [codingPanelIdentity(key)] : [])
-    .filter((identity) => identity?.projectId === projectId && codingAgentProfile(agentDirectory, identity.agentId, projectId));
+export { resolveCodingAgentActivities, resolveCodingAgentTone };
+
+// Render the legacy Sprint Plan experience alongside unified Coding workspace monitors.
+export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashboardState, client, onRefresh, onSprintDeleted, onTicketDeleted, agentActivities = [], agentDirectory = [], watcherEvents = [], watcherPulseId = null, watcherState = "connecting" }) {
+  const [watcherActive, setWatcherActive] = useState(false);
+  const [agentActive, setAgentActive] = useState(false);
+  const visibleActivities = resolveCodingAgentActivities(agentActivities, agentDirectory, projectId);
+  const scopedWatcherEvents = (Array.isArray(watcherEvents) ? watcherEvents : []).filter((event) => !projectId || !event?.project_id || event.project_id === projectId);
+  const watcherItems = scopedWatcherEvents.slice().reverse().flatMap((event, eventIndex) => {
+    const activities = Array.isArray(event?.payload?.activity) ? event.payload.activity : (event?.message ? [event.message] : []);
+    const label = event?.event_type === "watcher.file_removed" ? "Removed" : event?.event_type === "watcher.file_indexed" ? "Indexed" : (event?.timestamp ? displayMessageTime(event.timestamp) : "Watcher");
+    const time = displayMessageTime(event?.timestamp);
+    return activities.map((activity, activityIndex) => ({
+      key: `${event?.event_id ?? event?.timestamp ?? eventIndex}-${eventIndex}-${activityIndex}`,
+      meta: time && label !== time ? `${label} · ${time}` : label,
+      text: typeof activity === "string" ? activity : activity?.path ?? activity?.file_path ?? activity?.summary ?? JSON.stringify(activity)
+    }));
+  });
+  const watcherStatus = watcherState === "connected" ? "Connected" : watcherState === "error" || watcherState === "disconnected" ? "Disconnected" : "Reconnecting";
+  const indicatorClass = watcherState === "connected" ? "is-connected" : watcherState === "error" || watcherState === "disconnected" ? "is-error" : "is-connecting";
+
+  useEffect(() => {
+    const latest = scopedWatcherEvents.at(-1);
+    if (watcherState !== "connected" || (!watcherPulseId && (!latest?.timestamp || Date.now() - Date.parse(latest.timestamp) > 3000))) { setWatcherActive(false); return undefined; }
+    setWatcherActive(true);
+    const timeout = typeof window !== "undefined" ? window.setTimeout(() => setWatcherActive(false), 3000) : null;
+    return () => { if (timeout) window.clearTimeout(timeout); };
+  }, [watcherState, watcherPulseId, scopedWatcherEvents.length]);
+
+  useEffect(() => {
+    const latest = visibleActivities.at(-1);
+    if (!latest) { setAgentActive(false); return undefined; }
+    setAgentActive(true);
+    const timeout = typeof window !== "undefined" ? window.setTimeout(() => setAgentActive(false), 3000) : null;
+    return () => { if (timeout) window.clearTimeout(timeout); };
+  }, [visibleActivities.length]);
+
   return <main className="coding-workspace-monitor" aria-label="Coding workspace monitor">
     <header className="claude-chat-header coding-workspace-header"><h1>Coding</h1><ConversationHeaderProjectGit client={client} projectId={projectId} /></header>
     <section className="coding-workspace-column coding-sprint-plan" aria-labelledby="coding-sprint-plan-heading">
@@ -31,44 +60,24 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
       </CodingSprintDashboardState>
     </section>
     <section className="coding-workspace-column coding-workspace-agent" aria-labelledby="coding-workspace-agent-heading">
-      <header className="coding-workspace-column-header">
-        <h1 id="coding-workspace-agent-heading">Workspace Agent</h1>
-      </header>
+      <header className="coding-workspace-column-header"><h1 id="coding-workspace-agent-heading">Workspace Agent</h1></header>
       <div className="coding-workspace-list">
-        {panels.map((panel) => {
-          const profile = codingAgentProfile(agentDirectory, panel.agentId, projectId);
-          const actions = codingAgentPanelActions(agentActivities, agentDirectory, projectId, panel.agentId);
-          const minimized = Boolean(minimizedPanels[panel.key]);
-          const status = codingAgentPanelStatus(agentPanelRegistry, panel);
-          const indicator = status === "working" ? " is-connected" : status === "disconnected" ? " is-error" : "";
-          return <article key={panel.key} data-panel-key={panel.key} data-agent-id={panel.agentId} data-project-id={panel.projectId} className={`coding-agent-monitor${minimized ? " is-minimized" : ""}`}>
-            <header className="workspace-monitor-header"><span className={`workspace-monitor-light${status === "working" ? " is-active" : ""}`} aria-hidden="true" /><strong>{profile?.agent_name ?? profile?.name ?? panel.agentId}</strong><span className={`workspace-monitor-indicator${indicator}`}>{status}</span><button type="button" aria-label={`${minimized ? "Expand" : "Minimize"} agent panel ${panel.agentId}`} onClick={() => setMinimizedPanels((current) => ({ ...current, [panel.key]: !current[panel.key] }))}>{minimized ? "□" : "−"}</button><button type="button" aria-label={`Close agent panel ${panel.agentId} in project ${panel.projectId}`} onClick={() => onAgentPanelClose?.(panel.projectId, panel.agentId)}>×</button></header>
-            {!minimized && <div className="workspace-monitor-content" aria-live="polite">
-              {actions.length === 0 && <p>Waiting for agent activity.</p>}
-              {actions.slice().reverse().map((activity, index) => <article key={activity.event_id ?? index}><small>{[String(activity.payload.activity_type ?? "activity").replaceAll("_", " "), activity.payload.status, activity.timestamp ? new Date(activity.timestamp).toLocaleTimeString() : null].filter(Boolean).join(" · ")}</small><span>{activity.payload.summary}{activity.payload.tool_name ? ` (${activity.payload.tool_name})` : ""}</span></article>)}
-            </div>}
-          </article>;
-        })}
-        {panels.length === 0 && <p className="coding-workspace-empty">No agent panels are open.</p>}
+        <div className="coding-workspace-row" aria-label="Workspace Agent upper row" />
+        <div className="coding-workspace-row" aria-label="Workspace Agent monitors row">
+          <section className="coding-workspace-monitor-column coding-agent-monitor" aria-label="Agents Activity monitor">
+            <header className="workspace-monitor-header"><span className={`workspace-monitor-light${agentActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={agentActive ? "Agent working" : "Agent idle"} role="img" /><h3>Agents Activity</h3><span className={`workspace-monitor-indicator ${indicatorClass}`}>{watcherStatus}</span></header>
+            <div className="workspace-monitor-content" aria-live="polite">
+              {visibleActivities.length === 0 ? <p className="coding-workspace-empty">Waiting for agent activity.</p> : visibleActivities.slice().reverse().map((item) => <article key={item.key} data-agent-id={item.agentId}><small><strong style={{ color: item.tone }}>{item.agentName}</strong> · {item.activityType} · {item.status}{item.time ? ` · ${item.time}` : ""}</small><span>{item.detail}</span></article>)}
+            </div>
+          </section>
+          <section className="coding-workspace-monitor-column coding-agent-monitor" aria-label="Watcher monitor">
+            <header className="workspace-monitor-header"><span className={`workspace-monitor-light${watcherActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={watcherActive ? "Watcher working" : "Watcher idle"} role="img" /><h3>Watcher</h3><span className={`workspace-monitor-indicator ${indicatorClass}`}>{watcherStatus}</span></header>
+            <div className="workspace-monitor-content" aria-live="polite">
+              {watcherItems.length === 0 ? <p className="coding-workspace-empty">Waiting for watcher events.</p> : watcherItems.map((item) => <article key={item.key}><small>{item.meta}</small><span>{item.text}</span></article>)}
+            </div>
+          </section>
+        </div>
       </div>
     </section>
-    <div className="workspace-monitor-dock" role="group" aria-label="Coding agent monitors">
-      {workingAgents.map(({ agentId }) => {
-        const profile = codingAgentProfile(agentDirectory, agentId, projectId);
-        const key = codingAgentPanelKey(projectId, agentId);
-        return <button key={key} type="button" aria-pressed={openKeys.has(key)} onClick={() => onAgentPanelOpen?.(projectId, agentId)}><span className="workspace-monitor-light is-active" aria-hidden="true" />{profile?.agent_name ?? profile?.name ?? agentId}</button>;
-      })}
-    </div>
   </main>;
-}
-
-// Recover the validated project/agent identity encoded in a registry panel key.
-function codingPanelIdentity(key) {
-  try {
-    const parsed = JSON.parse(key);
-    return Array.isArray(parsed) ? { projectId: parsed[0], agentId: parsed[1] } : null;
-    // eslint-disable-next-line no-silent-catch -- unparseable keys are registry internals, never dock candidates
-  } catch (error) {
-    return null;
-  }
 }
