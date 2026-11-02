@@ -128,6 +128,36 @@ test("surfaces database persistence failures without retaining a message in memo
   assert.throws(() => createAgentCommunicationStore({ database }), /disk unavailable/);
 });
 
+test("updatePayload persists idea flag updates across store restarts on SQLite and raw JSONL", async () => {
+  const root = await mkdtemp(join(os.tmpdir(), "nf-comm-idea-"));
+  const fileService = createFileService({ projectRoot: root, role: "system_engineer" });
+  const db1 = await openIndexDatabase(root);
+  const store1 = createAgentCommunicationStore({ database: db1, fileService });
+
+  const reply = {
+    ...message("MSG-IDEA-1", "architecture-manager", "architecture_manager", "NODE", "node", "CONV-IDEA", "CORR-IDEA", { text: "Agent idea reply" }),
+    message_type: "architecture.message.received"
+  };
+  store1.append(reply);
+  const updated = store1.updatePayload("MSG-IDEA-1", { is_idea: true });
+  assert.equal(updated.payload.is_idea, true);
+  db1.close();
+
+  const db2 = await openIndexDatabase(root);
+  const store2 = createAgentCommunicationStore({ database: db2, fileService });
+  assert.equal(store2.getById("MSG-IDEA-1")?.payload?.is_idea, true);
+  assert.equal(store2.getByConversationId("CONV-IDEA")[0]?.payload?.is_idea, true);
+
+  store2.updatePayload("MSG-IDEA-1", { is_idea: false });
+  db2.close();
+
+  const db3 = await openIndexDatabase(root);
+  const store3 = createAgentCommunicationStore({ database: db3, fileService });
+  assert.equal(store3.getById("MSG-IDEA-1")?.payload?.is_idea, false);
+  db3.close();
+  await rm(root, { recursive: true, force: true });
+});
+
 function message(id, senderId, senderRole, receiverId, receiverRole, conversationId, correlationId, payload) {
   return { id, project_id: "PROJECT-143", sender: { id: senderId, role: senderRole }, recipient: { id: receiverId, role: receiverRole }, message_type: "owner.message", conversation_id: conversationId, correlation_id: correlationId, payload, timestamp: "2026-08-21T13:00:00Z" };
 }

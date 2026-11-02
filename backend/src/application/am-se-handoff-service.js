@@ -40,9 +40,10 @@ export function formatHumanReadableHandoffBrief(planJson, { planId, revision = 1
 // Technical description: matches the trailing [CRITIQUE: ALIGNED|DISCUSS] tag case-insensitively and returns both the normalized status and cleaned text.
 export function parseSePlanCritique(rawText) {
   const text = String(rawText ?? "").trim();
-  const match = /\[CRITIQUE:\s*(ALIGNED|DISCUSS)\]/i.exec(text);
-  const status = match ? match[1].toUpperCase() : /\bCRITIQUE:\s*DISCUSS\b/i.test(text) ? "DISCUSS" : "ALIGNED";
-  const cleanText = text.replace(/\s*\[CRITIQUE:\s*(?:ALIGNED|DISCUSS)\]\s*/gi, "\n").trim();
+  const allMatches = [...text.matchAll(/[`*_~]*\[\s*CRITIQUE\s*:\s*(ALIGNED|DISCUSS)\s*\][`*_~]*/gi)];
+  const lastMatch = allMatches.at(-1);
+  const status = lastMatch ? lastMatch[1].toUpperCase() : /\bCRITIQUE\s*:\s*DISCUSS\b/i.test(text) ? "DISCUSS" : "ALIGNED";
+  const cleanText = text.replace(/\s*[`*_~]*\[\s*CRITIQUE\s*:\s*(?:ALIGNED|DISCUSS)\s*\][`*_~]*\s*$/i, "").trim();
   return { status, cleanText: cleanText || text };
 }
 
@@ -50,10 +51,26 @@ export function parseSePlanCritique(rawText) {
 // Technical description: matches the trailing [VERDICT: PASS|REVISE] marker case-insensitively and returns both the normalized verdict and the cleaned display text.
 export function parseAmReviewVerdict(rawText) {
   const text = String(rawText ?? "").trim();
-  const match = /\[VERDICT:\s*(PASS|REVISE)\]/i.exec(text);
-  const verdict = match ? match[1].toUpperCase() : /\bPASS\b/.test(text) && !/\bREVISE\b/i.test(text) ? "PASS" : "REVISE";
-  const cleanText = text.replace(/\s*\[VERDICT:\s*(?:PASS|REVISE)\]\s*/gi, "\n").trim();
+  const allMatches = [...text.matchAll(/[`*_~]*\[\s*VERDICT\s*:\s*(PASS|REVISE)\s*\][`*_~]*/gi)];
+  const lastMatch = allMatches.at(-1);
+  const tailText = text.split("\n").slice(-5).join("\n");
+  const verdict = lastMatch
+    ? lastMatch[1].toUpperCase()
+    : /\bPASS\b/i.test(tailText) && !/\bREVISE\b/i.test(tailText)
+      ? "PASS"
+      : /\bPASS\b/.test(text) && !/\bREVISE\b/i.test(text)
+        ? "PASS"
+        : "REVISE";
+  const cleanText = text.replace(/\s*[`*_~]*\[\s*VERDICT\s*:\s*(?:PASS|REVISE)\s*\][`*_~]*\s*$/i, "").trim();
   return { verdict, cleanText: cleanText || text };
+}
+
+/**
+ * Business purpose: extracts the independent Reviewer's verdict ([VERDICT: PASS] or [VERDICT: REVISE]) and cleaned review findings during an AM-SE-RV execution cycle.
+ * Technical description: delegates to parseAmReviewVerdict so RV and AM share the same deterministic [VERDICT: PASS|REVISE] parsing contract.
+ */
+export function parseRvReviewVerdict(rawText) {
+  return parseAmReviewVerdict(rawText);
 }
 
 // Business purpose: builds the prompt asking the Architecture Manager to respond to the System Engineer's Round 1 plan critique and optionally emit an RFC 7396 JSON merge patch if the plan needs adjustment to r2.
@@ -71,24 +88,43 @@ function buildAmCritiqueReplyPrompt({ planJson, planId, seCritiqueText }) {
 
 // Business purpose: builds the prompt asking the Architecture Manager to inspect the System Engineer's completed work against the canonical plan outcomes and write a clear, human-readable acceptance review.
 // Technical description: combines the canonical plan outcomes, the current round number, and the System Engineer's turn summary, instructing AM to explain passed and remaining items in natural language and end with [VERDICT: PASS] or [VERDICT: REVISE].
-function buildAmAcceptanceReviewPrompt({ planJson, planId, round, maxRounds, seReplyText }) {
+/**
+ * Business purpose: builds the prompt asking the independent Reviewer (RV) to inspect the System Engineer's code changes in read-only mode before Architecture Manager acceptance.
+ * Technical description: combines the canonical plan outcomes/guardrails, current round number, and SE's implementation report, instructing RV to verify changed files and conventions (250 lines for .md, 400 code_lines for code) using read-only tools and end with [VERDICT: PASS] or [VERDICT: REVISE].
+ */
+function buildRvImplementationReviewPrompt({ planJson, planId, round, maxRounds, seReplyText }) {
+  const outcomesSummary = (planJson?.outcomes ?? []).map((o) => `- ${o.id} (${o.outcome}): Tiêu chí: ${(o.acceptance_criteria ?? []).join("; ")} | Guardrails: ${(o.guardrails ?? []).join("; ")}`).join("\n");
+  return [
+    `Independent Reviewer (RV) verification for System Engineer implementation (${planId}, round ${round}/${maxRounds}).`,
+    "Operate strictly in read-only mode: use your read-only Forge tools (read_file, Read, search_text, list_files, search_tree, git_status, git_diff) to inspect the System Engineer's changes against the plan outcomes, guardrails, test evidence, and repository conventions (at most 250 lines for .md files and 400 code_lines for code files). Never modify files.",
+    "Write a clear, constructive review in natural language:",
+    "1. Summarize verified implementation evidence and test coverage.",
+    "2. List any defects, missing acceptance criteria, or guardrail violations with exact file paths and actionable repair instructions for SE.",
+    "3. On the final line of your response, append exactly [VERDICT: PASS] if the implementation is ready for Architecture Manager acceptance, or [VERDICT: REVISE] if SE must fix issues first.",
+    "", "Plan outcomes, acceptance criteria, and guardrails:", outcomesSummary, "",
+    `System Engineer round ${round} report:`, String(seReplyText ?? "(No text returned)")
+  ].join("\n");
+}
+
+function buildAmAcceptanceReviewPrompt({ planJson, planId, round, maxRounds, seReplyText, rvReviewText = "" }) {
   const outcomesSummary = (planJson?.outcomes ?? []).map((o) => `- ${o.id} (${o.outcome}): Tiêu chí: ${(o.acceptance_criteria ?? []).join("; ")}`).join("\n");
   return [
     `Architecture acceptance review for System Engineer handoff (${planId}, round ${round}/${maxRounds}).`,
-    "Use your read-only Forge tools (read_file, Read, search_text, git_status, git_diff) if needed to verify the System Engineer's implementation against every outcome and acceptance criterion below.",
+    "Use your read-only Forge tools (read_file, Read, search_text, git_status, git_diff) if needed to verify the System Engineer's implementation and the Reviewer's independent verification against every outcome and acceptance criterion below.",
     "Write your review in clear, natural language for the human Project Owner and System Engineer:",
     "1. Summarize the overall progress of this round.",
     "2. List each outcome (O1, O2, ...), clearly marking what is completed and what still needs adjustment (with specific file/behavior guidance if anything is incomplete).",
     "3. On the final line of your response, append exactly [VERDICT: PASS] if all acceptance criteria are satisfied, or [VERDICT: REVISE] if another revision round is required.",
     "", "Plan outcomes and acceptance criteria:", outcomesSummary, "",
-    `System Engineer round ${round} report:`, String(seReplyText ?? "(No text returned)")
+    `System Engineer round ${round} report:`, String(seReplyText ?? "(No text returned)"),
+    ...(rvReviewText ? ["", `Independent Reviewer (RV) round ${round} assessment ([VERDICT: PASS]):`, String(rvReviewText)] : [])
   ].join("\n");
 }
 
-// Business purpose: creates the orchestration service that manages Phase 1 AM-SE plan critique and Phase 2 automatic handoffs to Sprint Leader or System Engineer.
-// Technical description: wires fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, approvePlan, requestArchitecture, and requestSystemEngineer into startHandoff.
+// Business purpose: creates the orchestration service that manages Phase 1 AM-SE plan critique and Phase 2 automatic handoffs to Sprint Leader or System Engineer (with independent Reviewer RV verification).
+// Technical description: wires fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, and requestReviewer into startHandoff.
 export function createAmSeHandoffService({
-  projectId, fileService, markdownPlanStore, handoffStore, bus, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, maxCritiqueRounds = 2, maxRounds = 5
+  projectId, fileService, markdownPlanStore, handoffStore, bus, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, requestReviewer, maxCritiqueRounds = 2, maxRounds = 5
 } = {}) {
   if (!projectId || !fileService?.readFile || !markdownPlanStore?.decide) {
     throw Object.assign(new ConfigurationError("AM-SE handoff service requires projectId, FileService, and markdownPlanStore."), { code: "SE_HANDOFF_UNAVAILABLE", statusCode: 503 });
@@ -132,22 +168,26 @@ export function createAmSeHandoffService({
   // Technical description: publishes the human-readable brief, coordinates 1-2 rounds of AM-SE critique, auto-approves the unified revision, and dispatches either SL sprint generation or SE multi-round implementation and AM acceptance review.
   async function startHandoff({
     plan, planJson: suppliedPlanJson, intake = {}, deliveryTarget = "se", conversationId, approvedOwnerId = "project-owner",
-    approvePlan: turnApprovePlan = approvePlan, requestArchitecture: turnRequestArchitecture = requestArchitecture, requestSystemEngineer: turnRequestSystemEngineer = requestSystemEngineer
+    approvePlan: turnApprovePlan = approvePlan, requestArchitecture: turnRequestArchitecture = requestArchitecture,
+    requestSystemEngineer: turnRequestSystemEngineer = requestSystemEngineer, requestReviewer: turnRequestReviewer = requestReviewer
   } = {}) {
     const target = (deliveryTarget || intake.delivery_target) === "sl" ? "sl" : "se";
     const seProfile = agentRoleResolver ? agentRoleResolver.resolveProfile("system_engineer") : { agent_id: "system-engineer", role: "system_engineer" };
     if (!seProfile?.agent_id) throw Object.assign(new ConfigurationError("No enabled System Engineer agent is available for automatic handoff."), { code: "SYSTEM_ENGINEER_UNAVAILABLE", statusCode: 409 });
     const amProfile = agentRoleResolver?.resolveProfile?.("architecture_manager") ?? { agent_id: "architecture-manager", role: "architecture_manager" };
+    const rvProfile = agentRoleResolver?.resolveProfile?.("reviewer") ?? { agent_id: "reviewer", role: "reviewer" };
 
     let currentPlan = { plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, source_path: plan.source_path };
     let currentPlanJson = suppliedPlanJson ?? parseArchitecturePlanJSON(await fileService.readFile({ path: currentPlan.source_path }));
     const seConversationId = `CONV-SE-${currentPlan.plan_id}`;
+    const rvConversationId = `CONV-RV-${currentPlan.plan_id}`;
     // Keep the provider session isolated internally; publish its dialogue only in the source conversation.
 
     let record = await store.create({
       handoffId: `HANDOFF-${currentPlan.plan_id}-R${currentPlan.revision}`, planId: currentPlan.plan_id, planRevision: currentPlan.revision, planSha256: currentPlan.sha256,
       planSourcePath: currentPlan.source_path, deliveryTarget: target, sourceKind: intake.source_kind ?? "conversation", sourceFilePath: intake.source_file_path ?? null,
-      amAgentId: amProfile.agent_id, seAgentId: seProfile.agent_id, amConversationId: conversationId, seConversationId, phase: "plan_critique", status: "critiquing", maxCritiqueRounds, maxRounds
+      amAgentId: amProfile.agent_id, seAgentId: seProfile.agent_id, rvAgentId: rvProfile.agent_id, amConversationId: conversationId, seConversationId, rvConversationId,
+      phase: "plan_critique", status: "critiquing", maxCritiqueRounds, maxRounds
     });
 
     const brief = formatHumanReadableHandoffBrief(currentPlanJson, {
@@ -236,35 +276,61 @@ export function createAmSeHandoffService({
       }) ?? "").trim();
 
       publishDualConversationMessage({
-        sender: { id: seProfile.agent_id, role: "system_engineer" }, recipient: { id: amProfile.agent_id, role: "architecture_manager" },
+        sender: { id: seProfile.agent_id, role: "system_engineer" }, recipient: { id: rvProfile.agent_id, role: "reviewer" },
         messageType: "system_engineer.message.received", amConversationId: conversationId, seConversationId, correlationId: seCorrelationId,
         text: seReplyText, extraPayload: { handoff_id: record.handoff_id, phase: "implementation", round }
       });
 
+      record = await store.update(record.handoff_id, { phase: "implementation", status: "rv_reviewing", round });
+      const rvPrompt = buildRvImplementationReviewPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, round, maxRounds: record.max_rounds, seReplyText });
+      const rvCorrelationId = `${correlationBase}-RV-REVIEW-R${round}`;
+      const rawRvReview = typeof turnRequestReviewer === "function"
+        ? String(await turnRequestReviewer({
+          agentId: rvProfile.agent_id, prompt: rvPrompt, conversationId: rvConversationId, linkedConversationId: conversationId, correlationId: rvCorrelationId, phase: "implementation", round
+        }) ?? "").trim()
+        : "Reviewer (RV) kiểm tra độc lập hoàn tất: Mã nguồn và bộ kiểm thử của SE đáp ứng đầy đủ các tiêu chí.\n[VERDICT: PASS]";
+      const { verdict: rvVerdict, cleanText: rvCleanText } = parseRvReviewVerdict(rawRvReview);
+
+      publishDualConversationMessage({
+        sender: { id: rvProfile.agent_id, role: "reviewer" }, recipient: rvVerdict === "PASS" ? { id: amProfile.agent_id, role: "architecture_manager" } : { id: seProfile.agent_id, role: "system_engineer" },
+        messageType: "reviewer.message.received", amConversationId: conversationId, seConversationId, correlationId: rvCorrelationId,
+        text: rvCleanText, extraPayload: { handoff_id: record.handoff_id, phase: "implementation", round, rv_verdict: rvVerdict, verdict: rvVerdict }
+      });
+
+      if (rvVerdict !== "PASS") {
+        history.push({ phase: "implementation", round, se_report: seReplyText, rv_review: rvCleanText, rv_verdict: rvVerdict, verdict: "REVISE", stage: "rv_review", timestamp: new Date().toISOString() });
+        if (round >= record.max_rounds) {
+          record = await store.update(record.handoff_id, { phase: "implementation", status: "paused", round, history });
+          return { handoff_id: record.handoff_id, phase: "implementation", status: "paused", delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, rv_conversation_id: rvConversationId, brief, rv_review: rvCleanText, critique_rounds_completed: critiqueRound, rounds_completed: round, history };
+        }
+        currentInstruction = `### Yêu cầu chỉnh sửa vòng ${round + 1} từ Reviewer độc lập (RV) (${currentPlan.plan_id} r${currentPlan.revision})\n\n${rvCleanText}\n\nVui lòng khắc phục đầy đủ các điểm Reviewer đã chỉ ra, chạy lại kiểm thử xác nhận và báo cáo kết quả để trình lại RV kiểm tra trước khi AM nghiệm thu.`;
+        continue;
+      }
+
       record = await store.update(record.handoff_id, { phase: "implementation", status: "reviewing", round });
-      const reviewPrompt = buildAmAcceptanceReviewPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, round, maxRounds: record.max_rounds, seReplyText });
+      const reviewPrompt = buildAmAcceptanceReviewPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, round, maxRounds: record.max_rounds, seReplyText, rvReviewText: rvCleanText });
       const rawAmReview = typeof turnRequestArchitecture === "function"
         ? String(await turnRequestArchitecture(reviewPrompt, conversationId, { responseContentType: "text/markdown", exposeText: false }) ?? "").trim()
-        : "Nghiệm thu hoàn tất: Toàn bộ các hạng mục trong kế hoạch đã được SE triển khai.\n[VERDICT: PASS]";
+        : "Nghiệm thu hoàn tất: Toàn bộ các hạng mục trong kế hoạch đã được SE triển khai và RV kiểm tra độc lập đạt yêu cầu.\n[VERDICT: PASS]";
       const { verdict, cleanText } = parseAmReviewVerdict(rawAmReview);
 
-      history.push({ phase: "implementation", round, se_report: seReplyText, am_review: cleanText, verdict, timestamp: new Date().toISOString() });
+      history.push({ phase: "implementation", round, se_report: seReplyText, rv_review: rvCleanText, rv_verdict: rvVerdict, am_review: cleanText, verdict, stage: "am_acceptance", timestamp: new Date().toISOString() });
       publishDualConversationMessage({
         sender: { id: amProfile.agent_id, role: "architecture_manager" }, recipient: { id: seProfile.agent_id, role: "system_engineer" },
         messageType: "architecture.message.received", amConversationId: conversationId, seConversationId, correlationId: `${correlationBase}-AM-REVIEW-R${round}`,
-        text: cleanText, extraPayload: { handoff_id: record.handoff_id, phase: "implementation", round, verdict }
+        text: cleanText, extraPayload: { handoff_id: record.handoff_id, phase: "implementation", round, rv_verdict: rvVerdict, verdict }
       });
 
       if (verdict === "PASS" || round >= record.max_rounds) {
         const finalStatus = verdict === "PASS" ? "completed" : "paused";
         record = await store.update(record.handoff_id, { phase: "implementation", status: finalStatus, round, history });
-        return { handoff_id: record.handoff_id, phase: "implementation", status: finalStatus, delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, brief, am_review: cleanText, critique_rounds_completed: critiqueRound, rounds_completed: round, history };
+        return { handoff_id: record.handoff_id, phase: "implementation", status: finalStatus, delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, rv_conversation_id: rvConversationId, brief, rv_review: rvCleanText, am_review: cleanText, critique_rounds_completed: critiqueRound, rounds_completed: round, history };
       }
 
-      currentInstruction = `### Hướng dẫn điều chỉnh vòng ${round + 1} từ Architecture Manager (${currentPlan.plan_id} r${currentPlan.revision})\n\n${cleanText}\n\nVui lòng kiểm tra và hoàn thiện các điểm còn thiếu trên, chạy lại kiểm thử liên quan và báo cáo kết quả.`;
+      currentInstruction = `### Hướng dẫn điều chỉnh vòng ${round + 1} từ Architecture Manager (${currentPlan.plan_id} r${currentPlan.revision})\n\n${cleanText}\n\nVui lòng kiểm tra và hoàn thiện các điểm còn thiếu trên, chạy lại kiểm thử liên quan và báo cáo kết quả (sẽ qua cổng Reviewer độc lập kiểm tra lại trước khi trình AM nghiệm thu).`;
     }
-    return { handoff_id: record.handoff_id, phase: record.phase, status: record.status, delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, critique_rounds_completed: critiqueRound, brief, history };
+    return { handoff_id: record.handoff_id, phase: record.phase, status: record.status, delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, rv_conversation_id: rvConversationId, critique_rounds_completed: critiqueRound, brief, history };
   }
 
-  return Object.freeze({ startHandoff, store, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict });
+  return Object.freeze({ startHandoff, store, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
 }

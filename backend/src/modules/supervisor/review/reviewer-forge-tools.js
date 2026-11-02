@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { ConfigurationError } from "../../../shared/errors.js";
+import { createRoleFileService } from "../../../infrastructure/filesystem/file-service-role-policy.js";
+import { createFileService } from "../../../infrastructure/filesystem/file-service.js";
 import { assertRoleFileAccess } from "../../../infrastructure/filesystem/file-service-role-policy.js";
 import { createReadFileTool } from "../../../tools/governance/agent-lifecycle-tools.js";
 import { terminalAuditLogger } from "../../../core/terminal-log-format.js";
@@ -55,14 +57,16 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
   if (snapshot) fileService = createReviewerCodeCache({ source: fileService, projectRoot, artifactId: ticketEvidence?.artifact?.artifact_id, projectLogger });
   const manifestCount = Math.max(ticketEvidence?.paths?.length ?? 0, job?.payload?.changed_paths?.length ?? 0);
   const maxOutputBytes = Math.min(MAX_OUTPUT_BYTES_CAP, BASE_OUTPUT_BYTES + manifestCount * PER_FILE_OUTPUT_BYTES);
+  const forgeFiles = createRoleFileService({ fileService: createFileService({ projectRoot }), role: "reviewer", projectRoot });
   const scopedFiles = {
-    readForIndex: async (input) => { if (snapshot) { assertRoleFileAccess("reviewer", "read", input?.path); return fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); }
+    readForIndex: async (input) => { if (input?.path === ".forge" || input?.path?.startsWith(".forge/")) return forgeFiles.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); if (snapshot) { assertRoleFileAccess("reviewer", "read", input?.path); return fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); }
       await assertReviewerReadPath(projectRoot, input?.path); return isDependencyPath(input?.path)
       ? readDependencyFile({ ...input, projectRoot, maxBytes: MAX_FILE_BYTES }) : fileService.readForIndex({ ...input, maxBytes: MAX_FILE_BYTES }); },
     listFiles: async (input) => filterPaths(await fileService.listFiles(input)),
     listDirectories: async (input) => filterPaths(await fileService.listDirectories(input))
   };
   const reviewCache = ticketEvidence ? { ...(codeCache ?? {}), read: async ({ path }) => {
+    if (path === ".forge" || path.startsWith(".forge/")) return scopedFiles.readForIndex({ path });
     const file = ticketEvidence.files.find((item) => item.path === path);
     if (!file || file.deleted) return snapshot ? scopedFiles.readForIndex({ path }) : codeCache?.read ? codeCache.read({ path }) : scopedFiles.readForIndex({ path });
     const live = await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
@@ -82,13 +86,13 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
   // Keeps text search under the same project, protected-path and symlink rules as direct reads.
   const searchCache = { read: async ({ path }) => {
     await assertReviewerReadPath(projectRoot, path);
-    const file = codeCache?.read ? await codeCache.read({ path }) : await scopedFiles.readForIndex({ path });
+    const file = path === ".forge" || path.startsWith(".forge/") ? await scopedFiles.readForIndex({ path }) : codeCache?.read ? await codeCache.read({ path }) : await scopedFiles.readForIndex({ path });
     if (Buffer.byteLength(file.content) > MAX_FILE_BYTES) throw toolError("REVIEW_EVIDENCE_TOO_LARGE", "Reviewer source exceeds the file read budget.");
     return file;
   } };
   const implementations = {
     lookup_schema: createLookupSchemaTool({ role: "reviewer" }),
-    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: reviewCache, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
+    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: { read: (input) => input.path === ".forge" || input.path.startsWith(".forge/") ? scopedFiles.readForIndex(input) : reviewCache?.read ? reviewCache.read(input) : scopedFiles.readForIndex(input) }, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
     search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }),
     ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: terminalAuditLogger(projectLogger) } }) : {}),
     list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: terminalAuditLogger(projectLogger) } }),
@@ -121,15 +125,17 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
         for (const path of paths) await assertReviewerReadPath(projectRoot, path);
         readContext = { ...context, allowed_file_paths: paths, allowed_prefixes: [] };
       }
-      let result = name === "search_tree" && isDependencyPath(toolInput?.path)
+      let result = name === "search_tree" && (isDependencyPath(toolInput?.path) || toolInput?.path === ".forge" || toolInput?.path?.startsWith(".forge/"))
         ? await listAgentFileTree({ projectRoot, path: toolInput.path, maxDepth: toolInput.max_depth ?? 3, limit: toolInput.limit ?? 200, assertReadPath: (path) => assertReviewerReadPath(projectRoot, path) })
-        : await implementations[name].execute(toolInput, readContext);
+        : name === "search_text" && toolInput.paths?.some((path) => path === ".forge" || path.startsWith(".forge/"))
+          ? await createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }).execute(toolInput, readContext)
+          : await implementations[name].execute(toolInput, readContext);
       if (name === "list_files") {
         const paths = await filterPaths(result.stdout.split("\n").filter(Boolean));
         result = { ...result, stdout: paths.length ? `${paths.join("\n")}\n` : "" };
       }
       const verified = await bindReviewEvidence(name, toolInput, result, ticketEvidence, fileService, projectRoot);
-      const verifiedResult = snapshot ? { ...verified, review_source: { commit_sha: fileService.reviewCommit,
+      const verifiedResult = snapshot && !(readPath === ".forge" || readPath?.startsWith(".forge/") || toolInput.paths?.some((path) => path === ".forge" || path.startsWith(".forge/"))) ? { ...verified, review_source: { commit_sha: fileService.reviewCommit,
         ...(ticketEvidence?.artifact.environment ? { environment: ticketEvidence.artifact.environment } : {}) } } : verified;
       const bytes = Buffer.byteLength(JSON.stringify(verifiedResult), "utf8");
       if (bytes > MAX_RESULT_BYTES || name !== "lookup_schema" && outputBytes + bytes > maxOutputBytes) throw toolError("REVIEW_TOOL_BUDGET", "Reviewer read output budget exceeded.");

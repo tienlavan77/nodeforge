@@ -92,6 +92,18 @@ function commentMode(content) {
 }
 
 // Counts executable or document lines without charging blank lines and standalone comments to the edit budget.
+export const MARKDOWN_LINE_LIMIT = 250;
+export const CODE_LINE_LIMIT = 400;
+
+/**
+ * Business purpose: resolves the maximum allowed line budget for a project file by distinguishing Markdown documents (250 lines) from source code files (400 code_lines).
+ * Technical description: returns MARKDOWN_LINE_LIMIT (250) when path ends with .md (case-insensitive) and CODE_LINE_LIMIT (400) for all other file types.
+ */
+export function resolveFileLineLimit(path = "") {
+  return /\.md$/i.test(String(path ?? "")) ? MARKDOWN_LINE_LIMIT : CODE_LINE_LIMIT;
+}
+
+// Counts executable or document lines without charging blank lines and standalone comments to the edit budget.
 export function countBudgetLines(content) {
   let block = null;
   let quote = null;

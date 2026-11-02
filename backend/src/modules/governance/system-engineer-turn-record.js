@@ -18,6 +18,6 @@ export function systemEngineerTurnRecord(message, getById) {
   const entries = new Map((before?.entries ?? []).map((entry) => [entry.id, entry]));
   for (const entry of payload.sdk_event.entries) entries.set(entry.id, entry);
   return { previous, stored: { ...message, id, timestamp: previous?.timestamp ?? message.timestamp,
-    payload: { ...payload, sdk_sequence: (previous?.payload.sdk_sequence ?? 0) + 1,
+    payload: { ...(previous?.payload?.is_idea !== undefined ? { is_idea: previous.payload.is_idea } : {}), ...payload, sdk_sequence: (previous?.payload.sdk_sequence ?? 0) + 1,
       sdk_event: { ...payload.sdk_event, entries: [...entries.values()] } } } };
 }

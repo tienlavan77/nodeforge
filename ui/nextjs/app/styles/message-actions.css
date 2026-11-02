@@ -52,7 +52,8 @@
   justify-content: flex-start;
 }
 
-.claude-message-actions button.is-copied {
+.claude-message-actions button.is-copied,
+.claude-message-actions button.is-idea-active {
   background: color-mix(in srgb, var(--app-accent) 18%, transparent);
   color: var(--app-accent);
 }

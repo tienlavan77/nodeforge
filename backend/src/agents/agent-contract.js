@@ -45,10 +45,12 @@ export function normalizeConversationMessage(message, index = 0) {
   const role = message.role ?? resolveConversationMessageRole(message);
   const senderId = typeof message.sender === "string" ? message.sender : message.sender?.id;
   const author = message.author ?? senderId ?? message.sender_role ?? null;
+  const isIdea = role === "agent" && Boolean(message.is_idea ?? message.content?.is_idea ?? message.payload?.is_idea);
   return Object.freeze({
     ...structuredClone(message),
     role,
     author,
+    is_idea: isIdea,
     sequence: message.sequence ?? index,
   });
 }

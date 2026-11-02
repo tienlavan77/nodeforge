@@ -53,7 +53,8 @@ export function mergeConversationRevisions(messages) {
     } else {
       const original = merged[index];
       positions.set(key, index);
-      merged[index] = { ...original, ...message, id: original.id, stream_key: original.stream_key ?? key, timestamp: original.timestamp };
+      const resolvedIdea = message.has_explicit_idea ? Boolean(message.is_idea) : Boolean(original.is_idea ?? message.is_idea);
+      merged[index] = { ...original, ...message, is_idea: resolvedIdea, has_explicit_idea: Boolean(original.has_explicit_idea || message.has_explicit_idea), id: original.id, stream_key: original.stream_key ?? key, timestamp: original.timestamp };
     }
   }
   return withoutSystemEngineerReplyDuplicates(merged).sort(compareConversationTime);

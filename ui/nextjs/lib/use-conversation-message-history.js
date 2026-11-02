@@ -121,7 +121,7 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     const content = record.content ?? {};
     if (record.type === "agent.activity") {
       return systemEngineerConversationEvent({ id: record.id, timestamp: record.timestamp,
-        payload: { ...content, conversation_id: record.conversation_id, correlation_id: record.correlation_id } }, agentDisplayName(record.agent_id, agentDirectoryRef.current), conversationRef.current);
+        payload: { ...content, is_idea: Boolean(record.is_idea ?? content.is_idea), conversation_id: record.conversation_id, correlation_id: record.correlation_id } }, agentDisplayName(record.agent_id, agentDirectoryRef.current), conversationRef.current);
     }
     const text = typeof content === "string" ? content : content.text ?? content.content ?? "";
     const isOwner = record.kind === "owner";
@@ -131,8 +131,12 @@ export function useConversationMessageHistory({ client, projectId, chatMessagesR
     const declaredType = content && typeof content === "object" ? content.content_type : undefined;
     const contentType = !isAgent ? "text/plain" : declaredType === "text/markdown" || declaredType === "text/plain"
       ? declaredType : declaredType === undefined && content.markdown_provenance === "owner-markdown-opt-in-v1" ? "text/markdown" : "text/plain";
+    const rawIdea = record.is_idea ?? (content && typeof content === "object" ? content.is_idea : undefined);
+    const isIdea = isAgent && Boolean(rawIdea);
     return { id: originalId, source_message_id: record.id, correlation_id: record.correlation_id, conversation_id: record.conversation_id, stream_key: `${isOwner ? "owner" : "agent"}:${originalId}`,
       text: String(text ?? ""), content_type: contentType, response_content_type: isOwner && content.response_content_type === "text/markdown" ? "text/markdown" : "text/plain", from: isOwner ? "owner" : isAgent ? "agent" : "system",
+      is_idea: isIdea,
+      has_explicit_idea: typeof rawIdea === "boolean",
       ...(isCommandResult ? { retryable: false } : {}),
       nickname: isOwner ? "You" : agentDisplayName(record.agent_id, agentDirectoryRef.current),
       timestamp: record.timestamp ?? new Date().toISOString() };

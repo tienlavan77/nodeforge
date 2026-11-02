@@ -19,9 +19,12 @@ export function reconcileConversationHistory(current, history) {
         remaining.delete(duplicate);
       }
     }
-    if (message.se_event && match.se_event && message.sdk_sequence > match.sdk_sequence) return message;
-    if (message.se_event?.type === "conversation_turn" && !match.se_event) return message;
-    return { ...match, stream_key: message.stream_key, pending: false, stream: false };
+    const resolvedIdea = typeof match.is_idea === "boolean" && (match.has_explicit_idea !== false || !message.is_idea)
+      ? match.is_idea
+      : Boolean(message.is_idea ?? match.is_idea);
+    if (message.se_event && match.se_event && message.sdk_sequence > match.sdk_sequence) return { ...message, is_idea: resolvedIdea };
+    if (message.se_event?.type === "conversation_turn" && !match.se_event) return { ...message, is_idea: resolvedIdea };
+    return { ...match, is_idea: resolvedIdea, stream_key: message.stream_key, pending: false, stream: false };
   });
   return mergeConversationRevisions([...messages, ...remaining].sort((left, right) => String(left.timestamp ?? "").localeCompare(String(right.timestamp ?? ""))));
 }

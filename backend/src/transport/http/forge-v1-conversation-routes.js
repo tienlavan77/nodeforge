@@ -61,6 +61,18 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
       if (!markdownResponseFileService?.save) throw unavailable("Markdown Response Export");
       return { status: 201, body: await markdownResponseFileService.save({ requestedProjectId: projectId, conversationId: parts[1], messageId: parts[3], confirmOverwrite: body.confirm_overwrite ?? false }) };
     }
+    if ((method === "POST" || method === "PATCH" || method === "PUT") && parts[0] === "conversations" && parts[2] === "messages" && ((parts.length === 5 && parts[4] === "idea") || (parts.length === 4 && (method === "PATCH" || method === "PUT")))) {
+      const conversationId = parts[1];
+      const messageId = parts[3];
+      const conversation = conversationCrudService?.get?.(conversationId);
+      if (conversationCrudService?.get && !conversation) throw Object.assign(new ConfigurationError(`Conversation not found: ${conversationId}.`), { statusCode: 404, code: "CONVERSATION_NOT_FOUND" });
+      if (conversation && projectId && conversation.project_id !== projectId) throw Object.assign(new ConfigurationError("Conversation belongs to a different project."), { statusCode: 404, code: "CONVERSATION_NOT_FOUND" });
+      const effectiveProjectId = projectId ?? conversation?.project_id;
+      if (!effectiveProjectId) throw Object.assign(new ConfigurationError("Project is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+      if (!conversationAuditHistoryService?.setMessageIdea) throw unavailable("Conversation Message Idea");
+      const rawIdea = body?.is_idea !== undefined ? body.is_idea : body?.idea;
+      return { status: 200, body: await conversationAuditHistoryService.setMessageIdea({ projectId: effectiveProjectId, conversationId, messageId, isIdea: rawIdea }) };
+    }
     if (method === "POST" && parts.length === 3 && parts[0] === "conversations" && parts[2] === "messages") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");
       let conversationAgentId;

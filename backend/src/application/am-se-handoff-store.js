@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { statePath } from "../infrastructure/filesystem/forge-paths.js";
 import { ConfigurationError } from "../shared/errors.js";
 
-const VALID_STATUSES = new Set(["critiquing", "running", "reviewing", "completed", "paused", "failed"]);
+const VALID_STATUSES = new Set(["critiquing", "running", "rv_reviewing", "reviewing", "am_reviewing", "completed", "paused", "failed"]);
 const VALID_PHASES = new Set(["plan_critique", "sl_handoff", "implementation"]);
 const SAFE_ID = /^[A-Za-z0-9._:-]+$/;
 
@@ -44,8 +44,10 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
     sourceFilePath = null,
     amAgentId,
     seAgentId,
+    rvAgentId,
     amConversationId,
     seConversationId,
+    rvConversationId,
     phase = "plan_critique",
     status = "critiquing",
     critiqueRound = 1,
@@ -70,8 +72,10 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
       source_file_path: sourceFilePath ?? null,
       am_agent_id: amAgentId ?? "architecture-manager",
       se_agent_id: seAgentId ?? "system-engineer",
+      rv_agent_id: rvAgentId ?? "reviewer",
       am_conversation_id: amConversationId ?? null,
       se_conversation_id: seConversationId ?? null,
+      rv_conversation_id: rvConversationId ?? null,
       phase: VALID_PHASES.has(phase) ? phase : "plan_critique",
       status: VALID_STATUSES.has(status) ? status : "critiquing",
       critique_round: Number.isInteger(critiqueRound) && critiqueRound > 0 ? critiqueRound : 1,

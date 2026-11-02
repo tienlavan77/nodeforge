@@ -130,7 +130,8 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
         approvalSha256: input.payload.approval_sha256,
         approvalComments: input.payload.approval_comments,
         requestArchitecture: (prompt, conversationId, options = {}) => streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType: options.responseContentType, exposeText: options.exposeText ?? !isPlanCommand }),
-        requestSystemEngineer: ({ agentId: seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId }) => streamHandoffSystemEngineer({ seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId })
+        requestSystemEngineer: ({ agentId: seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId }) => streamHandoffSystemEngineer({ seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId }),
+        requestReviewer: ({ agentId: rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId }) => streamHandoffReviewer({ rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId })
       });
       const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.result", result, `COMMAND-${input.message_id}`);
       bus.send(response);
@@ -165,6 +166,19 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     if (typeof agentStream !== "function") throw new ConfigurationError("Configured System Engineer agent stream is unavailable.");
     let text = "";
     for await (const chunk of agentStream({ agentId: seAgentId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null }, correlationId, conversationId })) {
+      if (typeof chunk?.text === "string" && chunk.text) text += chunk.text;
+    }
+    return text;
+  }
+  /**
+   * Business purpose: streams one independent Reviewer (RV) read-only verification turn during an automatic AM-SE-RV execution handoff.
+   * Technical description: resolves the reviewer agent profile if needed and invokes agentStream with response_content_type set to text/markdown and linked_conversation_id bound to the Architecture conversation.
+   */
+  async function streamHandoffReviewer({ rvAgentId, prompt, conversationId, linkedConversationId, correlationId }) {
+    const resolvedRvId = rvAgentId ?? (agentRoleResolver ? agentRoleResolver.resolveProfile("reviewer")?.agent_id : "reviewer");
+    if (!resolvedRvId || typeof agentStream !== "function") throw new ConfigurationError("Configured Reviewer agent stream is unavailable.");
+    let text = "";
+    for await (const chunk of agentStream({ agentId: resolvedRvId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null }, correlationId, conversationId })) {
       if (typeof chunk?.text === "string" && chunk.text) text += chunk.text;
     }
     return text;

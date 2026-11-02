@@ -5,7 +5,7 @@ import { applyOwnerExecutionDecision } from "../../lib/owner-execution-decision.
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { SystemEngineerEvent } from "../../components/system-engineer-event.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
-import { SystemEngineerReply } from "../../components/system-engineer-reply.jsx";
+import { SystemEngineerReply, SystemEngineerTimelineEntries, groupAgentTurnMessages, transcriptAgentName } from "../../components/system-engineer-reply.jsx";
 import { systemEngineerEventText } from "../../components/system-engineer-event.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -227,11 +227,12 @@ export default function SystemPage({ sectionTitle = "System", projectId: propPro
           {historyError && <InlineError error={historyError} onRetry={() => void (hasOlder ? loadEarlierMessages() : loadConversationMessages(activeConversationId))} />}
           {!messagesLoading && messages.length === 0 && <div className="claude-welcome"><span className="claude-welcome-mark">⌘</span><h1>What should we build?</h1><p>Start a conversation with your project agent.</p></div>}
           {displayMessages.map((message) => {
-            if (message.se_event?.type === "conversation_turn") return <SystemEngineerReply key={message.stream_key ?? message.id} message={message} displayMessageTime={displayMessageTime} onMarkdownOpen={setMarkdownPreviewPath} />;
+            const handleToggleIdea = (target, nextIdea) => setMessages((current) => current.map((item) => (item.id === target.id || (target.source_message_id && item.source_message_id === target.source_message_id)) ? { ...item, is_idea: nextIdea, has_explicit_idea: true } : item));
+            if (message.se_event?.type === "conversation_turn") return <SystemEngineerReply key={message.stream_key ?? message.id} message={message} displayMessageTime={displayMessageTime} onMarkdownOpen={setMarkdownPreviewPath} client={client} projectId={PROJECT_ID} onToggleIdea={handleToggleIdea} />;
             if (message.se_event && !systemEngineerEventText(message.se_event)) return null;
             return <article className={`claude-message ${message.from === "owner" ? "is-owner" : "is-agent"}`} key={message.stream_key ?? message.id}>
             <div className="claude-message-meta"><span>{message.timeline ? transcriptAgentName(message) : message.nickname ?? (message.from === "owner" ? "You" : "System Engineer")}</span><time dateTime={message.timestamp}>{displayMessageTime(message.timestamp)}</time></div>
-            {message.timeline ? message.timeline.map((entry) => entry.se_event ? <SystemEngineerEvent key={entry.stream_key ?? entry.id} value={entry.se_event} /> : <ConversationResponseReveal key={entry.stream_key ?? entry.id} text={entry.text} contentType="text/markdown" reveal={entry.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} />) : message.se_event ? <SystemEngineerEvent value={message.se_event} /> : message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID}><ConversationResponseReveal text={message.text} contentType={message.from === "agent" ? "text/markdown" : "text/plain"} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
+            {message.timeline ? <SystemEngineerTimelineEntries timeline={message.timeline} client={client} projectId={PROJECT_ID} onToggleIdea={handleToggleIdea} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /> : message.se_event ? (message.se_event.type === "conversation_turn" ? <ConversationAgentMessageActions message={{ ...message, from: message.from ?? "agent", text: message.text || systemEngineerEventText(message.se_event) }} client={client} projectId={PROJECT_ID} onToggleIdea={handleToggleIdea}><SystemEngineerEvent value={message.se_event} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationAgentMessageActions> : <SystemEngineerEvent value={message.se_event} onMarkdownOpen={setMarkdownPreviewPath} />) : message.from === "owner" ? <ConversationMessageActions message={message} onEdit={editMessage} onRetry={(ownerMessage) => retryMessage(ownerMessage, activeConversationId)}><ConversationResponseReveal text={message.text} contentType={message.content_type} onMarkdownOpen={setMarkdownPreviewPath} /></ConversationMessageActions> : <ConversationAgentMessageActions message={message} client={client} projectId={PROJECT_ID} onToggleIdea={handleToggleIdea}><ConversationResponseReveal text={message.text} contentType={message.from === "agent" ? "text/markdown" : "text/plain"} reveal={message.from === "agent" && message.reveal === true} onMarkdownOpen={setMarkdownPreviewPath} onReveal={() => { const container = chatMessagesRef.current; if (container && container.scrollHeight - container.scrollTop - container.clientHeight < 72) container.scrollTop = container.scrollHeight; }} /></ConversationAgentMessageActions>}
             {message.from === "system" && message.retryable !== false && <button type="button" className="claude-retry" onClick={retryLastMessage}>Retry</button>}
           </article>;
           })}
@@ -252,30 +253,4 @@ export default function SystemPage({ sectionTitle = "System", projectId: propPro
     <WorkspaceMonitorPanels layoutScope="system" selectedAgentId={selectedAgent?.id ?? ""} watcherEvents={watcherEvents} watcherState={watcherState} agentProcess={agentProcess} agentActivities={agentActivities} agentDirectory={agentDirectory} />
     {globalToastError && <GlobalToast error={globalToastError} onRetry={globalError?._retry ?? retryLastMessage} onDismiss={() => { setGlobalError(null); setChatState(""); }} />}
   </div>;
-}
-
-// Groups all System Engineer commands and text from one correlated turn into one chat card.
-// Event-time ordering stays inside the card so command records cannot fragment the agent reply.
-function groupAgentTurnMessages(messages) {
-  const groups = new Map();
-  const output = [];
-  for (const message of messages) {
-    if (message.se_event?.type === "conversation_turn") { output.push(message); continue; }
-    const agentTurn = message.correlation_id && (message.from === "agent" || message.se_event);
-    if (!agentTurn) { output.push(message); continue; }
-    const key = `agent-turn:${message.correlation_id}`;
-    let group = groups.get(key);
-    if (!group) {
-      group = { ...message, id: key, stream_key: key, from: "agent", se_event: null, text: "", timeline: [] };
-      groups.set(key, group); output.push(group);
-    }
-    group.timeline.push(message);
-  }
-  return output;
-}
-
-// Keeps the grouped card labelled with the real agent identity rather than a command-specific suffix.
-function transcriptAgentName(message) {
-  const source = message.timeline?.find((entry) => entry.nickname)?.nickname ?? "Claude Agent";
-  return source.replace(/ · command$/, "");
 }

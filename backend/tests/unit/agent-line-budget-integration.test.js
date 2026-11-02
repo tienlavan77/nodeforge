@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createReadFileTool, createWriteDiffTool, createEditDiffTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+import { MARKDOWN_LINE_LIMIT, CODE_LINE_LIMIT, resolveFileLineLimit } from "../../src/tools/governance/agent-code-conventions.js";
 import { createSedLinesTool } from "../../src/tools/discovery/sed-lines.js";
 import { createCommittedReviewWindow } from "../../src/modules/supervisor/review/committed-review-window.js";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
@@ -32,7 +33,10 @@ function source(codeLines, padding = 0) {
 }
 
 test("write_diff and edit_diff enforce 250 lines for .md and 400 code_lines for code files", async () => {
+  assert.equal(MARKDOWN_LINE_LIMIT, 250);
+  assert.equal(CODE_LINE_LIMIT, 400);
   for (const [path, limit] of [["account.md", 250], ["account.js", 400], ["account.txt", 400], ["account.html", 400], ["account.py", 400]]) {
+    assert.equal(resolveFileLineLimit(path), limit);
     const state = fixture(), content = source(limit, 60), tool = createWriteDiffTool({ fileService: state.fileService });
     await tool.execute({ path, content, before_checksum: null });
     assert.equal(state.read(), content, path);
