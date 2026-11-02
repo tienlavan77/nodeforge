@@ -3,7 +3,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 import { purposeSummaryInput } from "./purpose-summary-input.js";
 
 // Creates a single-flight Embedding Worker for a project index database.
-export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddingProvider, model, clock = () => new Date(), maxAttempts = 5, retryDelayMs = 30000, logger = console } = {}) {
+export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddingProvider, model, clock = () => new Date(), maxAttempts = 5, retryDelayMs = 30000, logger = console, onJobClaimed = null, onJobSettled = null } = {}) {
   if (!database || typeof database.all !== "function") throw new ConfigurationError("Embedding worker requires a database.");
   if (!jobs || typeof jobs.claimNext !== "function") throw new ConfigurationError("Embedding worker requires an embedding job store.");
   if (!embeddingStore || typeof embeddingStore.upsert !== "function") throw new ConfigurationError("Embedding worker requires an embedding store.");
@@ -11,18 +11,31 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
   if (typeof model !== "string" || !model) throw new ConfigurationError("Embedding worker model is required.");
   let stopped = false;
   let running = false;
+  let notified = false;
+  let activeRun;
   let loopTask;
   let wake;
-  return Object.freeze({ runOnce, start, stop });
+  return Object.freeze({ runOnce, start, stop, notify });
 
   // Claims and processes one ready job, returning whether work was performed.
-  async function runOnce() {
-    if (running) return false;
+  function runOnce() {
+    if (running) return Promise.resolve(false);
     running = true;
+    activeRun = processNextJob().finally(() => {
+      running = false;
+      activeRun = undefined;
+    });
+    return activeRun;
+  }
+
+  // Claims the next ready embedding job from the durable SQLite queue, validates the current symbol purpose summary checksum, computes its vector via embeddingProvider, and persists the vector atomically or schedules a retry on failure.
+  async function processNextJob() {
     let activeJob = null;
+    let outcome = "superseded";
     try {
       activeJob = jobs.claimNext({ now: clock().toISOString() });
       if (!activeJob) return false;
+      onJobClaimed?.(activeJob);
       const symbol = database.all(
         `SELECT summary FROM symbols WHERE symbol_id = ?`,
         [activeJob.symbol_id]
@@ -49,17 +62,25 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
         }
         embeddingStore.upsert({ symbolId: activeJob.symbol_id, vector, model, checksum });
         jobs.complete(activeJob.job_id);
+        outcome = "completed";
       };
       if (database.transaction) database.transaction(publish);
       else publish();
       return true;
     } catch (error) {
+      outcome = "failed";
       if (activeJob?.job_id) jobs.retry(activeJob.job_id, error, { maxAttempts, delayMs: retryDelayMs });
       logger.warning?.("Embedding job failed.", { error: error.message });
       return true;
     } finally {
-      running = false;
+      if (activeJob) onJobSettled?.(activeJob, { status: outcome });
     }
+  }
+
+  // Wakes the idle embedding worker immediately when new symbol summary work is pushed from the watcher worker so vector generation starts without waiting for the polling interval.
+  function notify() {
+    notified = true;
+    wake?.();
   }
 
   // Runs the worker loop with a bounded polling interval.
@@ -74,10 +95,11 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
   // Drains this project's embedding queue without leaving a polling timer after removal.
   async function loop(pollMs) {
     while (!stopped) {
+      notified = false;
       const worked = await runOnce();
-      if (!worked && !stopped) await new Promise((resolveWait) => {
+      if (!worked && !stopped && !notified) await new Promise((resolveWait) => {
         const timer = setTimeout(finish, pollMs);
-        // Wakes the idle worker immediately when the project is removed.
+        // Wakes the idle worker immediately when the project is removed or notified.
         function finish() { clearTimeout(timer); wake = undefined; resolveWait(); }
         wake = finish;
       });
@@ -88,6 +110,6 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
   function stop() {
     stopped = true;
     wake?.();
-    return loopTask;
+    return loopTask ?? activeRun;
   }
 }

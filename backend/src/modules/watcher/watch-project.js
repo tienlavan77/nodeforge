@@ -14,25 +14,28 @@ import { ProjectRegistry } from "../projects/project-registry.js";
 import { normalizeProjectComments } from "../projects/project-comment-normalization.js";
 import { createDebouncedWatcher } from "./debounced-watcher.js";
 
-const INDEX_RUNTIME_DIR = join(".forge", "runtime", "wc");
+export const INDEX_RUNTIME_DIR = join(".forge", "runtime", "wc");
 const INDEX_DATABASE_PATH = [".forge", "runtime", "wc", "index.db"];
 
 // Defines startProjectWatch function behavior for watch-project.js.
-export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOptions, projectId, projectRegistry = new ProjectRegistry(), logger = console, internalBus, prepareDatabase, reconcile = false, onProgress = () => {}, progress = createIndexProgress({ onProgress }), watcherFactory = createFilesystemWatcher, normalizeComments = false, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false } = {}) {
+export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOptions, projectId, projectRegistry = new ProjectRegistry(), logger = console, internalBus, database: externalDatabase = null, databaseExisted: externalDatabaseExisted = null, indexOptions = null, deferReadiness = false, prepareDatabase, reconcile = false, onProgress = () => {}, progress = createIndexProgress({ onProgress }), watcherFactory = createFilesystemWatcher, normalizeComments = false, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false } = {}) {
   const root = resolve(projectRoot ?? process.cwd());
   const config = loadConfig({ cwd: root });
   const resolvedProjectId = projectId ?? await projectRegistry.getOrCreate(root);
-  const databaseExisted = await indexDatabaseExists(root);
+  const ownsDatabase = !externalDatabase;
+  const databaseExisted = externalDatabaseExisted ?? await indexDatabaseExists(root);
 
   // Explicitly create the runtime directory before the first baseline rebuild.
-  if (!databaseExisted) await ensureRuntimeDir(root);
+  if (!databaseExisted && ownsDatabase) await ensureRuntimeDir(root);
 
-  let database;
-  try {
-    database = await openIndexDatabase(root, { runtimeDir: INDEX_RUNTIME_DIR });
-  } catch (error) {
-    logger.error?.("Unable to open project index database", { error: error.message, projectRoot: root });
-    throw error;
+  let database = externalDatabase;
+  if (!database) {
+    try {
+      database = await openIndexDatabase(root, { runtimeDir: INDEX_RUNTIME_DIR });
+    } catch (error) {
+      logger.error?.("Unable to open project index database", { error: error.message, projectRoot: root });
+      throw error;
+    }
   }
   let bootstrap;
   let rawWatcher;
@@ -53,7 +56,7 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
       () => bootstrap?.stop(),
       () => watcher ? watcher.close() : rawWatcher?.close(),
       () => resources?.close?.(),
-      () => database.close()
+      () => ownsDatabase ? database.close() : null
     ]) {
       try { await cleanup(); } catch (error) { errors.push(error); }
     }
@@ -61,6 +64,7 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
   }
   try {
     resources = await prepareDatabase?.(database);
+    const resolvedIndexOptions = { ...resources?.indexOptions, ...indexOptions };
     const existingFiles = database.all("SELECT COUNT(*) AS count FROM files")[0].count;
     const baselineRebuilt = reconcile || !databaseExisted || existingFiles === 0;
     if (baselineRebuilt) {
@@ -75,10 +79,10 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     }
     const baseline = baselineRebuilt
       ? await rebuildIndex({
-        projectRoot: root, database, ignore: config.watcherIgnore, ...resources?.indexOptions, progress,
+        projectRoot: root, database, ignore: config.watcherIgnore, ...resolvedIndexOptions, progress,
         // Defines onFile method behavior for watch-project.js.
         onFile(entry) {
-          resources?.indexOptions?.onFile?.(entry);
+          resolvedIndexOptions?.onFile?.(entry);
           if (internalBus?.emit && entry.phase === "index" && entry.indexed) {
             internalBus.emit("watcher.indexed", {
               project_id: resolvedProjectId, type: "indexer.indexed", indexed: true,
@@ -90,16 +94,9 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
       : { indexedFiles: 0, succeeded: true };
     const baselineIndexedFiles = baseline.indexedFiles;
     if (!baseline.succeeded) throw Object.assign(new Error("Required indexing work failed."), { code: "index_failed", progress: baseline.progress });
-    if (typeof resources?.runInitialEmbeddings === "function") {
-      progress.stage("embedding");
-      await resources.runInitialEmbeddings();
-    } else if (baselineRebuilt) {
-      progress.stage("embedding");
-    }
-    progress.stage("startup/readiness");
 
     const fileService = createFileService({ projectRoot: root, watcherIgnore: config.watcherIgnore });
-    const indexer = createIncrementalIndexer({ database, projectRoot: root, fileService, ...resources?.indexOptions });
+    const indexer = createIncrementalIndexer({ database, projectRoot: root, fileService, ...resolvedIndexOptions });
     rawWatcher = watcherFactory({
       root,
       ignore: config.watcherIgnore,
@@ -121,12 +118,15 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     bootstrap = createBootstrap({ configOptions: { cwd: root }, loggerOptions, internalBus, watcher, indexer: {
       // Publishes watcher outcomes through the same commit-aware collector used by baseline work.
       async handle(event) {
-        progress.stage("scan/index");
+        const readySettled = !deferReadiness || progress.snapshot().stages["startup/readiness"] !== "pending";
+        if (readySettled) progress.stage("scan/index");
         const result = await indexer.handleDetailed(event);
         progress.result(result);
         progress.reconcile(database);
-        progress.stage("startup/readiness");
-        progress.finish();
+        if (readySettled) {
+          progress.stage("startup/readiness");
+          progress.finish();
+        }
         internalBus?.emit("index.result", result);
         if (result.error && result.marker !== "parse_failed") throw result.error;
         return result.committed;
@@ -134,7 +134,16 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     } });
     await Promise.all([bootstrap.start(), ready]);
     progress.reconcile(database);
-    progress.finish();
+    if (!deferReadiness) {
+      if (typeof resources?.runInitialEmbeddings === "function") {
+        progress.stage("embedding");
+        await resources.runInitialEmbeddings();
+      } else if (baselineRebuilt) {
+        progress.stage("embedding");
+      }
+      progress.stage("startup/readiness");
+      progress.finish();
+    }
 
     return Object.freeze({
       projectRoot: root,
@@ -154,7 +163,7 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
 }
 
 // Defines indexDatabaseExists function behavior for watch-project.js.
-async function indexDatabaseExists(projectRoot) {
+export async function indexDatabaseExists(projectRoot) {
   try {
     await access(join(projectRoot, ...INDEX_DATABASE_PATH));
     return true;

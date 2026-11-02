@@ -11,9 +11,9 @@ import { readContentHash } from "../watcher/debounced-watcher.js";
 import { logEvent } from "../../core/project-log-service.js";
 
 // createIncrementalIndexer - handles createIncrementalIndexer operation.
-export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), fileService, getContentHash = readContentHash, logger = console, projectLogger = logEvent, embeddingJobs = null, embeddingStore = null, embeddingProvider = null, embeddingModel = "text-embedding-3-small" } = {}) {
+export function createIncrementalIndexer({ database, projectRoot, registry = extractorRegistry, files = createFileRepository(database), graph = createDependencyGraph({ database, files, projectRoot }), fileService, getContentHash = readContentHash, logger = console, projectLogger = logEvent, embeddingJobs = null, embeddingStore = null, embeddingProvider = null, embeddingModel = "text-embedding-3-small", onSummaryQueued = null } = {}) {
   const conversion = createSummaryConversion(database);
-  const recordWriter = createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, logger });
+  const recordWriter = createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, onSummaryQueued, logger });
   const { writeExtraction, clearContentIndex, indexContent, writeCalls } = recordWriter;
 
   return Object.freeze({

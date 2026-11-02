@@ -61,3 +61,48 @@ test("worker embeds only when the queued checksum is still current", async () =>
     await database.close();
   }
 });
+
+test("worker notify wakes an idle polling loop immediately when a summary job is pushed", async () => {
+  const { database } = await fixture();
+  let worker;
+  let loopTask;
+  try {
+    let settledResolve;
+    const settled = new Promise((resolve) => { settledResolve = resolve; });
+    const vectors = [];
+    const jobs = createEmbeddingJobStore({
+      database,
+      clock: () => new Date("2026-09-19T00:00:00.000Z"),
+      // Wakes the embedding worker immediately when a new symbol summary job is enqueued into SQLite.
+      onEnqueue() {
+        worker?.notify();
+      }
+    });
+    worker = createEmbeddingWorker({
+      database,
+      jobs,
+      // Stores computed vectors in memory so the unit test can assert immediate publication.
+      embeddingStore: { upsert: (value) => vectors.push(value) },
+      // Returns a deterministic vector for the enqueued symbol summary input.
+      embeddingProvider: { embed: async () => [0.5, 0.5] },
+      model: "embeddinggemma",
+      clock: () => new Date("2026-09-19T00:00:00.000Z"),
+      // Resolves the test promise as soon as the woken worker finishes processing the pushed job.
+      onJobSettled(job) {
+        settledResolve(job);
+      }
+    });
+    loopTask = worker.start({ pollMs: 60000 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const checksum = purposeSummaryInput("Protect customer orders.").checksum;
+    jobs.enqueue({ symbolId: "SYM-1", contentChecksum: checksum, model: "embeddinggemma" });
+    const processedJob = await settled;
+    assert.equal(processedJob.symbol_id, "SYM-1");
+    assert.equal(vectors.length, 1);
+    assert.equal(jobs.counts().completed, 1);
+  } finally {
+    worker?.stop();
+    await loopTask;
+    await database.close();
+  }
+});

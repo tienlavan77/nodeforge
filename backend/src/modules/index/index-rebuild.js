@@ -15,12 +15,12 @@ import { readContentHash } from "../watcher/debounced-watcher.js";
 const CODE_INDEX_RUNTIME_DIR = statePath("wc");
 
 // Defines rebuildIndex function behavior for index-rebuild.js.
-export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer, embeddingJobs = null, embeddingModel = "embeddinggemma", onFile = () => {}, onProgress = () => {}, progress = createIndexProgress({ onProgress }), force = false } = {}) {
+export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_INDEX_RUNTIME_DIR, ignore = [], registry = extractorRegistry, indexer, embeddingJobs = null, embeddingModel = "embeddinggemma", onSummaryQueued = null, onFile = () => {}, onProgress = () => {}, progress = createIndexProgress({ onProgress }), force = false } = {}) {
   await ensureForgeLayout(projectRoot);
   const ownsDatabase = !database;
   const indexDatabase = database ?? await openIndexDatabase(projectRoot, { runtimeDir });
   const conversion = createSummaryConversion(indexDatabase);
-  const incrementalIndexer = indexer ?? createIncrementalIndexer({ database: indexDatabase, projectRoot, registry, embeddingJobs, embeddingModel });
+  const incrementalIndexer = indexer ?? createIncrementalIndexer({ database: indexDatabase, projectRoot, registry, embeddingJobs, embeddingModel, onSummaryQueued });
   // Adapts injected legacy indexers while keeping false distinct from a successful commit.
   async function handle(event) {
     if (incrementalIndexer.handleDetailed) return incrementalIndexer.handleDetailed(event);
