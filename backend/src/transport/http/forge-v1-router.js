@@ -14,18 +14,18 @@ import { normalizeParts, unavailable, requireProject, readJson, isSafeMarkdownPa
 import { routeProjectLifecycle } from "../../modules/projects/project-lifecycle.js";
 import { routeProjectRest } from "./forge-v1-project-routes.js";
 import { resolveProjectRequest, selectProjectRouter } from "./project-request-context.js";
-import { createForgeV1IdeasRoutes } from "./forge-v1-ideas-routes.js";
+import { createForgeV1NotebookRoutes } from "./forge-v1-notebook-routes.js";
 
 // Creates the Forge v1 HTTP router with checkpoint decoration.
-export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, conversationStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, ideasAuth, ideasStore, controlDb, database, resolveProjectServices, planRequests, handoffApprovedPlan, projectLifecycle, resolveProjectRouter } = {}) {
+export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchSprint, sprintOrchestrationService, reviewTicket, ticketHumanReviewService, ticketBlockerDecisionService, ticketBlockerReconcileService, runToolLab, directCodeRequest, projectStream, conversationStream, onWatcherEvent, projectDashboardService, sprintPlanUploadService, ticketCrudService, ownerChatService, ownerExecutionControl, conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, architectureWorkspaceService, humanDecisionService, agentSettingsService, listResumableCheckpoints, gitService, fileService, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, notebookAuth, notebookStore, controlDb, database, resolveProjectServices, planRequests, handoffApprovedPlan, projectLifecycle, resolveProjectRouter } = {}) {
   const conversationRoutes = createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth });
-  const ideasRoutes = createForgeV1IdeasRoutes({
-    ideasAuth,
+  const notebookRoutes = createForgeV1NotebookRoutes({
+    notebookAuth,
     resolveProjectServices,
     projectLifecycle,
     expectedProjectId,
     assertAdmission,
-    defaultServices: { projectId: expectedProjectId, ideas: ideasStore, controlDb: controlDb ?? database, database: database ?? controlDb, assertAdmission }
+    defaultServices: { projectId: expectedProjectId, notebook: notebookStore, controlDb: controlDb ?? database, database: database ?? controlDb, assertAdmission }
   });
   return Object.freeze({ route, resolveStreams });
 
@@ -56,9 +56,9 @@ export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchS
     const requestId = request.headers?.["x-request-id"] ?? randomUUID();
     const correlationId = request.headers?.["x-correlation-id"] ?? requestId;
     let body = resolvedBody ?? (method === "POST" || method === "PUT" || method === "PATCH" ? await readJson(request) : {});
-    if (parts[0] === "ideas" && method === "DELETE" && resolvedBody === undefined) body = await readJson(request);
-    const ideasResult = await ideasRoutes.routeIdeas({ method, parts, url, body, headers: request.headers });
-    if (ideasResult) return ideasResult;
+    if (parts[0] === "notebook" && method === "DELETE" && resolvedBody === undefined) body = await readJson(request);
+    const notebookResult = await notebookRoutes.routeNotebook({ method, parts, url, body, headers: request.headers });
+    if (notebookResult) return notebookResult;
     assertAdmission?.();
     const projectId = resolveProjectRequest({ method, url, body, parts }) ?? (parts[0] === "conversations" && parts.length >= 2 ? conversationCrudService?.get?.(parts[1])?.project_id : undefined);
     const globalRequest = parts[0] === "agents" || (method === "GET" && parts.length === 1 && ["health", "version"].includes(parts[0]));

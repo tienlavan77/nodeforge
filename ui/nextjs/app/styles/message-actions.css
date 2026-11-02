@@ -2,9 +2,15 @@
 
 .claude-message-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
   width: min(100%, 700px);
+}
+
+.claude-message-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .claude-message-actions button,

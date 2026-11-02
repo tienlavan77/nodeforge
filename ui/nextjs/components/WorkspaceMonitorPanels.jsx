@@ -1,7 +1,7 @@
 // Floating watcher and agent activity monitors for observing live NodeForge operations.
 "use client";
 // eslint-disable-next-line no-unused-vars -- The notebook control is rendered through JSX.
-import { IdeasDock } from "./ideas-dock.jsx";
+import { NotebookDock } from "./notebook-dock.jsx";
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -25,9 +25,9 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
   const panelRefs = useRef({});
   const [watcherActive, setWatcherActive] = useState(false);
   const [agentActive, setAgentActive] = useState(false);
-  const [ideasPortalElement, setIdeasPortalElement] = useState(null);
+  const [notebookPortalElement, setNotebookPortalElement] = useState(null);
   const [activePanel, setActivePanel] = useState("agent");
-  const [panelOrder, setPanelOrder] = useState(["watcher", "agent", "ideas"]);
+  const [panelOrder, setPanelOrder] = useState(["watcher", "agent", "notebook"]);
 
   /**
    * Business purpose: Marks a workspace monitor panel as the active selection and promotes it to the top of the floating window stack.
@@ -80,8 +80,8 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
     panels.watcher.minimized,
     panels.agent.visible,
     panels.agent.minimized,
-    panels.ideas?.visible,
-    panels.ideas?.minimized,
+    panels.notebook?.visible,
+    panels.notebook?.minimized,
   ]);
 
   function updatePanel(name, changes) {
@@ -144,22 +144,22 @@ export function WorkspaceMonitorPanels({ watcherEvents = [], watcherState = "con
 
   return <div onPointerMove={movePanel} onPointerUp={() => { draggingRef.current = null; }} onPointerCancel={() => { draggingRef.current = null; }}>
     <div className="workspace-monitor-dock" role="group" aria-label="System monitors">
-      {layoutScope === "home" && <IdeasDock
-        panelState={panels.ideas}
-        isActive={activePanel === "ideas"}
-        zIndex={getMonitorPanelZIndex(panelOrder, "ideas", activePanel)}
-        onActivate={() => activatePanel("ideas")}
-        onUpdatePanel={(changes) => updatePanel("ideas", changes)}
-        onStartDrag={(event) => startDrag(event, "ideas")}
-        panelRef={(node) => { panelRefs.current.ideas = node; }}
-        renderPanel={(panelElement) => (ideasPortalElement ? createPortal(panelElement, ideasPortalElement) : panelElement)}
+      {layoutScope === "home" && <NotebookDock
+        panelState={panels.notebook}
+        isActive={activePanel === "notebook"}
+        zIndex={getMonitorPanelZIndex(panelOrder, "notebook", activePanel)}
+        onActivate={() => activatePanel("notebook")}
+        onUpdatePanel={(changes) => updatePanel("notebook", changes)}
+        onStartDrag={(event) => startDrag(event, "notebook")}
+        panelRef={(node) => { panelRefs.current.notebook = node; }}
+        renderPanel={(panelElement) => (notebookPortalElement ? createPortal(panelElement, notebookPortalElement) : panelElement)}
       />}
       {["watcher", "agent"].map((name) => {
         const panel = panels[name];
         return <button key={name} type="button" aria-pressed={panel.visible && !panel.minimized} onClick={() => updatePanel(name, { visible: !panel.visible || panel.minimized, minimized: false })}><span className={`workspace-monitor-light${(name === "watcher" ? watcherActive : agentActive) ? " is-active" : name === "watcher" && watcherState !== "connected" ? " is-offline" : ""}`} aria-hidden="true" />{name === "watcher" ? "Watcher" : "Agent activity"}</button>;
       })}
     </div>
-    <div ref={setIdeasPortalElement} className="workspace-monitor-layer">
+    <div ref={setNotebookPortalElement} className="workspace-monitor-layer">
       {panels.watcher.visible && <section ref={(node) => { panelRefs.current.watcher = node; }} data-monitor-name="watcher" data-monitor-active={activePanel === "watcher" ? "true" : "false"} onPointerDown={() => activatePanel("watcher")} onFocusCapture={() => activatePanel("watcher")} className={`workspace-monitor${panels.watcher.minimized ? " is-minimized" : ""}${activePanel === "watcher" ? " is-active-panel" : " is-inactive-panel"}`} style={{ left: panels.watcher.x, top: panels.watcher.y, width: panels.watcher.width, height: panels.watcher.minimized ? "auto" : panels.watcher.height, zIndex: getMonitorPanelZIndex(panelOrder, "watcher", activePanel) }} aria-label="Watcher monitor">
         <header className="workspace-monitor-header" onPointerDown={(event) => startDrag(event, "watcher")}><span className={`workspace-monitor-light${watcherActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={watcherActive ? "Watcher working" : "Watcher idle"} role="img" /><strong>Watcher</strong><span className={`workspace-monitor-indicator is-${watcherState}`}>{watcherStatus}</span><button type="button" aria-label="Minimize Watcher monitor" onClick={() => updatePanel("watcher", { minimized: !panels.watcher.minimized })}>{panels.watcher.minimized ? "□" : "−"}</button><button type="button" aria-label="Close Watcher monitor" onClick={() => updatePanel("watcher", { visible: false })}>×</button></header>
         {!panels.watcher.minimized && <div className="workspace-monitor-content" aria-live="polite">

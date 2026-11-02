@@ -14,10 +14,10 @@ import { createPlanRequestState } from "../src/application/plan-request-state.js
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
 import { createMarkdownResponseFileService } from "../src/application/markdown-response-file-service.js";
 import { createProjectDirectoryLifecycle } from "../src/application/project-directory-lifecycle.js";
-import { createIdeasProjectAuth } from "../src/modules/governance/ideas-project-auth.js";
+import { createNotebookProjectAuth } from "../src/modules/governance/notebook-project-auth.js";
 
-export function createControlApiHttp({ services = {}, resolveProjectServices, ideasPermissionPort, ideasAuth } = {}) {
-  return createHttpApi(createControlApiHttpOptions({ services, resolveProjectServices, ideasPermissionPort, ideasAuth }));
+export function createControlApiHttp({ services = {}, resolveProjectServices, notebookPermissionPort, notebookAuth } = {}) {
+  return createHttpApi(createControlApiHttpOptions({ services, resolveProjectServices, notebookPermissionPort, notebookAuth }));
 }
 
 // Lazily composes and reuses application services only for the resolved runtime identity.
@@ -33,12 +33,12 @@ function createProjectRouterResolver(resolveProjectServices) {
 }
 
 // Composes conversation, plan, sprint, Git, and execution services for one selected project.
-function createControlApiHttpOptions({ services = {}, resolveProjectServices, ideasPermissionPort, ideasAuth } = {}) {
+function createControlApiHttpOptions({ services = {}, resolveProjectServices, notebookPermissionPort, notebookAuth } = {}) {
   const { bus, communications, conversations, eventStore, indexDb, subscriptions, agentSettings, sprintPlanUpload, sprintOrchestration, sprintPlanLeader, dispatchSprint, dispatchTicket, reviewTicket, runToolLab, directCodeRequest, codeCache, internalBus, ticketCrudService, buildBuilderContext, protocolStorage, agentGateway, agentConfiguration, sdkGateways, conversationStateStore, fileService, planFileService, projectRoot, publishUnifiedStreamEvent, logEvent, projectId, gitService, ticketBlockerReconcileService } = services;
   const projectLifecycle = createProjectDirectoryLifecycle({ projectLifecycle: services.projectLifecycle, projectId, projectRoot });
-  const composedIdeasAuth = ideasAuth ?? services.ideasAuth ?? createIdeasProjectAuth({
+  const composedNotebookAuth = notebookAuth ?? services.notebookAuth ?? createNotebookProjectAuth({
     planOwnerAuth: services.planOwnerAuth,
-    canAccessProject: ideasPermissionPort ?? services.ideasPermissionPort ?? services.canAccessProject
+    canAccessProject: notebookPermissionPort ?? services.notebookPermissionPort ?? services.canAccessProject
   });
   const agentLoopLogger = createRuntimeLogger({ logEvent, source: "owner-chat-agent-loop" });
   const executionCheckpoint = createOwnerExecutionCheckpoint({ fileService, gitService, role: "system_engineer" });
@@ -75,9 +75,9 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices, id
       assertAdmission: services.assertAdmission,
       conversationStream,
       resolveProjectRouter: resolveProjectServices ? createProjectRouterResolver(resolveProjectServices) : undefined,
-      ideasAuth: composedIdeasAuth,
+      notebookAuth: composedNotebookAuth,
       resolveProjectServices,
-      ideasStore: services.ideas,
+      notebookStore: services.notebook,
       controlDb: services.controlDb ?? services.database,
       projectLifecycle,
       dispatchTicket,

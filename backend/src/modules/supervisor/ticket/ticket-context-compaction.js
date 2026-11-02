@@ -4,7 +4,7 @@ import { TICKET_WORK_PROGRESS_PROMPT } from "./ticket-work-progress.js";
 import { activeFileChecksums } from "./ticket-read-cache.js";
 import { formatMidFlightDirectives } from "./ticket-directive-inbox.js";
 
-export const DEFAULT_ROLLOVER_INPUT_TOKENS = 120000;
+export const DEFAULT_ROLLOVER_INPUT_TOKENS = 200000;
 const STUB_CHAR_THRESHOLD = 1200;
 
 export { activeFileChecksums };

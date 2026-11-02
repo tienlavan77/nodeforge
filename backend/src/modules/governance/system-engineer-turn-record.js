@@ -1,6 +1,7 @@
 // Keeps an owner's System Engineer reply as one durable communication record per
 // project, conversation, agent and execution, including continued provider sessions.
 import { createHash } from "node:crypto";
+import { isIdeaSummaryResponse } from "./conversation-plan-trigger.js";
 
 // Resolves the canonical reply identity without merging different owners' requests or agent runs.
 export function systemEngineerTurnRecord(message, getById) {
@@ -17,7 +18,12 @@ export function systemEngineerTurnRecord(message, getById) {
   if (before?.run_id === payload.sdk_event.run_id && before.revision >= payload.sdk_event.revision) return { previous, stored: previous };
   const entries = new Map((before?.entries ?? []).map((entry) => [entry.id, entry]));
   for (const entry of payload.sdk_event.entries) entries.set(entry.id, entry);
+  const mergedEntries = [...entries.values()];
+  const turnText = mergedEntries.filter((entry) => entry.type === "text" && typeof entry.text === "string").map((entry) => entry.text).join("\n");
+  const resolvedIdea = typeof previous?.payload?.is_idea === "boolean"
+    ? previous.payload.is_idea
+    : (typeof payload.is_idea === "boolean" ? payload.is_idea : (isIdeaSummaryResponse({ agentText: turnText }) ? true : undefined));
   return { previous, stored: { ...message, id, timestamp: previous?.timestamp ?? message.timestamp,
-    payload: { ...(previous?.payload?.is_idea !== undefined ? { is_idea: previous.payload.is_idea } : {}), ...payload, sdk_sequence: (previous?.payload.sdk_sequence ?? 0) + 1,
-      sdk_event: { ...payload.sdk_event, entries: [...entries.values()] } } } };
+    payload: { ...payload, ...(typeof resolvedIdea === "boolean" ? { is_idea: resolvedIdea } : {}), sdk_sequence: (previous?.payload.sdk_sequence ?? 0) + 1,
+      sdk_event: { ...payload.sdk_event, entries: mergedEntries } } } };
 }

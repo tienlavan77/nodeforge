@@ -10,7 +10,7 @@ import { createArchitectureClarificationClient } from "./architecture-clarificat
 import { requestConversationMessages } from "./conversation-message-request.js";
 import { createReconnectingEventSource } from "./reconnecting-event-source.js";
 import { bindProjectClient } from "./project-selection.js";
-import { createIdeasClient } from "./ideas-client.js";
+import { createNotebookClient } from "./notebook-client.js";
 
 export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 
@@ -18,7 +18,7 @@ export { detectMessageIntent, MESSAGE_INTENTS, normalizeTicketInput };
 export function createNodeClient(explicitProjectId) {
   const connectProjectStream = createProjectStreamClient(forgeV1);
   return bindProjectClient(Object.freeze({
-    ...createIdeasClient(),
+    ...createNotebookClient(),
     ...createTicketHumanReviewClient({ forgeV1, requestJson }),
     ...createOwnerExecutionClient({ forgeV1, requestJson }),
     ...createArchitectureClarificationClient({ forgeV1, requestJson }),

@@ -2,7 +2,7 @@
 import { EventEmitter } from "node:events";
 import { createIndexProgress } from "../index/index-progress.js";
 import { openIndexDatabase } from "../../infrastructure/sqlite/index-database.js";
-import { createIdeasStore } from "./ideas-store.js";
+import { createNotebookStore } from "./notebook-store.js";
 import { startProjectWatch } from "../watcher/watch-project.js";
 import { createEmbeddingJobStore } from "../index/embedding-job-store.js";
 import { purposeSummaryInput } from "../index/purpose-summary-input.js";
@@ -18,7 +18,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   const connections = new Set();
   let database;
   let controlDb;
-  let ideas;
+  let notebook;
   let retrieval;
   let worker;
   let embeddingJobs;
@@ -100,7 +100,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   try {
     onRuntimeCreated?.(Object.freeze({ projectRoot, projectId, bus, connect, close, status }));
     controlDb = await openIndexDatabase(projectRoot, { storageKind: "control" });
-    ideas = createIdeasStore({ controlDb, projectId });
+    notebook = createNotebookStore({ controlDb, projectId });
     watch = await startProjectWatch({
       projectRoot, projectId, internalBus: bus, reconcile: true, logger, chokidarOptions, watcherFactory, progress: trackedProgress,
       normalizeComments, coderNormalizer, rejectOnViolation, fallbackOnViolation,
@@ -135,7 +135,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       trackedProgress.embedding({ status: "failed", error: error.message });
       logger.error?.("Project embedding worker stopped.", { projectId, error });
     });
-    return Object.freeze({ projectRoot, projectId, bus, database, controlDb, ideas, worker, connect, close,
+    return Object.freeze({ projectRoot, projectId, bus, database, controlDb, notebook, worker, connect, close,
       search: retrieval.search, embeddingStore: retrieval.embeddingStore, embeddingProvider, status
     });
   } catch (error) {

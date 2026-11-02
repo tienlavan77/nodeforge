@@ -70,8 +70,8 @@ test("selected identity covers all client requests and isolates switched or unav
   const session = { session_id: "session", version: 1, source_sha256: "hash" };
   const object = { projectId: "wrong", conversationId: "conversation", agentId: "agent", title: "Title", text: "Hello", decisionId: "decision", messageId: "message" };
   const operations = {
-    listIdeas: [object], createIdea: [{ ...object, content: "New idea" }], getIdea: [{ ...object, id: "idea" }],
-    updateIdea: [{ ...object, id: "idea", content: "Updated", expected_version: 1 }], deleteIdea: [{ ...object, id: "idea", expected_version: 1 }],
+    listNotebook: [object], createNotebook: [{ ...object, content: "New notebook" }], getNotebook: [{ ...object, id: "notebook" }],
+    updateNotebook: [{ ...object, id: "notebook", content: "Updated", expected_version: 1 }], deleteNotebook: [{ ...object, id: "notebook", expected_version: 1 }],
     createConversation: [object], listConversations: [object], getGitStatus: ["wrong"], commitAndPush: ["wrong", "Commit"], getMarkdownFile: ["wrong", "README.md"],
     postHumanDecision: [object], getConversationAuditHistory: [object], getProjectDashboard: ["wrong"], getTicket: ["wrong", "ticket"], createTicket: ["wrong", "Task", "sprint"], getTicketGraph: ["wrong", "ticket"],
     uploadSprintPlan: ["wrong", {}], listSprints: ["wrong"], getSprintPlan: ["wrong", "sprint"], draftSprintPlan: ["wrong", "sprint"], listPlanRequests: ["wrong"], listPlans: ["wrong"], createPlan: ["wrong", "plan", "sprint", "Plan"],
@@ -79,7 +79,7 @@ test("selected identity covers all client requests and isolates switched or unav
     handoffPlan: ["wrong", plan, "token"], decidePlan: ["wrong", plan, "approve", "token"], bindSprintPlan: ["wrong", "sprint", plan], setSprintStatus: ["wrong", "sprint", "ready"], updateSprintPlan: ["wrong", "sprint", {}, 1],
     addTicketToSprint: ["wrong", "sprint", {}], deleteSprintPlan: ["wrong", "sprint"], deleteTicket: ["wrong", "ticket"], regenerateTicketEnglish: ["wrong", "ticket", {}], runTicket: ["wrong", "ticket"], stopTicket: ["wrong", "ticket"],
     runCode: ["wrong", "sprint", "Task"], listCodeCheckpoints: ["wrong", "sprint"], resumeCode: ["wrong", "task"], runSprint: ["wrong", "sprint"], runSprintPlan: ["wrong", "sprint"], getArchitectureWorkspace: ["wrong"],
-    postOwnerMessage: [object], getConversationMessages: [object], saveConversationMarkdown: [object],
+    postOwnerMessage: [object], getConversationMessages: [object], saveConversationMarkdown: [object], setConversationMessageIdea: [object],
     respondTicketBlocker: ["wrong", "ticket", { request_id: "request", job_id: "job", execution_id: "execution", answer: "Answer", token: "test-token" }],
     getTicketHumanReview: ["wrong", "ticket"], approveTicketHumanReview: ["wrong", "ticket", { actor: "owner", reason: "Reason" }], decideTicketBlocker: ["wrong", "ticket", { actor: "owner", reason: "Reason", optionId: "option" }],
     listOwnerExecutions: ["wrong", "conversation"], decideOwnerExecution: ["wrong", "conversation", "execution", "pause"], reconcileOwnerExecution: ["wrong", "conversation", "execution", 1],
@@ -93,8 +93,8 @@ test("selected identity covers all client requests and isolates switched or unav
     assert.ok(calls.length > start, `${name} sends a real request`);
     for (const call of calls.slice(start)) {
       const pathProject = /^\/forge\/v1\/projects\/([^/]+)/.exec(call.url.pathname)?.[1];
-      if (["getIdea", "updateIdea", "deleteIdea"].includes(name)) {
-        assert.equal(call.url.pathname, "/forge/v1/ideas/idea", `${name} addresses its independent Idea ID`);
+      if (["getNotebook", "updateNotebook", "deleteNotebook"].includes(name)) {
+        assert.equal(call.url.pathname, "/forge/v1/notebook/notebook", `${name} addresses its independent Notebook ID`);
         assert.equal(call.body?.project_id, undefined, "item mutations must retain their contract allowlist");
       } else assert.equal(pathProject ?? call.url.searchParams.get("project") ?? call.url.searchParams.get("project_id") ?? call.body?.project_id, "PROJECT-B", `${name} binds B using its existing shape`);
       if (call.body && "project_id" in call.body) assert.equal(call.body.project_id, "PROJECT-B", `${name} body matches URL`);
