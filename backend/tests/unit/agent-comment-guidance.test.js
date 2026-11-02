@@ -23,8 +23,8 @@ function assertGuidance(content) {
   assert.match(text, /Technical identifiers, tags and paths may remain unchanged/i);
   assert.match(text, /new files and new (?:functions\/symbols)|new files\/new symbols only/i);
   assert.match(text, /(?:do not|without)[^.]*rewrite historical comments/i);
-  assert.match(text, /(?:every file[^.]*250\s+codelines|250\s+codelines[^.]*every file)/i);
-  assert.match(text, /all file types/i);
+  assert.match(text, /(?:250\s+lines.*400\s+codelines|400\s+codelines.*250\s+lines|every file[^.]*250\s+codelines|250\s+codelines[^.]*every file)/i);
+  assert.match(text, /(?:markdown|all file types)/i);
   assert.match(text, /excluding comment-only and blank lines/i);
   assert.match(text, /physical totallines[^.]*source (?:reads|coordinates)/i);
   assert.match(text, /80 physical lines/i);
@@ -37,10 +37,11 @@ for (const [provider, buildPrompt] of [["Codex", buildCodexTicketPrompt], ["Clau
     test(`${provider} ${mode}: AC-1 and duplicate AC-3 use approved effective comment guidance`, () => {
       const prompt = buildPrompt(ticket, null, ["backend/"], COMPLEXITY_FALLBACK, directCode, immutableScope);
       assertGuidance(prompt);
+      assert.match(prompt, /250 lines[\s\S]*400 code_lines/);
       assert.match(prompt, /vocabulary\/glossary\.md/);
-      assert.match(prompt, /Never edit vocabulary\/glossary\.md/);
+      assert.match(prompt, /Change the glossary only when explicitly required by the assigned task/);
       assert.match(prompt, /AC-1, AC-2, AC-3, AC-4/);
-      assert.match(prompt, /read_lines/);
+      assert.match(prompt, /read_file/);
       assert.match(prompt, /independent review/i);
       assert.match(prompt, /Stay inside ticket scope/i);
     });
