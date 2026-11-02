@@ -5,7 +5,7 @@ import { ConfigurationError } from "../../shared/errors.js";
 const ACTIVE_STATUSES = ["pending", "processing", "retry_wait"];
 
 // Creates the SQLite-backed embedding job store.
-export function createEmbeddingJobStore({ database, clock = () => new Date() } = {}) {
+export function createEmbeddingJobStore({ database, clock = () => new Date(), onEnqueue = null } = {}) {
   if (!database || typeof database.all !== "function" || typeof database.run !== "function") throw new ConfigurationError("Embedding job store requires a database.");
   if (typeof clock !== "function") throw new ConfigurationError("Embedding job store clock must be a function.");
   return Object.freeze({ enqueue, claimNext, recoverProcessing, complete, retry, supersede, counts });
@@ -17,15 +17,17 @@ export function createEmbeddingJobStore({ database, clock = () => new Date() } =
     // Savepoints keep enqueue atomic both independently and inside the writer's
     // freshness transaction, without opening a second top-level transaction.
     database.run("SAVEPOINT embedding_enqueue");
+    let result;
     try {
-      const result = insert();
+      result = insert();
       database.run("RELEASE embedding_enqueue");
-      return result;
     } catch (error) {
       database.run("ROLLBACK TO embedding_enqueue");
       database.run("RELEASE embedding_enqueue");
       throw error;
     }
+    onEnqueue?.(result);
+    return result;
 
     // Defines insert function behavior for embedding-job-store.js.
     function insert() {

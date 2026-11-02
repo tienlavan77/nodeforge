@@ -7,7 +7,7 @@ import { reconcileSymbols } from "./symbol-reconciliation.js";
 import { purposeComments, purposeCommentBefore } from "./parser/purpose-comments.js";
 
 // Creates database writers that preserve file extraction and symbol search records.
-export function createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, logger }) {
+export function createIndexRecordWriter({ database, graph, embeddingJobs, embeddingStore, embeddingProvider, embeddingModel, onSummaryQueued = null, logger }) {
   // Retains unfinished summary work across reindexing so unchanged summaries reuse
   // the provider request identified by the reconciled symbol, checksum and model.
   const pendingEmbeddings = new Set();
@@ -74,16 +74,21 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     if (embeddingJobs?.enqueue) {
       queueMicrotask(() => {
         try {
+          let queuedJob = null;
           // Schedules only current summary work, atomically with the final check.
           const enqueue = () => {
             const current = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [symbolId])[0];
             if (purposeSummaryInput(current?.summary)?.checksum !== checksum) return;
             const existing = database.all("SELECT content_checksum, embedding_model FROM symbol_embeddings WHERE symbol_id = ?", [symbolId])[0];
             if (existing?.content_checksum === checksum && existing?.embedding_model === embeddingModel) return;
-            embeddingJobs.enqueue({ symbolId, contentChecksum: checksum, model: embeddingModel });
+            queuedJob = embeddingJobs.enqueue({ symbolId, contentChecksum: checksum, model: embeddingModel });
           };
           if (database.transaction) database.transaction(enqueue);
           else enqueue();
+          if (queuedJob) {
+            embeddingJobs.notify?.(queuedJob);
+            onSummaryQueued?.(queuedJob);
+          }
         } catch (error) { logger.debug?.("Embedding job enqueue skipped.", { path, symbol: name, error: error.message }); }
       });
       return;
