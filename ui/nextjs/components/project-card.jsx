@@ -14,7 +14,8 @@ export function ProjectCard({ project, admitted = true, operation, children, onR
   const running = project.readiness === "running" || operation?.status === "running";
   const percent = computeProjectProgressPercent(project);
   const stage = project.progress?.stage || operation?.progress?.stage || operation?.stage || "initializing";
-  const targetPath = projectArchitecturePath(project.project_id);
+  const targetPath = projectArchitecturePath(project);
+  const displayId = project.slug && /^PROJECT-[0-9a-f]{8}-/i.test(project.project_id) ? project.slug : project.project_id;
   const diagnosticText = project.diagnostic ? formatProjectBackendError(project.diagnostic, project.diagnostic.message) : "";
 
   // Business purpose: navigates to the project's workspace `/<projectId>` when clicking anywhere on a `ready` card outside its Edit, Delete, or retry buttons.
@@ -76,7 +77,7 @@ export function ProjectCard({ project, admitted = true, operation, children, onR
       <progress className="project-operation-progress" aria-label={`${name} progress`} max={100} value={percent ?? 0} />
     </div>}
     <div className="agent-card-footer">
-      <span className="project-card-id">{project.project_id}</span>
+      <span className="project-card-id" title={project.project_id}>{displayId}</span>
       {ready ? <Link className="project-card-open" href={targetPath} onClick={(event) => { try { selectProject(project.project_id); } catch (error) { console.warn("Could not select project", error); } if (onNavigate) { event.preventDefault(); event.stopPropagation(); onNavigate(targetPath, project.project_id); } }} aria-label={`Open ${name}`}>Architecture <span aria-hidden="true">↗</span></Link> : <span className="project-card-unavailable">{running ? `Running (${percent ?? 0}%)` : "Workspace unavailable"}</span>}
     </div>
     {!operation && (diagnosticText || (project.retryable && onRetry)) && <div className="project-card-status" aria-live="polite">

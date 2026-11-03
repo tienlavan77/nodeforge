@@ -92,7 +92,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     const persisted = catalog.list().find((entry) => entry.root === canonical);
     progress.stage("identity");
     let projectId;
-    try { projectId = await registry.getOrCreate(canonical, { expectedProjectId: persisted?.projectId, strictIdentity: true, rootBinding: binding, config }); } catch (error) {
+    try { projectId = await registry.getOrCreate(canonical, { expectedProjectId: persisted?.projectId, strictIdentity: true, rootBinding: binding, config, catalog }); } catch (error) {
       if (error.stage) throw error;
       throw filesystemError("identity", "identity_conflict", canonical, error, "Reconcile catalog and per-root metadata; do not rewrite identity.");
     }

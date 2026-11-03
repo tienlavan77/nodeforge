@@ -8,7 +8,7 @@ test("a transient API outage keeps the selected project, generation and streams 
   let projects = [{ project_id: "A", root: "/a" }];
   context.mock.method(globalThis, "fetch", async (input) => {
     const { pathname } = new URL(input);
-    if (pathname.endsWith("/lifecycle/list")) {
+    if (pathname.endsWith("/forge/v1/projects")) {
       if (offline) throw new TypeError("Failed to fetch");
       return Response.json({ projects });
     }
@@ -29,7 +29,7 @@ test("a transient API outage keeps the selected project, generation and streams 
   assert.equal(during.projectId, "A", "a failed refresh must not revoke admission");
   assert.equal(during.generation, before.generation, "a failed refresh must not change the selection generation");
   assert.equal(during.loaded, true, "the directory stays loaded so the page keeps rendering");
-  assert.deepEqual(during.projects, [{ project_id: "A", root: "/a" }], "the last known projects are retained");
+  assert.deepEqual(during.projects, [{ project_id: "A", projectId: "A", root: "/a" }], "the last known projects are retained");
   assert.match(String(during.error), /unavailable|fetch/i, "the connection error is surfaced without clearing state");
   assert.equal(closed, 0, "existing project streams must not be closed by a transient outage");
 

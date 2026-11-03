@@ -20,7 +20,6 @@ import {
   formatProjectBackendError,
   getLifecycleSnapshot,
   intakeProject,
-  submitProjectOperation,
   subscribeLifecycle,
   updateProjectConfiguration
 } from "../lib/project-lifecycle-client.js";
@@ -36,9 +35,9 @@ const directoryAttempts = new Map();
 export function ProjectDirectory({ onNavigate }) {
   let router = null;
   try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks -- useRouter is safe in Next App Router and guarded for standalone browser test bundles.
     router = useRouter();
-  } catch (error) {
+    // eslint-disable-next-line no-silent-catch -- Standalone browser test bundles without Next App Router context fall back to history.pushState.
+  } catch {
     router = null;
   }
   const selection = useSyncExternalStore(subscribeProjectSelection, getProjectSelection, () => initialSelection);
@@ -207,9 +206,9 @@ export function ProjectDirectory({ onNavigate }) {
     if (["failed", "succeeded"].includes(operation.status) && project.operation?.status !== operation.status) return undefined;
     return operation;
   }
-  // Recover a membership-only startup failure through the backend's documented explicit Add path.
+  // Recover a membership-only startup failure through the `/forge/v1/projects` REST intake endpoint.
   async function retryAdd(path) {
-    try { await submitProjectOperation("add", path); await load(); }
+    try { await intakeProject({ root: path }); await load(); }
     catch (failure) { setError(formatProjectBackendError(failure, failure.message)); }
   }
   const statusMessage = error || (loadingStatus ? "Loading projects…" : "");

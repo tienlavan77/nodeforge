@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Creates an encrypted file-backed secret vault with optional OS keychain fallback.
-export function createPersistentSecretBackend({ filePath, encryptionKey, keychainService = "nodeforge-secret-key", fileService } = {}) {
+export function createPersistentSecretBackend({ filePath, encryptionKey, keychainService = "nodeforge-secret-key", fileService, projectRoot = process.cwd() } = {}) {
   if (typeof filePath !== "string" || !filePath) throw new ConfigurationError("Persistent Secret Backend requires a file path.");
   const key = normalizeKey(encryptionKey ?? loadKeychainKey(keychainService));
   let records = load();
@@ -34,9 +34,17 @@ export function createPersistentSecretBackend({ filePath, encryptionKey, keychai
 // Atomically persists the encrypted vault to disk with restricted permissions.
   function persist() {
     if (fileService?.atomicWriteSync) {
-      const relative = filePath.startsWith(`${process.cwd()}/`) ? filePath.slice(process.cwd().length + 1) : filePath;
-      fileService.atomicWriteSync({ path: relative, content: `${JSON.stringify(records)}\n`, mode: 0o600 });
-      return;
+      const rootPrefix = `${projectRoot.replace(/\/$/, "")}/`;
+      const cwdPrefix = `${process.cwd().replace(/\/$/, "")}/`;
+      const relative = filePath.startsWith(rootPrefix)
+        ? filePath.slice(rootPrefix.length)
+        : filePath.startsWith(cwdPrefix)
+          ? filePath.slice(cwdPrefix.length)
+          : filePath;
+      if (!relative.startsWith("/")) {
+        fileService.atomicWriteSync({ path: relative, content: `${JSON.stringify(records)}\n`, mode: 0o600 });
+        return;
+      }
     }
     mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 });
     const temp = `${filePath}.tmp`;

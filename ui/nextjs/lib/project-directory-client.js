@@ -2,7 +2,7 @@
 // updating running project status and progress percentages in real time from SSE events.
 import { forgeV1 } from "./node-client-url.js";
 import { requestJson } from "./node-client-request.js";
-import { lifecycleRequest } from "./project-lifecycle-client.js";
+import { resolveProjectRouteSlug } from "./project-navigation.js";
 import { syncProjectsToSelection } from "./project-selection.js";
 
 const STAGE_ORDER = ["preflight", "identity", "membership", "comment_normalization", "scan/index", "resolve", "embedding", "startup/readiness"];
@@ -33,10 +33,12 @@ export function normalizeDirectoryProject(raw = {}) {
     : raw.status === "ready" || raw.progress?.status === "succeeded" ? "ready"
       : raw.status === "running" || raw.progress?.status === "running" ? "running" : "unavailable";
   const percent = computeProjectProgressPercent({ ...raw, readiness });
+  const slug = resolveProjectRouteSlug({ ...raw, project_id: projectId, projectId });
   return {
     ...raw,
     project_id: projectId,
     projectId,
+    slug,
     readiness,
     percent
   };
@@ -68,16 +70,7 @@ export function computeProjectProgressPercent(project = {}) {
 export async function refreshProjectDirectory() {
   const current = ++generation;
   try {
-    let result;
-    try {
-      result = await requestJson(forgeV1("/projects"), { cache: "no-store" });
-    } catch (primaryError) {
-      if (primaryError?.status === 404 || primaryError?.status === 405) {
-        result = await lifecycleRequest("directory");
-      } else {
-        throw primaryError;
-      }
-    }
+    const result = await requestJson(forgeV1("/projects"), { cache: "no-store" });
     const rawProjects = Array.isArray(result) ? result : result?.projects;
     if (!Array.isArray(rawProjects) || rawProjects.some((project) =>
       typeof (project?.project_id ?? project?.projectId) !== "string" || typeof project?.root !== "string")) {
@@ -200,7 +193,9 @@ export function applyProjectDirectoryStreamEvent(projectId, event) {
       diagnostic = null;
     }
   }
-  const { percent: _previousPercent, percentage: _previousPercentage, ...currentBase } = current;
+  const currentBase = { ...current };
+  delete currentBase.percent;
+  delete currentBase.percentage;
   const updated = normalizeDirectoryProject({
     ...currentBase,
     readiness,

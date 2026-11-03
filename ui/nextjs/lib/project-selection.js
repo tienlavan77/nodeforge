@@ -1,7 +1,7 @@
 // Keep workspace requests and streams isolated to the explicitly selected managed project.
 import { controlApiBase } from "./node-client-url.js";
 import { requestJson } from "./node-client-request.js";
-import { rememberSelectedProject } from "./project-navigation.js";
+import { rememberSelectedProject, resolveProjectRouteSlug, toProjectSlug } from "./project-navigation.js";
 
 let snapshot = { projects: [], stale: false, projectId: null, generation: 0, loaded: false, error: null };
 const listeners = new Set();
@@ -30,9 +30,12 @@ function publish(update) {
 
 // Require a deliberate selection after an established project becomes unavailable.
 export function selectProject(projectId) {
-  if (!snapshot.projects.some((project) => project.project_id === projectId)) throw new Error("Select an available project.");
-  publish({ projectId, error: null });
-  rememberSelectedProject(projectId);
+  const resolvedId = resolveManagedProjectId(projectId);
+  const matched = snapshot.projects.find((project) => project.project_id === resolvedId);
+  if (!matched) throw new Error("Select an available project.");
+  publish({ projectId: matched.project_id, error: null });
+  rememberSelectedProject(matched.project_id);
+  return matched.project_id;
 }
 
 // Return to the global directory without retaining an active project's clients or stream subscriptions.
@@ -40,11 +43,37 @@ export function clearProjectSelection() { publish({ projectId: null, error: null
 
 // Business purpose: synchronizes the global selectable project list from `/forge/v1/projects` catalog updates or SSE readiness changes so `ProjectDirectory` only needs a single initial catalog GET without a redundant `/lifecycle/list` call.
 // Technical description: filters catalog projects to those with `readiness === "ready"` (or no explicit non-ready readiness), updates `snapshot.projects`, and revokes active selection if the selected project is no longer ready.
+/**
+ * Business purpose: resolves a stable project identifier from a project ID, friendly URL slug, root path, or project record so workspace selection, update, and remove operations always address `/forge/v1/projects/<projectId>`.
+ * Technical description: extracts project_id/projectId from an object or matches a string against the current selection snapshot's project_id, projectId, slug, name slug, or root fields.
+ */
+export function resolveManagedProjectId(target) {
+  if (target && typeof target === "object") {
+    const objectId = String(target.project_id ?? target.projectId ?? "").trim();
+    if (objectId) return objectId;
+    target = target.root;
+  }
+  const value = String(target ?? "").trim();
+  if (!value) return "";
+  const lower = value.toLowerCase();
+  const matched = snapshot.projects.find((project) =>
+    project.project_id === value ||
+    project.projectId === value ||
+    project.root === value ||
+    project.slug === lower ||
+    toProjectSlug(project.name || String(project.root ?? "").split("/").filter(Boolean).at(-1) || "") === lower);
+  return String(matched?.project_id ?? matched?.projectId ?? value).trim();
+}
+
 export function syncProjectsToSelection(catalogProjects = [], { selectInitial = false } = {}) {
   if (!Array.isArray(catalogProjects)) return;
   const projects = catalogProjects
     .filter((project) => !project.readiness || project.readiness === "ready")
-    .map((project) => ({ ...project, project_id: project.project_id ?? project.projectId }));
+    .map((project) => {
+      const id = project.project_id ?? project.projectId;
+      const slug = resolveProjectRouteSlug({ ...project, project_id: id, projectId: id });
+      return { ...project, project_id: id, projectId: id, slug };
+    });
   const missing = snapshot.projectId && !projects.some((project) => project.project_id === snapshot.projectId);
   const projectId = missing ? null : snapshot.projectId ?? (selectInitial && !snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
   publish({ projects, projectId, loaded: true, stale: false, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
@@ -54,21 +83,16 @@ export function syncProjectsToSelection(catalogProjects = [], { selectInitial = 
 export async function refreshProjects({ selectInitial = true } = {}) {
   const refresh = ++refreshGeneration;
   try {
-    let result;
-    try {
-      result = await requestJson(`${controlApiBase()}/lifecycle/list`, { cache: "no-store" });
-    } catch (primaryError) {
-      if (primaryError?.status === 404 || primaryError?.status === 405) {
-        result = await requestJson(`${controlApiBase()}/forge/v1/projects`, { cache: "no-store" });
-      } else {
-        throw primaryError;
-      }
-    }
+    const result = await requestJson(`${controlApiBase()}/forge/v1/projects`, { cache: "no-store" });
     if (refresh !== refreshGeneration) return;
     if (!Array.isArray(result?.projects) || result.projects.some((project) => typeof (project.project_id ?? project.projectId) !== "string")) throw new Error("Invalid backend admission response.");
     const projects = result.projects
       .filter((project) => !project.readiness || project.readiness === "ready")
-      .map((project) => ({ ...project, project_id: project.project_id ?? project.projectId }));
+      .map((project) => {
+        const id = project.project_id ?? project.projectId;
+        const slug = resolveProjectRouteSlug({ ...project, project_id: id, projectId: id });
+        return { ...project, project_id: id, projectId: id, slug };
+      });
     const missing = snapshot.projectId && !projects.some((project) => project.project_id === snapshot.projectId);
     const projectId = missing ? null : snapshot.projectId ?? (selectInitial && !snapshot.loaded && projects.length === 1 ? projects[0].project_id : null);
     publish({ projects, projectId, loaded: true, stale: false, error: missing ? "Selected project is unavailable. Refresh or select an available project." : null });
@@ -83,19 +107,54 @@ export async function refreshProjects({ selectInitial = true } = {}) {
   }
 }
 
-// Add a managed root through the strict existing lifecycle contract, then refresh selectable identities.
-export async function addProject(root) {
-  const result = await requestJson(`${controlApiBase()}/lifecycle/add`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ root })
+/**
+ * Business purpose: validates a candidate project root path and inspects existing metadata via `POST /forge/v1/projects/preflight` before project creation or admission.
+ * Technical description: sends `{ root }` to the Control API REST preflight endpoint with no-store caching and returns the preflight result.
+ */
+export async function preflightProject(root) {
+  return requestJson(`${controlApiBase()}/forge/v1/projects/preflight`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ root })
   });
-  await refreshProjects();
-  return result;
 }
 
-// Remove a managed root without silently routing its workspace to a different project.
-export async function removeProject(root) {
-  const result = await requestJson(`${controlApiBase()}/lifecycle/remove`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ root })
+// Add a managed root through `/forge/v1/projects`, then refresh selectable identities.
+export async function addProject(input) {
+  const payload = typeof input === "string" ? { root: input } : input;
+  const result = await requestJson(`${controlApiBase()}/forge/v1/projects`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(payload)
+  });
+  await refreshProjects();
+  return result?.project ?? result;
+}
+
+/**
+ * Business purpose: updates a managed project's configuration by project ID via `PUT /forge/v1/projects/<projectId>` and refreshes selectable workspace state.
+ * Technical description: resolves the target projectId from the argument or selection state, submits the configuration patch over REST, and refreshes projects.
+ */
+export async function updateProject(target, updates) {
+  const projectId = resolveManagedProjectId(target);
+  const result = await requestJson(`${controlApiBase()}/forge/v1/projects/${encodeURIComponent(projectId)}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(updates)
+  });
+  await refreshProjects({ selectInitial: false });
+  return result?.project ?? result;
+}
+
+// Remove a managed project by ID through `/forge/v1/projects/<projectId>` without silently routing its workspace to a different project.
+export async function removeProject(target) {
+  const projectId = resolveManagedProjectId(target);
+  const result = await requestJson(`${controlApiBase()}/forge/v1/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+    cache: "no-store"
   });
   await refreshProjects();
   return result;
@@ -114,7 +173,8 @@ const objectOperations = new Set(["listNotebook", "createNotebook", "getNotebook
 // Bind existing operation-specific request shapes and callbacks to one immutable selection generation.
 export function bindProjectClient(client, explicitProjectId) {
   const selection = snapshot;
-  const targetProjectId = (typeof explicitProjectId === "string" && explicitProjectId.trim()) ? explicitProjectId.trim() : selection.projectId;
+  const rawExplicit = (typeof explicitProjectId === "string" && explicitProjectId.trim()) ? explicitProjectId.trim() : "";
+  const targetProjectId = rawExplicit ? (resolveManagedProjectId(rawExplicit) || rawExplicit) : selection.projectId;
   if (!selection.loaded && !targetProjectId) return client;
   const bound = Object.fromEntries(Object.entries(client).map(([name, operation]) => [name, typeof operation !== "function" ? operation : (...args) => {
     if (selection.loaded && !explicitProjectId) assertCurrent(selection);

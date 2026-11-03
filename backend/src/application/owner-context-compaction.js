@@ -2,9 +2,9 @@
 // Technical description: extracts file paths, sha256 checksums, and line counts from read/write tool calls, maintains active_file_checksums maps, builds bounded owner and discovery receipt digests, and evaluates token-threshold rollover for owner SDK sessions.
 import { DEFAULT_ROLLOVER_INPUT_TOKENS, extractTurnInputTokens } from "../modules/supervisor/ticket/ticket-context-compaction.js";
 
-const READ_TOOLS = new Set(["read_file", "Read", "sed_lines"]);
+const READ_TOOLS = new Set(["read_file", "read_file_binary", "Read", "sed_lines"]);
 const WRITE_TOOLS = new Set(["write_diff", "edit_diff", "delete_file", "move_file"]);
-const DISCOVERY_TOOLS = new Set(["read_file", "Read", "search_text", "list_files", "search_tree"]);
+const DISCOVERY_TOOLS = new Set(["read_file", "read_file_binary", "Read", "search_text", "list_files", "search_tree"]);
 
 // Business purpose: normalizes file path metadata across read_file, Read, edit_diff, write_diff, delete_file, and move_file calls so SE and AM checkpoints track every accessed or modified file consistently.
 // Technical description: extracts path, from_path, to_path, symbol, start_line, and end_line from a tool input object.

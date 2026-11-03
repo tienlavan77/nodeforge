@@ -113,7 +113,9 @@ test("startup reconciles old contract vectors for an unchanged model", async (t)
   });
   try {
     const deadline = Date.now() + 5000;
-    while (!inputs.length && Date.now() < deadline) await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    while ((!inputs.length || !runtime.database.all("SELECT symbol_id FROM symbol_embeddings").length) && Date.now() < deadline) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
     assert.ok(inputs.length > 0);
     assert.ok(inputs.every((content) => content === summary));
     assert.deepEqual(runtime.database.all("SELECT symbol_id, content_checksum FROM symbol_embeddings"), [{ symbol_id: "s", content_checksum: purposeSummaryInput(summary).checksum }]);

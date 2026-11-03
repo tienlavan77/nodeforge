@@ -93,6 +93,7 @@ test("O1 & O2: Watcher Worker and Embedding Worker run independently, push summa
     assert.ok(runtime.watch, "Expected independent Watcher Worker handle on runtime");
     assert.ok(runtime.worker, "Expected independent Embedding Worker handle on runtime");
     assert.equal(runtime.status().readiness, "ready");
+    await waitFor(() => runtime.status().progress.embedding.succeeded === 1, "Expected initial symbol embedding to complete in background");
     assert.equal(runtime.status().progress.embedding.succeeded, 1);
 
     // 1. Verify that pushing a new file summary immediately wakes the Embedding Worker even with a 60s poll interval.
@@ -193,6 +194,7 @@ test("O3: Embedding Worker failure is isolated from Watcher Worker indexing and 
     if (dataLine) target.push(JSON.parse(dataLine.slice(6)));
   }
 
+  await waitFor(() => runtime.status().progress.embedding.status === "failed", "Expected initial background embedding failure to be recorded");
   const streamConnection = runtime.connect({
     requestedProjectId: "PROJECT-sep-o3",
     response: {
