@@ -21,7 +21,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
     await scopedFiles.assertReadPath(path);
-    if (role === "system_engineer" && /^(?:node_modules|\.forge)(?:\/|$)/.test(path)) return scopedFiles.readForIndex({ path });
+    if (role === "system_engineer" && (/^node_modules(?:\/|$)/.test(path) || (/^\.forge(?:\/|$)/.test(path) && !codeSearch?.fileMetadata?.(path)))) return scopedFiles.readForIndex({ path });
     return codeCache.read({ path });
   } };
   const base = createAgentCommandTools({ projectRoot, fileService: scopedFiles, codeSearch, codeCache: scopedCache, projectLogger: () => {}, wrap: (tool) => tool });

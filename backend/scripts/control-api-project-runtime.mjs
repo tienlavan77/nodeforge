@@ -33,6 +33,7 @@ export function startControlApiWorkers({
   const retrieval = createRetrievalDependencies({ database: indexDb, ollamaConfig });
   const resolvedProvider = embeddingProvider ?? retrieval.embeddingProvider;
   const embeddingModel = retrieval.ollamaConfig.model;
+  let closed = false;
   let embeddingWorker;
   const embeddingJobs = createEmbeddingJobStore({
     database: indexDb,
@@ -55,6 +56,18 @@ export function startControlApiWorkers({
           payload: { error: detail.error ?? message }
         });
       }
+    },
+    // Logs completed embedding jobs with queue and vector counts for terminal progress tracking.
+    onJobSettled(job, { status } = {}) {
+      if (closed || status !== "completed") return;
+      const counts = embeddingJobs.counts();
+      const queued = (counts.pending ?? 0) + (counts.retry_wait ?? 0) + (counts.processing ?? 0);
+      const vectors = Number(indexDb.all("SELECT COUNT(*) AS count FROM symbol_embeddings")[0]?.count ?? 0);
+      logger.info(`Embedding job completed (${counts.completed ?? 0} done, ${queued} queued, ${vectors} vectors).`, {
+        event_name: "embedding_worker.completed",
+        status: "success",
+        payload: { job_id: job.job_id, symbol_id: job.symbol_id, model: embeddingModel, counts, vectors }
+      });
     }
   });
   const recoveredEmbeddingJobs = embeddingJobs.recoverProcessing();
@@ -101,7 +114,6 @@ export function startControlApiWorkers({
   const verification = runVerification ? createVerificationOrchestrator({ projectRoot, projectId }) : null;
   const onWatcherCacheEvent = codeCache ? createWatcherCacheEvents({ projectId, codeCache, logger: logger.emit }) : null;
   const pendingTasks = new Set();
-  let closed = false;
   let closing;
 
   // Publishes indexed file changes to the in-process project stream and code cache without external HTTP calls.
