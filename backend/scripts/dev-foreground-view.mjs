@@ -73,7 +73,7 @@ function drawInputBox(state, boxTop, width) {
   output.write(`\x1b[${boxTop};1H\x1b[2K\x1b[38;5;245m╭${"─".repeat(width - 2)}╮\x1b[0m`);
   output.write(`\x1b[${boxTop + 1};1H\x1b[2K\x1b[38;5;245m│\x1b[0m \x1b[36m${prompt}\x1b[0m`);
   if (state.input.length === 0) {
-    output.write(`\x1b[38;5;245mType a command…  /q quit · /r api|watcher|ui restart\x1b[0m`);
+    output.write(`\x1b[38;5;245mType a command…  /q quit · /r api|ui restart\x1b[0m`);
   } else {
     output.write(visibleText);
   }
