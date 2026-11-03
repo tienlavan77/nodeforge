@@ -116,7 +116,9 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     database = await openIndexDatabase(projectRoot, { runtimeDir: INDEX_RUNTIME_DIR });
     retrieval = createRetrievalDependencies({ database, ollamaConfig });
     embeddingProvider ??= retrieval.embeddingProvider;
-    const model = retrieval.ollamaConfig.model;
+    const model = embeddingProvider.model ?? (ollamaConfig?.model || retrieval.embeddingProvider.model);
+    retrieval = { ...retrieval, embeddingModel: model };
+    retrieval.embeddingStore.removeOtherModels(model);
     embeddingJobs = createEmbeddingJobStore({
       database,
       // Synchronizes durable embedding queue counters into runtime progress and wakes the idle embedding worker when a symbol summary job is enqueued.
@@ -125,6 +127,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
         worker?.notify?.();
       }
     });
+    embeddingJobs.removeOtherModels(model);
     embeddingJobs.recoverProcessing();
     worker = createEmbeddingWorker({
       database,
@@ -182,7 +185,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
 
   // Upgrades unchanged legacy indexes and changed embedding models without rebuilding project identity.
   function queueMissingEmbeddings() {
-    const model = retrieval.ollamaConfig.model;
+    const model = retrieval.embeddingModel;
     for (const symbol of database.all(`SELECT s.symbol_id, s.summary,
       e.embedding_model, e.content_checksum FROM symbols s
       LEFT JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id`)) {

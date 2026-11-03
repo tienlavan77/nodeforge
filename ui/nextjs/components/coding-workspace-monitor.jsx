@@ -34,21 +34,31 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
   const watcherStatus = watcherState === "connected" ? "Connected" : watcherState === "error" || watcherState === "disconnected" ? "Disconnected" : "Reconnecting";
   const indicatorClass = watcherState === "connected" ? "is-connected" : watcherState === "error" || watcherState === "disconnected" ? "is-error" : "is-connecting";
 
+  const latestWatcherEvent = scopedWatcherEvents.at(-1);
+  const latestWatcherKey = latestWatcherEvent ? `${latestWatcherEvent.event_id ?? ""}:${latestWatcherEvent.timestamp ?? ""}:${scopedWatcherEvents.length}` : "";
+  const latestActivity = visibleActivities.at(-1);
+  const latestActivityKey = latestActivity ? `${latestActivity.key}:${latestActivity.status}:${visibleActivities.length}` : "";
+  const hasWorkingAgent = watcherState === "connected" && (() => {
+    const statusByAgent = new Map();
+    for (const item of visibleActivities) statusByAgent.set(item.agentId, item.status);
+    for (const status of statusByAgent.values()) if (status === "working") return true;
+    return false;
+  })();
+
   useEffect(() => {
-    const latest = scopedWatcherEvents.at(-1);
-    if (watcherState !== "connected" || (!watcherPulseId && (!latest?.timestamp || Date.now() - Date.parse(latest.timestamp) > 3000))) { setWatcherActive(false); return undefined; }
+    if (watcherState !== "connected" || (!watcherPulseId && (!latestWatcherEvent?.timestamp || Date.now() - Date.parse(latestWatcherEvent.timestamp) > 3000))) { setWatcherActive(false); return undefined; }
     setWatcherActive(true);
     const timeout = typeof window !== "undefined" ? window.setTimeout(() => setWatcherActive(false), 3000) : null;
     return () => { if (timeout) window.clearTimeout(timeout); };
-  }, [watcherState, watcherPulseId, scopedWatcherEvents.length]);
+  }, [watcherState, watcherPulseId, latestWatcherKey]);
 
   useEffect(() => {
-    const latest = visibleActivities.at(-1);
-    if (!latest) { setAgentActive(false); return undefined; }
+    if (watcherState !== "connected" || !latestActivityKey) { setAgentActive(false); return undefined; }
     setAgentActive(true);
+    if (hasWorkingAgent) return undefined;
     const timeout = typeof window !== "undefined" ? window.setTimeout(() => setAgentActive(false), 3000) : null;
     return () => { if (timeout) window.clearTimeout(timeout); };
-  }, [visibleActivities.length]);
+  }, [watcherState, latestActivityKey, hasWorkingAgent]);
 
   return <main className="coding-workspace-monitor" aria-label="Coding workspace monitor">
     <header className="claude-chat-header coding-workspace-header"><h1>Coding</h1><ConversationHeaderProjectGit client={client} projectId={projectId} /></header>
@@ -67,7 +77,7 @@ export function CodingWorkspaceMonitor({ planEvents, projectId, dashboard, dashb
           <section className="coding-workspace-monitor-column coding-agent-monitor" aria-label="Agents Activity monitor">
             <header className="workspace-monitor-header"><span className={`workspace-monitor-light${agentActive ? " is-active" : watcherState !== "connected" ? " is-offline" : ""}`} aria-label={agentActive ? "Agent working" : "Agent idle"} role="img" /><h3>Agents Activity</h3><span className={`workspace-monitor-indicator ${indicatorClass}`}>{watcherStatus}</span></header>
             <div className="workspace-monitor-content" aria-live="polite">
-              {visibleActivities.length === 0 ? <p className="coding-workspace-empty">Waiting for agent activity.</p> : visibleActivities.slice().reverse().map((item) => <article key={item.key} data-agent-id={item.agentId}><small><strong style={{ color: item.tone }}>{item.agentName}</strong> · {item.activityType} · {item.status}{item.time ? ` · ${item.time}` : ""}</small><span>{item.detail}</span></article>)}
+              {visibleActivities.length === 0 ? <p className="coding-workspace-empty">Waiting for agent activity.</p> : visibleActivities.slice().reverse().map((item) => <article key={item.key} data-agent-id={item.agentId}><small><strong style={{ color: item.tone }}>{item.agentName}</strong>{item.role ? ` - ${item.role}` : ""} · {item.activityType} · {item.status}{item.time ? ` · ${item.time}` : ""}</small><span>{item.detail}</span></article>)}
             </div>
           </section>
           <section className="coding-workspace-monitor-column coding-agent-monitor" aria-label="Watcher monitor">
