@@ -57,7 +57,9 @@ function first() {
   ]);
 });
 
-test("returns an empty normalized extraction for an unsupported extension", () => {
+// Business purpose: verifies that unsupported file extensions return an empty extraction while .mjs and .cjs modules extract symbols properly.
+// Technical description: checks extractorRegistry.supports and extractorRegistry.extract for .py, extensionless paths, .mjs, and .cjs files.
+function verifyUnsupportedAndModuleExtensions() {
   assert.deepEqual(extractorRegistry.extract("src/example.py", "def run(): pass"), {
     symbols: [],
     imports: [],
@@ -70,7 +72,9 @@ test("returns an empty normalized extraction for an unsupported extension", () =
   assert.deepEqual(extractorRegistry.extract("scripts/example.mjs", "export function runWorker() { return true; }").symbols, [
     { name: "runWorker", kind: "function", start_line: 1, end_line: 1 }
   ]);
-});
+}
+
+test("returns an empty normalized extraction for an unsupported extension", verifyUnsupportedAndModuleExtensions);
 
 test("extracts JSX UI metadata symbols for .jsx files but not plain .js", () => {
   const source = `export function Panel({ open }) {
