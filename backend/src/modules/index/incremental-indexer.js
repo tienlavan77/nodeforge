@@ -98,7 +98,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
       });
       return false;
     }
-    if (sha256 === file.sha256 && conversion.needed(file)) {
+    if (sha256 === file.sha256 && !event.force && conversion.needed(file)) {
       // Conversion of an unchanged source uses the accepted summary writer while
       // retaining all structural identities and graph rows from that same source.
       withTransaction(() => {
@@ -205,5 +205,5 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
 // Maps supported source extensions to their indexed language names.
 function languageForPath(path) {
   const extension = extname(path).toLowerCase();
-  return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null;
+  return { ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null;
 }

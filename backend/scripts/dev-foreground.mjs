@@ -10,17 +10,29 @@ import { createForegroundView } from "./dev-foreground-view.mjs";
 import { alive, findMatchingPids } from "./dev-foreground-process.mjs";
 import { createForegroundLogReceiver, formatForegroundLine } from "./dev-foreground-line.mjs";
 
-export const definitions = {
-  api: { command: process.execPath, args: ["backend/scripts/start-control-api.mjs"] },
-  ui: { command: "pnpm", args: ["--dir", "ui/nextjs", "dev"] }
-};
+// Business purpose: provides the supervised service definitions, autocomplete suggestions, and status messages for the foreground development controller.
+// Technical description: defines only the api and ui child process commands (since Watcher and Embedding Workers run in-process inside Control API) and exports the corresponding CLI help and startup strings.
+export function getForegroundServiceDefinitions() {
+  return {
+    definitions: {
+      api: { command: process.execPath, args: ["backend/scripts/start-control-api.mjs"] },
+      ui: { command: "pnpm", args: ["--dir", "ui/nextjs", "dev"] }
+    },
+    suggestions: ["/q quit", "/r api restart", "/r ui restart", "/copy", "/save log.txt"],
+    startupMessage: "Services starting: api, ui",
+    helpMessage: "Commands: /q quit · /r api|ui restart · /copy select · /save <file>"
+  };
+}
+export const {
+  definitions,
+  suggestions,
+  startupMessage: FOREGROUND_STARTUP_MESSAGE,
+  helpMessage: FOREGROUND_HELP_MESSAGE
+} = getForegroundServiceDefinitions();
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
 const ansiPattern = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "g");
 const oscPattern = new RegExp(`${ESC}\\][^${BEL}]*(?:${BEL}|${ESC}\\\\)`, "g");
-export const suggestions = ["/q quit", "/r api restart", "/r ui restart", "/copy", "/save log.txt"];
-export const FOREGROUND_STARTUP_MESSAGE = "Services starting: api, ui";
-export const FOREGROUND_HELP_MESSAGE = "Commands: /q quit · /r api|ui restart · /copy select · /save <file>";
 const children = new Map();
 const serviceState = new Map(Object.keys(definitions).map((name) => [name, "starting"]));
 const logLines = [];

@@ -10,10 +10,9 @@ import { loadAgentContextConventions } from "../../modules/supervisor/agent-cont
 import { scopedGraph } from "../discovery/agent-file-index-view.js";
 import { recordSourceMetadata } from "../discovery/source-metadata-receipts.js";
 import { extractorRegistry } from "../../modules/index/parser/index.js";
-import { hasFileHeaderComment, extractFunctionSignatures, findFunctionDeclarationLine, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage, MARKDOWN_LINE_LIMIT, CODE_LINE_LIMIT, resolveFileLineLimit } from "./agent-code-conventions.js";
+import { hasFileHeaderComment, extractFunctionSignatures, findFunctionDeclarationLine, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage, resolveFileLineLimit } from "./agent-code-conventions.js";
 import { discoveryNotice, recordRead, resetExploration } from "../discovery/exploration-state.js";
 const MAX_CONTENT = 200000;
-const WRITE_DIFF_MAX_LINES = 400;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
 const safePath = (value, operation = "read", role) => {
@@ -55,7 +54,9 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
     const sha256 = file.sha256 ?? checksum(file.content);
     const sizeBytes = file.size_bytes ?? Buffer.byteLength(file.content);
     const lines = file.content.split("\n");
-    const symbols = codeCache ? file.code_index?.symbols ?? [] : extractorRegistry.extract(path, file.content).symbols;
+    const symbols = codeCache && Array.isArray(file.code_index?.symbols) && file.code_index.symbols.length
+      ? file.code_index.symbols
+      : extractorRegistry.extract(path, file.content).symbols;
     const metadata = { path, sha256, size_bytes: sizeBytes, total_lines: lines.length, code_lines: countBudgetLines(file.content),
       cache: file.cache ?? { status: "bypass", cached_at: null, expires_at: null }, content_sha256: file.content_sha256 ?? sha256,
       indexed_sha256: file.indexed_sha256 ?? null, index_version: file.index_version ?? null,
