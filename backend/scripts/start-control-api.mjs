@@ -62,6 +62,9 @@ import { reviewPhaseResume } from "../src/modules/supervisor/review/review-revis
 import { createNotebookStore } from "../src/modules/projects/notebook-store.js";
 import { createNotebookProjectAuth } from "../src/modules/governance/notebook-project-auth.js";
 
+// Business purpose: initializes the Control API process, default in-process Watcher and Embedding Workers, and multi-project application registry.
+// Technical description: opens shared SQLite storage, wires createControlApiProjectRuntime with getDefaultWorkers to prevent duplicate default-project workers, builds the default application with startProjectWorkers: true, and starts the HTTP lifecycle server.
+export async function bootstrapControlApi() {
 const config = readControlApiConfig();
 const { port, host } = config;
 let testService;
@@ -245,4 +248,6 @@ const application = await createProjectApplication({ config, storage, startProje
 defaultProjectWorkers = application.projectWorkers;
 const projectApplications = createProjectApplicationRegistry({ projectLifecycle, defaultApplication: application, defaultRoot: config.cwd, createApplication: createProjectApplication });
 const api = createControlApiHttp({ services: application.services, resolveProjectServices: projectLifecycle ? projectApplications.resolve : undefined });
-startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache: application.codeCache, ticketWorkspaceService: application.ticketWorkspaceService, projectLifecycle, workers: [...application.workers, { stop: projectApplications.close }] });
+return startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache: application.codeCache, ticketWorkspaceService: application.ticketWorkspaceService, projectLifecycle, workers: [...application.workers, { stop: projectApplications.close }] });
+}
+await bootstrapControlApi();
