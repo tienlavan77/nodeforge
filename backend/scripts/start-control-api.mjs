@@ -17,7 +17,7 @@ import { readControlApiConfig } from "./control-api-config.mjs";
 import { createUnifiedStreamPublisher } from "./control-api-unified-stream.mjs";
 import { startControlApi } from "./control-api-lifecycle.mjs";
 import { createProjectLifecycle } from "../src/modules/projects/project-lifecycle.js";
-import { createControlApiProjectRuntime } from "./control-api-project-runtime.mjs";
+import { createControlApiProjectRuntime, startControlApiWorkers } from "./control-api-project-runtime.mjs";
 import { createBuilderContext } from "./control-api-builder-context.mjs";
 import { createOnWriteVerifier } from "./control-api-file-verification.mjs";
 import { createControlApiAgent } from "./control-api-agent.mjs";
@@ -65,14 +65,15 @@ import { createNotebookProjectAuth } from "../src/modules/governance/notebook-pr
 const config = readControlApiConfig();
 const { port, host } = config;
 let testService;
+let defaultProjectWorkers;
 const storage = await createControlApiStorage({
   config,
   onWrite: createOnWriteVerifier({ getTestService: () => testService })
 });
 const { processLock, controlDb, indexDb } = storage;
-const projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath, startRuntime: createControlApiProjectRuntime({ projectRoot: config.cwd, projectId: config.projectId }) }) : undefined;
+const projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath, startRuntime: createControlApiProjectRuntime({ projectRoot: config.cwd, projectId: config.projectId, getDefaultWorkers: () => defaultProjectWorkers }) }) : undefined;
 // Builds a complete application bundle while leaving startup initialization and lifecycle admission intact.
-async function createProjectApplication({ config, storage, onTestService = () => {} }) {
+async function createProjectApplication({ config, storage, startProjectWorkers = false, onTestService = () => {} }) {
 const { fileService, protocolStorage, conversationStateStore, controlDb, indexDb } = storage;
 let testService;
 const { logEvent, readLogEvents } = createProjectLogService({ projectRoot: config.cwd, fileService });
@@ -171,6 +172,15 @@ const sprintLeaderIntake = createSprintLeaderIntakeService({ fileService, roadma
 const dispatchTicket = createTicketRunDispatch({ disposition: ticketPipelineDisposition, intake: sprintLeaderIntake, sprintRegistry, ticketStatusStore, checkpoints: supervisorRuntime.agentCheckpoints, queueStore: supervisorRuntime.queueStore, protocolStorage, conversationStateStore, dispatchTask, coderRecovery: supervisorRuntime.coderRecovery, blockerRecovery: supervisorRuntime.blockerRecovery, resumeCompletedReview: supervisorRuntime.resumeCompletedReview, reconcileReviewDependencies: supervisorRuntime.reconcileReviewDependencies, agentResolver: agentRoleResolver, agentOccupancy, projectId, projectLogger: runtimeLogger.emit });
 workers.push(storage.disposal.own({ stop: dispatchTicket.close }, "stop", 10));
 dispatchTicket.start();
+const projectWorkers = startProjectWorkers ? storage.disposal.own(startControlApiWorkers({
+  projectRoot: config.cwd,
+  projectId,
+  indexDb,
+  runtimeLogger: createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }), source: "project-watcher" }),
+  codeCache,
+  subscriptions
+}), "stop", 10) : null;
+if (projectWorkers) workers.push(projectWorkers);
 // Reconciles a retained unknown-provider blocker stage so the owner can clear a stuck ticket and a later RUN may re-arm it.
 const ticketBlockerReconcileService = async ({ projectId: requestedProjectId, ticketId, actor } = {}) => {
   if (!supervisorRuntime.blockerRecovery?.reconcileTicket) throw Object.assign(new Error("Blocker reconciliation is unavailable."), { code: "BLOCKER_RECONCILE_UNAVAILABLE", statusCode: 409 });
@@ -223,7 +233,7 @@ const services = {
   humanDecisionService: createHumanDecisionService({ decisions, bus }),
   projectLifecycle
 };
-return { services, storage, codeCache, ticketWorkspaceService, workers };
+return { services, storage, codeCache, ticketWorkspaceService, workers, projectWorkers };
 } catch (error) {
   try { await storage.disposal.close(); } catch (cleanupError) {
     throw new AggregateError([error, cleanupError], "Project application startup and rollback failed.");
@@ -231,7 +241,8 @@ return { services, storage, codeCache, ticketWorkspaceService, workers };
   throw error;
 }
 }
-const application = await createProjectApplication({ config, storage, onTestService: (value) => { testService = value; } });
+const application = await createProjectApplication({ config, storage, startProjectWorkers: true, onTestService: (value) => { testService = value; } });
+defaultProjectWorkers = application.projectWorkers;
 const projectApplications = createProjectApplicationRegistry({ projectLifecycle, defaultApplication: application, defaultRoot: config.cwd, createApplication: createProjectApplication });
 const api = createControlApiHttp({ services: application.services, resolveProjectServices: projectLifecycle ? projectApplications.resolve : undefined });
 startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache: application.codeCache, ticketWorkspaceService: application.ticketWorkspaceService, projectLifecycle, workers: [...application.workers, { stop: projectApplications.close }] });

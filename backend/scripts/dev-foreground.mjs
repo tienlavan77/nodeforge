@@ -1,43 +1,74 @@
-// Summary: Runs the API, watcher, and web development services under one interactive controller.
+// Summary: Runs the API (with in-process Watcher and Embedding Workers) and web development services under one interactive controller.
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { createMouseSelection } from "./dev-foreground-selection.mjs";
 import { createKeyParser } from "./dev-foreground-keys.mjs";
 import { createForegroundView } from "./dev-foreground-view.mjs";
 import { alive, findMatchingPids } from "./dev-foreground-process.mjs";
 import { createForegroundLogReceiver, formatForegroundLine } from "./dev-foreground-line.mjs";
 
-process.chdir(new URL("../..", import.meta.url).pathname);
-
-const definitions = {
+export const definitions = {
   api: { command: process.execPath, args: ["backend/scripts/start-control-api.mjs"] },
-  watcher: { command: process.execPath, args: ["backend/scripts/start-project-watcher.mjs"] },
   ui: { command: "pnpm", args: ["--dir", "ui/nextjs", "dev"] }
 };
 const ESC = String.fromCharCode(27);
 const BEL = String.fromCharCode(7);
 const ansiPattern = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "g");
 const oscPattern = new RegExp(`${ESC}\\][^${BEL}]*(?:${BEL}|${ESC}\\\\)`, "g");
-const suggestions = ["/q quit", "/r api restart", "/r watcher restart", "/r ui restart", "/copy", "/save log.txt"];
+export const suggestions = ["/q quit", "/r api restart", "/r ui restart", "/copy", "/save log.txt"];
+export const FOREGROUND_STARTUP_MESSAGE = "Services starting: api, ui";
+export const FOREGROUND_HELP_MESSAGE = "Commands: /q quit · /r api|ui restart · /copy select · /save <file>";
 const children = new Map();
 const serviceState = new Map(Object.keys(definitions).map((name) => [name, "starting"]));
 const logLines = [];
 let shuttingDown = false;
 
+// Parses and dispatches an interactive foreground command to the corresponding controller action.
+export async function executeForegroundCommand(rawInput, { onShutdown, onRestart, onCopy, onSave, onHelp } = {}) {
+  const value = String(rawInput ?? "").trim();
+  if (!value) return null;
+  const lower = value.toLowerCase();
+  if (lower === "/q" || lower === "/quit" || lower === "exit") {
+    await onShutdown?.();
+    return { action: "quit" };
+  }
+  const restart = lower.match(/^\/r\s+(api|ui)$/);
+  if (restart) {
+    await onRestart?.(restart[1]);
+    return { action: "restart", service: restart[1] };
+  }
+  if (lower === "/copy") {
+    onCopy?.();
+    return { action: "copy" };
+  }
+  if (lower.startsWith("/save")) {
+    const targetPath = value.slice(5).trim() || "dev-foreground.log";
+    onSave?.(targetPath);
+    return { action: "save", path: targetPath };
+  }
+  onHelp?.(FOREGROUND_HELP_MESSAGE);
+  return { action: "help", message: FOREGROUND_HELP_MESSAGE };
+}
+
 const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 const { render } = createForegroundView({ children, serviceState, logLines, suggestions, isActive: () => interactive && !shuttingDown });
-if (!interactive) {
-  for (const name of Object.keys(definitions)) {
-    const definition = definitions[name];
-    const child = spawn(definition.command, definition.args, { stdio: ["ignore", "pipe", "pipe"] });
-    children.set(name, child);
-    attachServiceOutput(child, name);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.chdir(new URL("../..", import.meta.url).pathname);
+  if (!interactive) {
+    for (const name of Object.keys(definitions)) {
+      const definition = definitions[name];
+      const child = spawn(definition.command, definition.args, { stdio: ["ignore", "pipe", "pipe"] });
+      children.set(name, child);
+      attachServiceOutput(child, name);
+    }
+    process.once("SIGINT", () => process.exit(0));
+    process.once("SIGTERM", () => process.exit(0));
+  } else {
+    runInteractive();
   }
-  process.once("SIGINT", () => process.exit(0));
-  process.once("SIGTERM", () => process.exit(0));
-} else {
-  runInteractive();
 }
 
 // Summary: Starts raw-mode input handling and the interactive redraw loop.
@@ -49,7 +80,7 @@ function runInteractive() {
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
 
-  log("SYSTEM", "Services starting: api, watcher, ui");
+  log("SYSTEM", FOREGROUND_STARTUP_MESSAGE);
   for (const name of Object.keys(definitions)) start(name);
   render(state);
 
@@ -82,13 +113,13 @@ function runInteractive() {
     state.historyIndex = -1;
     if (!value) return;
     state.history.unshift(value);
-    const lower = value.toLowerCase();
-    if (lower === "/q" || lower === "/quit" || lower === "exit") return shutdown();
-    const restart = lower.match(/^\/r\s+(api|watcher|ui)$/);
-    if (restart) await restartService(restart[1]);
-    else if (lower === "/copy") enterCopyMode(state);
-    else if (lower.startsWith("/save")) saveLogs(value.slice(5).trim() || "dev-foreground.log");
-    else log("SYSTEM", "Commands: /q quit · /r api|watcher|ui restart · /copy select · /save <file>");
+    await executeForegroundCommand(value, {
+      onShutdown: () => shutdown(),
+      onRestart: (service) => restartService(service),
+      onCopy: () => enterCopyMode(state),
+      onSave: (targetPath) => saveLogs(targetPath),
+      onHelp: (message) => log("SYSTEM", message)
+    });
   }
 
   // Summary: Applies a keypress to the input buffer with editing shortcuts.
