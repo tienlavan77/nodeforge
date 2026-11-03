@@ -77,7 +77,9 @@ async function waitFor(predicate, timeoutMs = 4000) {
   throw new Error("Timed out waiting for in-process Control API workers.");
 }
 
-test("Control API in-process Watcher and Embedding Workers index files, compute vectors, log to terminal, and close before SQLite", async (context) => {
+// Business purpose: verifies O1 in-process Watcher and Embedding Worker lifecycle, job recovery, immediate wake, terminal logging, and ordered shutdown before SQLite closes.
+// Technical description: exercises startControlApiWorkers, createControlApiProjectRuntime, and startControlApi shutdown over a real SQLite index database and simulated watcher events.
+async function verifyInProcessControlApiWorkers(context) {
   const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-control-api-workers-"));
   context.after(() => rm(projectRoot, { recursive: true, force: true }));
   await mkdir(join(projectRoot, "src"), { recursive: true });
@@ -199,4 +201,6 @@ test("Control API in-process Watcher and Embedding Workers index files, compute 
 
   assert.equal(admitted.status().closed, true);
   assert.deepEqual(teardownEvents, ["watcher", "embeddingProvider", "indexDb", "controlDb", "processLock"]);
-});
+}
+
+test("Control API in-process Watcher and Embedding Workers index files, compute vectors, log to terminal, and close before SQLite", verifyInProcessControlApiWorkers);

@@ -35,7 +35,7 @@ export function createExtractorRegistry() {
 }
 
 export const extractorRegistry = createExtractorRegistry();
-extractorRegistry.register([".js", ".ts", ".jsx", ".tsx"], extractJavaScript);
+extractorRegistry.register([".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx"], extractJavaScript);
 extractorRegistry.register([".php"], extractPhp);
 extractorRegistry.register([".css"], extractCss);
 extractorRegistry.register([".jsx", ".tsx"], (source) => extractJavaScript(source, { jsxUi: true }));

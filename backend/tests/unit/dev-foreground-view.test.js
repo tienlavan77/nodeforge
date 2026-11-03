@@ -4,7 +4,9 @@ import test from "node:test";
 import { createForegroundView } from "../../scripts/dev-foreground-view.mjs";
 import { definitions, suggestions, FOREGROUND_STARTUP_MESSAGE, FOREGROUND_HELP_MESSAGE, executeForegroundCommand } from "../../scripts/dev-foreground.mjs";
 
-test("log scroll preserves fixed status and input rows", () => {
+// Business purpose: verifies that log viewport scrolling keeps the status bar and command input box at fixed terminal rows.
+// Technical description: renders latest, scrolled-back, suggestion-expanded, and copy-mode states and asserts ANSI cursor positioning and viewport lines.
+function verifyForegroundScrollLayout() {
   const chunks = [];
   const output = { rows: 24, columns: 80, write: (chunk) => chunks.push(chunk) };
   const logLines = Array.from({ length: 30 }, (_, index) => ({ name: "SYSTEM", line: `log-${index}` }));
@@ -36,9 +38,11 @@ test("log scroll preserves fixed status and input rows", () => {
   state.copyMode = true;
   render(state);
   assert.deepEqual(chunks, []);
-});
+}
 
-test("dev:foreground supervises only api and ui, accepts /r api and /r ui, and rejects /r watcher", async () => {
+// Business purpose: verifies that dev:foreground supervises only api and ui, renders embedding progress, and rejects /r watcher.
+// Technical description: asserts service definitions, startup/help messages, prompt placeholder rendering, and executeForegroundCommand routing for /r api, /r ui, /r watcher, /copy, /save, and /q.
+async function verifyForegroundServicesAndCommands() {
   assert.deepEqual(Object.keys(definitions), ["api", "ui"]);
   assert.equal(FOREGROUND_STARTUP_MESSAGE, "Services starting: api, ui");
   assert.deepEqual(suggestions, ["/q quit", "/r api restart", "/r ui restart", "/copy", "/save log.txt"]);
@@ -87,4 +91,7 @@ test("dev:foreground supervises only api and ui, accepts /r api and /r ui, and r
   assert.equal(copied, 1);
   assert.equal(quitted, 1);
   assert.deepEqual(helpMessages, ["Commands: /q quit · /r api|ui restart · /copy select · /save <file>"]);
-});
+}
+
+test("log scroll preserves fixed status and input rows", verifyForegroundScrollLayout);
+test("dev:foreground supervises only api and ui, accepts /r api and /r ui, and rejects /r watcher", verifyForegroundServicesAndCommands);

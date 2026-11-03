@@ -130,7 +130,7 @@ export function createCodeSearch({ database } = {}) {
     return typeof path === "string" && (/(^|\/)tests?(\/|$)/.test(path) || path.includes(".test.") || path.includes("__tests__"));
   }
   // Defines symbolLanguage function behavior for code-search.js.
-  function symbolLanguage(path) { const extension = path.slice(path.lastIndexOf(".")).toLowerCase(); return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null; }
+  function symbolLanguage(path) { const extension = path.slice(path.lastIndexOf(".")).toLowerCase(); return { ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null; }
   // Defines indexVersion function behavior for code-search.js.
   function indexVersion() { return `IDX-${database.all("SELECT version FROM index_metadata LIMIT 1")[0]?.version ?? 0}`; }
 }

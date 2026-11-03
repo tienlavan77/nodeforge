@@ -65,6 +65,11 @@ test("returns an empty normalized extraction for an unsupported extension", () =
     calls: []
   });
   assert.equal(extractorRegistry.supports("README"), false);
+  assert.equal(extractorRegistry.supports("scripts/example.mjs"), true);
+  assert.equal(extractorRegistry.supports("scripts/example.cjs"), true);
+  assert.deepEqual(extractorRegistry.extract("scripts/example.mjs", "export function runWorker() { return true; }").symbols, [
+    { name: "runWorker", kind: "function", start_line: 1, end_line: 1 }
+  ]);
 });
 
 test("extracts JSX UI metadata symbols for .jsx files but not plain .js", () => {

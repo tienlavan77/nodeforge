@@ -169,7 +169,7 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
 // Maps supported source extensions to their indexed language names.
 function languageForPath(path) {
   const extension = extname(path).toLowerCase();
-  return { ".js": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null;
+  return { ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript", ".jsx": "javascript", ".ts": "typescript", ".tsx": "typescript", ".php": "php", ".css": "css" }[extension] ?? null;
 }
 
 // Creates unique identifiers for persisted index records.
