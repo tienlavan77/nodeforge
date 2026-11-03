@@ -182,10 +182,12 @@ async function verifyInProcessControlApiWorkers(context) {
     return rows.length === 1 ? rows[0] : null;
   });
 
+  await waitFor(() => persistedLogs.some((entry) => entry.event_name === "embedding_worker.completed"));
   assert.ok(embeddedInputs.length >= 1);
   assert.ok(persistedLogs.some((entry) => entry.event_name === "watcher.event"));
   assert.ok(terminalOutput.join("").includes("Indexer updated file."));
   assert.ok(terminalOutput.join("").includes("Embedding job failed."));
+  assert.ok(terminalOutput.join("").includes("Embedding job completed (1 done, 0 queued, 1 vectors)."));
 
   const api = startControlApi({
     api: { createServer },
@@ -204,3 +206,131 @@ async function verifyInProcessControlApiWorkers(context) {
 }
 
 test("Control API in-process Watcher and Embedding Workers index files, compute vectors, log to terminal, and close before SQLite", verifyInProcessControlApiWorkers);
+
+// Business purpose: verifies multi-project lifecycle startup with a single default-project worker pair and SIGTERM/SIGINT signal-driven Control API shutdown.
+// Technical description: admits two catalog projects through createProjectLifecycle, confirms only non-default projects invoke the fallback runtime starter while the default project reuses its in-process worker pair, and spawns child Control API processes to verify SIGTERM and SIGINT teardown ordering.
+async function verifyMultiProjectAndSignalShutdown(context) {
+  const { spawn } = await import("node:child_process");
+  const { resolve } = await import("node:path");
+  const workspace = await mkdtemp(join(tmpdir(), "nodeforge-multiproject-signal-"));
+  context.after(() => rm(workspace, { recursive: true, force: true }));
+  const defaultRoot = join(workspace, "default-project");
+  const secondRoot = join(workspace, "second-project");
+  await mkdir(join(defaultRoot, ".forge/runtime/wc"), { recursive: true });
+  await mkdir(join(secondRoot, ".forge/runtime/wc"), { recursive: true });
+  await writeFile(join(defaultRoot, ".forge/runtime/project.json"), JSON.stringify({
+    project_id: "PROJECT-DEFAULT", name: "default-project", root: defaultRoot, forge_dir: ".forge", schema_version: "1.2.0"
+  }));
+  await writeFile(join(secondRoot, ".forge/runtime/project.json"), JSON.stringify({
+    project_id: "PROJECT-SECOND", name: "second-project", root: secondRoot, forge_dir: ".forge", schema_version: "1.2.0"
+  }));
+  await writeFile(join(defaultRoot, ".forge/runtime/wc/index.db"), "opaque-default-index");
+  await writeFile(join(secondRoot, ".forge/runtime/wc/index.db"), "opaque-second-index");
+
+  const teardownOrder = [];
+  const rawWatcher = new EventEmitter();
+  rawWatcher.close = async () => { teardownOrder.push("defaultWatcher"); };
+  let defaultWorkerPairCount = 0;
+  const fakeDefaultWorkers = {
+    watch: rawWatcher,
+    worker: { stop: async () => { teardownOrder.push("defaultEmbeddingWorker"); } },
+    // Reports whether the default worker pair has been closed.
+    status() { return { closed: teardownOrder.includes("defaultWatcher") }; },
+    // Stops both default project workers in deterministic order.
+    async stop() {
+      await rawWatcher.close();
+      await this.worker.stop();
+    }
+  };
+  defaultWorkerPairCount += 1;
+
+  const secondaryStarted = [];
+  const catalogPath = join(workspace, "projects.json");
+  await writeFile(catalogPath, JSON.stringify([
+    { root: defaultRoot, projectId: "PROJECT-DEFAULT" },
+    { root: secondRoot, projectId: "PROJECT-SECOND" }
+  ]));
+
+  const lifecycle = await createProjectLifecycle({
+    catalogPath,
+    startRuntime: createControlApiProjectRuntime({
+      projectRoot: defaultRoot,
+      projectId: "PROJECT-DEFAULT",
+      getDefaultWorkers: () => fakeDefaultWorkers,
+      // Tracks non-default project runtime admissions during multi-project catalog startup.
+      startRuntime: async (input) => {
+        secondaryStarted.push(input.projectId);
+        let closed = false;
+        return {
+          projectId: input.projectId,
+          projectRoot: input.projectRoot,
+          // Reports secondary runtime closure status.
+          status() { return { closed }; },
+          // Records secondary runtime teardown during lifecycle close.
+          async close() { closed = true; teardownOrder.push(`runtime:${input.projectId}`); }
+        };
+      }
+    })
+  });
+  context.after(() => lifecycle.close());
+
+  assert.equal(defaultWorkerPairCount, 1);
+  assert.deepEqual(secondaryStarted, ["PROJECT-SECOND"]);
+  assert.equal(lifecycle.list().length, 2);
+  const admittedDefault = await lifecycle.get(defaultRoot);
+  assert.equal(admittedDefault.watch, fakeDefaultWorkers.watch);
+  assert.equal(admittedDefault.worker, fakeDefaultWorkers.worker);
+
+  const repoRoot = resolve(process.cwd());
+  const signalScript = join(workspace, "signal-api-child.mjs");
+  await writeFile(signalScript, [
+    `import { createServer } from "node:http";`,
+    `import { EventEmitter } from "node:events";`,
+    `import { join } from "node:path";`,
+    `import { createDatabaseService } from ${JSON.stringify(join(repoRoot, "backend/src/infrastructure/sqlite/database-service.js"))};`,
+    `import { startControlApiWorkers } from ${JSON.stringify(join(repoRoot, "backend/scripts/control-api-project-runtime.mjs"))};`,
+    `import { startControlApi } from ${JSON.stringify(join(repoRoot, "backend/scripts/control-api-lifecycle.mjs"))};`,
+    `const dataDir = ${JSON.stringify(join(workspace, "signal-child-root"))};`,
+    `const indexDb = await createDatabaseService({ dataDir, runtimeDir: join(".forge", "runtime", "wc") });`,
+    `const rawWatcher = new EventEmitter();`,
+    `rawWatcher.close = async () => { process.stdout.write("STEP:watcher\\n"); };`,
+    `const workers = startControlApiWorkers({`,
+    `  projectRoot: dataDir,`,
+    `  projectId: "PROJECT-SIGNAL",`,
+    `  indexDb,`,
+    `  watcherFactory: () => rawWatcher,`,
+    `  runVerification: false,`,
+    `  pollMs: 50,`,
+    `  ollamaConfig: { host: "http://127.0.0.1:11434", model: "sig-model", timeoutMs: 1000 },`,
+    `  embeddingProvider: { async embed() { return [0.1]; }, async close() { process.stdout.write("STEP:embeddingProvider\\n"); } }`,
+    `});`,
+    `startControlApi({`,
+    `  api: { createServer },`,
+    `  port: 0,`,
+    `  host: "127.0.0.1",`,
+    `  workers: [workers],`,
+    `  indexDb: { close: async () => { process.stdout.write("STEP:indexDb\\n"); await indexDb.close(); } },`,
+    `  controlDb: { close: async () => { process.stdout.write("STEP:controlDb\\n"); } },`,
+    `  processLock: { release: () => { process.stdout.write("STEP:processLock\\n"); } }`,
+    `});`
+  ].join("\n"));
+
+  for (const signal of ["SIGTERM", "SIGINT"]) {
+    const child = spawn(process.execPath, [signalScript], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    await waitFor(() => stdout.includes("Node Control API listening on http://127.0.0.1:"));
+    child.kill(signal);
+    const [code] = await once(child, "exit");
+    assert.equal(code, 0, `${signal} exits cleanly with status 0`);
+    const steps = stdout.split("\n").filter((line) => line.startsWith("STEP:")).map((line) => line.slice(5));
+    assert.deepEqual(steps, ["watcher", "embeddingProvider", "indexDb", "controlDb", "processLock"]);
+  }
+
+  await fakeDefaultWorkers.stop();
+  await lifecycle.close();
+  assert.equal(admittedDefault.status().closed, true);
+  assert.deepEqual(teardownOrder, ["defaultWatcher", "defaultEmbeddingWorker", "runtime:PROJECT-SECOND"]);
+}
+
+test("Multi-project lifecycle startup runs only one default-project worker pair and SIGTERM/SIGINT cleanly drain workers before SQLite", verifyMultiProjectAndSignalShutdown);

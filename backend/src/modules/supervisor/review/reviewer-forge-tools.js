@@ -66,7 +66,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     listDirectories: async (input) => filterPaths(await fileService.listDirectories(input))
   };
   const reviewCache = ticketEvidence ? { ...(codeCache ?? {}), read: async ({ path }) => {
-    if (path === ".forge" || path.startsWith(".forge/")) return scopedFiles.readForIndex({ path });
+    if (path === ".forge" || path.startsWith(".forge/")) return codeCache?.read ? codeCache.read({ path }).catch(() => scopedFiles.readForIndex({ path })) : scopedFiles.readForIndex({ path });
     const file = ticketEvidence.files.find((item) => item.path === path);
     if (!file || file.deleted) return snapshot ? scopedFiles.readForIndex({ path }) : codeCache?.read ? codeCache.read({ path }) : scopedFiles.readForIndex({ path });
     const live = await verifiedReviewFile(file, ticketEvidence, fileService, projectRoot);
@@ -92,7 +92,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
   } };
   const implementations = {
     lookup_schema: createLookupSchemaTool({ role: "reviewer" }),
-    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: { read: (input) => input.path === ".forge" || input.path.startsWith(".forge/") ? scopedFiles.readForIndex(input) : reviewCache?.read ? reviewCache.read(input) : scopedFiles.readForIndex(input) }, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
+    read_file: createReadFileTool({ fileService: scopedFiles, codeCache: { read: (input) => (input.path === ".forge" || input.path.startsWith(".forge/")) ? (codeCache?.read ? codeCache.read(input).catch(() => scopedFiles.readForIndex(input)) : scopedFiles.readForIndex(input)) : reviewCache?.read ? reviewCache.read(input) : scopedFiles.readForIndex(input) }, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
     search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }),
     ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: terminalAuditLogger(projectLogger) } }) : {}),
     list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: terminalAuditLogger(projectLogger) } }),

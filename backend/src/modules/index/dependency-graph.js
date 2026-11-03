@@ -23,12 +23,15 @@ export function createDependencyGraph({ database, files, projectRoot } = {}) {
     }
   });
 
-  // Defines resolveImport function behavior for dependency-graph.js.
+  // Resolves relative or project-root imports, falling back from a pinned review snapshot path to its canonical project path when needed.
   function resolveImport(sourcePath, source, external) {
     if (!source || external) return null;
     const targetPath = isAbsolute(source)
       ? relative(projectRoot, source).split(/\\/).join("/")
       : posix.normalize(posix.join(posix.dirname(sourcePath), source));
-    return files.findByPath(targetPath)?.file_id ?? null;
+    const directId = files.findByPath(targetPath)?.file_id ?? null;
+    if (directId) return directId;
+    const canonicalPath = targetPath.replace(/^\.forge\/runtime\/(?:tickets\/ticket-verification\/[^/]+\/snapshot|reports\/[^/]+-snapshot)\/[a-f0-9]{40,64}\//, "");
+    return canonicalPath !== targetPath ? (files.findByPath(canonicalPath)?.file_id ?? null) : null;
   }
 }
