@@ -6,6 +6,7 @@ import { createIncrementalIndexer } from "../src/modules/index/incremental-index
 import { createEmbeddingJobStore } from "../src/modules/index/embedding-job-store.js";
 import { createEmbeddingWorker } from "../src/modules/index/embedding-worker.js";
 import { createRetrievalDependencies } from "../src/modules/index/retrieval-dependencies.js";
+import { prepareEmbeddingQueue } from "../src/modules/index/embedding-startup.js";
 import { createVerificationOrchestrator } from "../src/modules/verification/orchestrator.js";
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
 import { createRuntimeLogger } from "../src/core/runtime-logger.js";
@@ -32,8 +33,10 @@ export function startControlApiWorkers({
   const logger = runtimeLogger ?? createRuntimeLogger({ logEvent, source: "project-watcher" });
   const retrieval = createRetrievalDependencies({ database: indexDb, ollamaConfig });
   const resolvedProvider = embeddingProvider ?? retrieval.embeddingProvider;
-  const embeddingModel = retrieval.ollamaConfig.model;
+  const embeddingModel = resolvedProvider.model ?? (embeddingProvider ? ollamaConfig?.model : null) ?? retrieval.embeddingProvider.model;
   let closed = false;
+  let embeddingError = null;
+  let lastEmbeddingProgress;
   let embeddingWorker;
   const embeddingJobs = createEmbeddingJobStore({
     database: indexDb,
@@ -51,6 +54,7 @@ export function startControlApiWorkers({
     logger: {
       // Forwards transient Ollama or embedding job failures to the Control API runtime logger.
       warning(message, detail = {}) {
+        embeddingError = detail.error ?? message;
         logger.error(message, {
           event_name: "embedding_worker.failed",
           payload: { error: detail.error ?? message }
@@ -60,6 +64,7 @@ export function startControlApiWorkers({
     // Logs completed embedding jobs with queue and vector counts for terminal progress tracking.
     onJobSettled(job, { status } = {}) {
       if (closed || status !== "completed") return;
+      embeddingError = null;
       const counts = embeddingJobs.counts();
       const queued = (counts.pending ?? 0) + (counts.retry_wait ?? 0) + (counts.processing ?? 0);
       const vectors = Number(indexDb.all("SELECT COUNT(*) AS count FROM symbol_embeddings")[0]?.count ?? 0);
@@ -70,7 +75,10 @@ export function startControlApiWorkers({
       });
     }
   });
-  const recoveredEmbeddingJobs = embeddingJobs.recoverProcessing();
+  const startup = prepareEmbeddingQueue({
+    database: indexDb, embeddingStore: retrieval.embeddingStore, jobs: embeddingJobs, model: embeddingModel
+  });
+  const recoveredEmbeddingJobs = startup.recovered;
   if (recoveredEmbeddingJobs > 0) {
     logger.info(`Recovered ${recoveredEmbeddingJobs} interrupted embedding job(s).`, {
       event_name: "embedding_worker.recovered",
@@ -106,11 +114,13 @@ export function startControlApiWorkers({
     }
   });
   const workerTask = embeddingWorker.start({ pollMs }).catch((error) => {
+    embeddingError = error.message;
     logger.error("Embedding worker stopped.", {
       event_name: "embedding_worker.failed",
       payload: { error: error.message }
     });
   });
+  embeddingWorker.notify();
   const verification = runVerification ? createVerificationOrchestrator({ projectRoot, projectId }) : null;
   const onWatcherCacheEvent = codeCache ? createWatcherCacheEvents({ projectId, codeCache, logger: logger.emit }) : null;
   const pendingTasks = new Set();
@@ -192,6 +202,7 @@ export function startControlApiWorkers({
 
   // Stops the Watcher Worker and Embedding Worker cleanly before the shared SQLite database closes.
   function stop() {
+    lastEmbeddingProgress = status().progress.embedding;
     closed = true;
     closing ??= (async () => {
       const errors = [];
@@ -205,6 +216,26 @@ export function startControlApiWorkers({
     return closing;
   }
 
+  /**
+   * Reports durable queue progress and unresolved failures to lifecycle clients.
+   * Caches the last snapshot so status remains safe after the database closes.
+   */
+  function status() {
+    if (!closed) {
+      const counts = embeddingJobs.counts();
+      const error = indexDb.all("SELECT last_error FROM embedding_jobs WHERE status IN ('failed', 'retry_wait') AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1")[0]?.last_error ?? embeddingError;
+      lastEmbeddingProgress = {
+        status: error || counts.failed || counts.retry_wait ? "failed" : counts.pending || counts.processing ? "running" : "succeeded",
+        pending: (counts.pending ?? 0) + (counts.retry_wait ?? 0),
+        processing: counts.processing ?? 0, succeeded: counts.completed ?? 0,
+        failed: counts.failed ?? 0, error: error ? String(error) : null
+      };
+    }
+    return { projectId, projectRoot, closed, embeddingError: lastEmbeddingProgress?.error ?? null,
+      progress: { embedding: lastEmbeddingProgress },
+      readiness: closed || lastEmbeddingProgress?.status === "failed" ? "unavailable" : lastEmbeddingProgress?.status === "succeeded" ? "ready" : "running" };
+  }
+
   return Object.freeze({
     projectRoot,
     projectId,
@@ -212,7 +243,7 @@ export function startControlApiWorkers({
     worker: embeddingWorker,
     embeddingJobs,
     // Reports whether the in-process Watcher and Embedding Workers are still active.
-    status() { return { projectId, projectRoot, closed }; },
+    status,
     stop,
     close: stop
   });
@@ -235,7 +266,7 @@ export function createControlApiProjectRuntime({ projectRoot, projectId, startRu
       get watch() { return getDefaultWorkers?.()?.watch; },
       get worker() { return getDefaultWorkers?.()?.worker; },
       // Exposes admission availability while the application registry owns the database and worker resources.
-      status() { return { projectId, projectRoot: input.projectRoot, closed: closed || Boolean(getDefaultWorkers?.()?.status?.().closed) }; },
+      status() { const snapshot = getDefaultWorkers?.()?.status?.(); return { ...snapshot, projectId, projectRoot: input.projectRoot, closed: closed || Boolean(snapshot?.closed) }; },
       // Retires this binding; application disposal releases the shared storage and workers without duplicate cleanup.
       close() { closed = true; }
     });

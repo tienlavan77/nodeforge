@@ -36,6 +36,7 @@ export function resolveCodingAgentActivities(agentActivities = [], agentDirector
   return list.filter((event) => {
     if (!event || (event.event_type && event.event_type !== "agent.activity")) return false;
     const payload = event.payload ?? {};
+    if (payload.sdk_event?.type === "conversation_turn") return false;
     const agentId = payload.agent_id ?? event.agent_id ?? payload.agentId;
     if (projectId && event.project_id && event.project_id !== projectId) return false;
     if (projectId && payload.project_id && payload.project_id !== projectId) return false;
@@ -57,6 +58,7 @@ export function resolveCodingAgentActivities(agentActivities = [], agentDirector
     const toolName = payload.tool_name ?? event.tool_name ?? "";
     const summary = payload.summary ?? event.summary ?? (toolName || activityType);
     const detail = summary && toolName && !String(summary).includes(toolName) ? `${summary} (${toolName})` : (summary || toolName || activityType);
-    return { key: event.event_id ?? event.id ?? `${agentId ?? "agent"}-${event.timestamp ?? index}-${index}`, agentId: agentId ?? "agent", agentName: resolvedName, activityType, status, time, toolName, summary, detail, tone };
+    const role = profile?.role ?? event.agent_role ?? payload.agent_role ?? "";
+    return { key: event.event_id ?? event.id ?? `${agentId ?? "agent"}-${event.timestamp ?? index}-${index}`, agentId: agentId ?? "agent", agentName: resolvedName, role, activityType, status, time, toolName, summary, detail, tone };
   });
 }

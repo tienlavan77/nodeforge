@@ -83,7 +83,7 @@
 .coding-agent-monitor header > button { flex-shrink: 0; }
 .coding-workspace-git-status .workspace-git-status { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; white-space: normal; }
 .coding-workspace-git-status .workspace-git-status > strong, .coding-workspace-git-status .workspace-git-status > small { min-width: 0; overflow-wrap: anywhere; }
-.coding-agent-monitor strong { display: block; overflow-wrap: anywhere; }
+.coding-agent-monitor strong { display: inline; overflow-wrap: anywhere; }
 .coding-agent-monitor p { margin: 7px 0; overflow-wrap: anywhere; }
 .coding-agent-monitor small, .coding-agent-monitor header span, .coding-workspace-empty { color: var(--app-muted); }
 .coding-workspace-empty { margin: 0; padding: 14px 0; }

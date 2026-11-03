@@ -27,7 +27,7 @@ const GOVERNANCE_FILES = new Set(["AGENTS.md", "CLAUDE.md", "ARCHITECTURE.md", "
 // Checks role permissions before File Service reads, writes, or deletes a path.
 export function assertRoleFileAccess(role, operation, path) {
   if (role === "coder" && ["read", "write", "delete", "move"].includes(operation) && isCoderProjectPath(path)) return;
-  const forgeAccess = (role === "system_engineer" || role === "reviewer" && operation === "read") && typeof path === "string" && (path === ".forge" || path.startsWith(".forge/"));
+  const forgeAccess = (role === "system_engineer" || ["reviewer", "architecture_manager"].includes(role) && operation === "read") && typeof path === "string" && (path === ".forge" || path.startsWith(".forge/"));
   const dependencyRead = operation === "read" && isDependencyPath(path);
   const governanceProtected = operation !== "read" && !(["architecture_manager", "system_engineer"].includes(role) && operation === "write" && path === "ARCHITECTURE.md")
     && (GOVERNANCE_FILES.has(path) || typeof path === "string" && path.split("/").some((part) => part === "AGENTS.md" || part === "CLAUDE.md" || part === "ARCHITECTURE.md"));
@@ -53,7 +53,7 @@ export function createRoleFileService({ fileService, role, projectRoot }) {
   if (!fileService?.readFile || !fileService?.readForIndex || !fileService?.atomicWrite || !fileService?.deleteFile) throw new ConfigurationError("Role File Service requires read, write, and delete operations.");
   if (typeof projectRoot !== "string" || !projectRoot) throw new ConfigurationError("Role File Service requires a project root.");
   if (role === "coder") fileService = fileService.forRole?.(role) ?? fileService;
-  const forgeFiles = ["system_engineer", "reviewer"].includes(role) ? createFileService({ projectRoot, role }) : null;
+  const forgeFiles = ["system_engineer", "reviewer", "architecture_manager"].includes(role) ? createFileService({ projectRoot, role }) : null;
   // Selects the role-authorized service only for project-local Forge state.
   const serviceFor = (path) => forgeFiles && (path === ".forge" || path?.startsWith(".forge/") || isProjectGitkeepPath(path)) ? forgeFiles : fileService;
   // Reject symlink components so an agent cannot reach outside the project through an approved relative path.
