@@ -30,7 +30,7 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     'window.fetch = async (input, init = {}) => {',
     '  const url = new URL(input, location.origin), method = init.method || "GET", body = init.body ? JSON.parse(init.body) : null;',
     '  window.calls.push({ path: url.pathname, method, body });',
-    '  if (url.pathname.endsWith("/lifecycle/list")) return Response.json({ projects: [{ project_id: "PROJECT-A", root: "/fixture/a" }] });',
+    '  if (url.pathname === "/forge/v1/projects" || url.pathname.endsWith("/lifecycle/list")) return Response.json({ projects: [{ project_id: "PROJECT-A", root: "/fixture/a" }] });',
     '  if (url.pathname.endsWith("/agents")) return Response.json([',
     '    { agent_id: "AM-1", agent_name: "First agent", role: "architecture_manager", enabled: true, project_id: "PROJECT-A" },',
     '    { agent_id: "AM-2", agent_name: "Second agent", role: "architecture_manager", enabled: true, project_id: "PROJECT-A" }',

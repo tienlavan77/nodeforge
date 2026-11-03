@@ -14,8 +14,8 @@ import { createPersistentSecretBackend } from "../src/modules/agent/persistent-s
 
 export function createControlApiAgent({ database, fileService, config, env = process.env } = {}) {
   const profiles = createAgentProfileStore({ database });
-  const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(config.dataDir, "agent-config.json"), fileService });
-  const secrets = createPersistentSecretBackend({ filePath: join(config.dataDir, "secrets.vault"), encryptionKey: env.NODE_SECRET_ENCRYPTION_KEY, fileService });
+  const agentConfiguration = createNodeAgentConfiguration({ profiles, configurationPath: join(config.dataDir, "agent-config.json"), fileService, projectRoot: config.cwd });
+  const secrets = createPersistentSecretBackend({ filePath: join(config.dataDir, "secrets.vault"), encryptionKey: env.NODE_SECRET_ENCRYPTION_KEY, fileService, projectRoot: config.cwd });
   const codexBaseUrl = env.OPENAI_BASE_URL?.replace(/\/$/, "");
   syncArchitectureProfile({ profiles, secrets, codexBaseUrl, bootstrapCredential: env.OPENAI_API_KEY, env });
   for (const existing of profiles.getAll()) {
@@ -32,7 +32,7 @@ export function createControlApiAgent({ database, fileService, config, env = pro
   const ollamaSdkGateway = createOllamaSdkGateway({ openaiSdkGateway });
   const agentSettings = createAgentSettingsService({ profiles, configuration: agentConfiguration, gateway: agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, secretStore: secrets });
   const agentRoleResolver = createAgentRoleResolver({ profiles });
-  return { profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };
+  return { agentDatabase: database, profiles, agentConfiguration, secrets, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver };
 }
 
 // Migrates the bootstrap architecture credential to its own profile reference.

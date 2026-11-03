@@ -23,15 +23,14 @@ export async function createBrowserFixture({ sourceRoot, build }) {
       const url=new URL(input,location.origin);const body=init.body?JSON.parse(init.body):null;
       const project=url.searchParams.get('project')??url.searchParams.get('project_id')??body?.project_id??null;
       const method=init.method??'GET';window.calls.push({path:url.pathname,query:Object.fromEntries(url.searchParams),body,method});
-      if(url.pathname.endsWith('/lifecycle/list'))return Response.json({projects:window.projects});
-      if(url.pathname.endsWith('/lifecycle/add')){
-        if(Object.keys(body).join()!=='root')throw new Error('Lifecycle add must be root-only');
-        if(!body.root.startsWith('/'))return Response.json({error:{code:'INVALID_ROOT',message:'Use an absolute project root.'}},{status:400});
-        const added={project_id:'PROJECT-B',root:body.root};window.projects.push(added);return Response.json(added);
+      if(url.pathname==='/forge/v1/projects'&&method==='GET')return Response.json({projects:window.projects});
+      if(url.pathname==='/forge/v1/projects'&&method==='POST'){
+        if(!body?.root?.startsWith('/'))return Response.json({error:{code:'INVALID_ROOT',message:'Use an absolute project root.'}},{status:400});
+        const added={project_id:'PROJECT-B',root:body.root};window.projects.push(added);return Response.json({project:added},{status:201});
       }
-      if(url.pathname.endsWith('/lifecycle/remove')){
-        if(Object.keys(body).join()!=='root')throw new Error('Lifecycle remove must be root-only');
-        window.projects=window.projects.filter(item=>item.root!==body.root);return Response.json({removed:true,root:body.root});
+      if(url.pathname.startsWith('/forge/v1/projects/')&&method==='DELETE'){
+        const id=decodeURIComponent(url.pathname.slice('/forge/v1/projects/'.length));
+        window.projects=window.projects.filter(item=>item.project_id!==id&&item.root!==id);return Response.json({removed:true,project_id:id});
       }
       if(url.pathname.endsWith('/agents'))return Response.json({agents:[{agent_id:'architect',agent_name:'Architect',role:'architecture_manager',enabled:true}]});
       if(url.pathname.endsWith('/conversations')&&method==='GET')return Response.json({items:[{id:conversation(project),title:'Conversation '+project,agent_id:'architect',project_id:project}]});
@@ -121,7 +120,7 @@ export const browserAssertions = {
     await page.getByRole("button", { name: "Add project", exact: true }).click();
     await page.getByRole("alert").filter({ hasText: "absolute project root" }).waitFor();
     await addSecondProject(page); await chooseSecondProject(page);
-    const additions = await page.evaluate(() => window.calls.filter(call => call.path.endsWith("/lifecycle/add")));
+    const additions = await page.evaluate(() => window.calls.filter(call => call.path === "/forge/v1/projects" && call.method === "POST"));
     assert.deepEqual(additions.at(-1).body, { root: "/projects/b" });
     assert.deepEqual(additions.at(-1).query, {});
     assert.equal(await page.getByRole("combobox", { name: "Project", exact: true }).inputValue(), "PROJECT-B");
@@ -153,7 +152,7 @@ export const browserAssertions = {
     const offset = await page.evaluate(() => window.calls.length);
     await page.getByRole("button", { name: "Refresh projects", exact: true }).click();
     await page.waitForFunction((start) => window.calls.length > start, offset);
-    assert.ok((await page.evaluate((start) => window.calls.slice(start), offset)).every(call => call.path.endsWith("/lifecycle/list")));
+    assert.ok((await page.evaluate((start) => window.calls.slice(start), offset)).every(call => call.path === "/forge/v1/projects"));
     await page.getByRole("combobox", { name: "Project", exact: true }).selectOption("PROJECT-A");
     await page.getByText("History PROJECT-A", { exact: true }).waitFor();
     await page.evaluate(() => { window.projects = []; });

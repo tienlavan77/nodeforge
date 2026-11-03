@@ -10,7 +10,7 @@ const PROVIDERS = ["codex", "claude", "openai", "anthropic", "ollama", "custom",
 const SECRET_FIELD = /(?:api[_-]?key|credential(?!_ref)|secret|password|token|authorization)/i;
 
 // A derived local Node projection; Agent Profile Store remains the authority.
-export function createNodeAgentConfiguration({ profiles, configurationPath, fileService } = {}) {
+export function createNodeAgentConfiguration({ profiles, configurationPath, fileService, projectRoot = process.cwd() } = {}) {
   if (typeof profiles?.getAll !== "function" || typeof profiles?.getById !== "function") throw new ConfigurationError("Node Agent Configuration requires an Agent Profile Store.");
   if (typeof configurationPath !== "string" || configurationPath.length === 0) throw new ConfigurationError("Node Agent Configuration requires a configuration path.");
   let configurations = loadFile();
@@ -70,9 +70,17 @@ export function createNodeAgentConfiguration({ profiles, configurationPath, file
 // Atomically writes the configuration array to disk with restricted permissions.
   function write(next) {
     if (fileService?.atomicWriteSync) {
-      const relative = configurationPath.startsWith(`${process.cwd()}/`) ? configurationPath.slice(process.cwd().length + 1) : configurationPath;
-      fileService.atomicWriteSync({ path: relative, content: `${JSON.stringify(next, null, 2)}\n`, mode: 0o600 });
-      return;
+      const rootPrefix = `${projectRoot.replace(/\/$/, "")}/`;
+      const cwdPrefix = `${process.cwd().replace(/\/$/, "")}/`;
+      const relative = configurationPath.startsWith(rootPrefix)
+        ? configurationPath.slice(rootPrefix.length)
+        : configurationPath.startsWith(cwdPrefix)
+          ? configurationPath.slice(cwdPrefix.length)
+          : configurationPath;
+      if (!relative.startsWith("/")) {
+        fileService.atomicWriteSync({ path: relative, content: `${JSON.stringify(next, null, 2)}\n`, mode: 0o600 });
+        return;
+      }
     }
     mkdirSync(dirname(configurationPath), { recursive: true, mode: 0o700 });
     const temporary = `${configurationPath}.tmp`;

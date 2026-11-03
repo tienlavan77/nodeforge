@@ -5,17 +5,20 @@ import { ensureRuntimeDir, openIndexDatabase } from "../../infrastructure/sqlite
 import { createNotebookStore } from "./notebook-store.js";
 import { INDEX_RUNTIME_DIR, indexDatabaseExists, startProjectWatch } from "../watcher/watch-project.js";
 import { createEmbeddingJobStore } from "../index/embedding-job-store.js";
-import { purposeSummaryInput } from "../index/purpose-summary-input.js";
+import { prepareEmbeddingQueue, releaseEmbeddingProvider, retainEmbeddingProvider } from "../index/embedding-startup.js";
 import { createEmbeddingWorker } from "../index/embedding-worker.js";
 import { createRetrievalDependencies } from "../index/retrieval-dependencies.js";
 import { createSubscriptionRegistry } from "../events/subscription-registry.js";
 import { createProjectStream } from "../../transport/sse/project-stream.js";
 
 // Starts every per-project service without introducing an HTTP or CLI management contract.
-export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }), normalizeComments = true, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false, onRuntimeCreated = null, awaitInitialEmbeddings = true, embeddingPollMs = 1000 } = {}) {
+export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }), normalizeComments = true, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false, onRuntimeCreated = null, awaitInitialEmbeddings = false, embeddingPollMs = 1000 } = {}) {
   const bus = new EventEmitter();
   const subscriptions = createSubscriptionRegistry({ logger });
   const connections = new Set();
+  const conversationListeners = new Set();
+  let boundServices = null;
+  let unbindServices = null;
   let database;
   let controlDb;
   let notebook;
@@ -27,6 +30,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   let closing;
   let closed = false;
   let embeddingError = null;
+  let providerRetained = false;
   const baseProgress = progress;
   const trackedProgress = Object.freeze({
     ...baseProgress,
@@ -54,6 +58,18 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       return snap;
     }
   });
+  const conversationBusProxy = {
+    // Subscribes an active SSE connection listener to the project-bound communication bus.
+    subscribeAll(listener) {
+      conversationListeners.add(listener);
+      boundServices?.bus?.subscribeAll?.(listener);
+    },
+    // Unsubscribes an SSE connection listener from the project-bound communication bus on disconnect.
+    unsubscribeAll(listener) {
+      conversationListeners.delete(listener);
+      boundServices?.bus?.unsubscribeAll?.(listener);
+    }
+  };
   const stream = createProjectStream({
     projectId,
     indexDb: { all: (...args) => database ? database.all(...args) : [] },
@@ -63,7 +79,9 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       return { readiness: closed || snap.status === "failed" ? "unavailable" : snap.status === "succeeded" ? "ready" : "running", stage: snap.stage, status: snap.status, progress: snap };
     },
     subscriptions,
-    eventBus: bus
+    eventBus: bus,
+    bus: conversationBusProxy,
+    agentActivitySnapshot: (args) => boundServices?.executionActivity?.snapshot?.(args) ?? []
   });
   // Synchronizes durable embedding job counts into the index progress collector.
   function syncEmbeddingProgress(job, outcome) {
@@ -72,8 +90,10 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     if (counts) {
       const unresolvedError = !closed && database ? database.all("SELECT last_error FROM embedding_jobs WHERE status IN ('failed', 'retry_wait') AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1")[0]?.last_error ?? null : null;
       if (unresolvedError) embeddingError ??= unresolvedError;
+      else if (!counts.failed && !counts.retry_wait && outcome?.status !== "failed") embeddingError = null;
       const hasFailure = Boolean(embeddingError || counts.failed || counts.retry_wait);
       trackedProgress.embedding({
+        projectId,
         status: hasFailure ? "failed" : counts.pending || counts.processing ? "running" : "succeeded",
         error: embeddingError ? String(embeddingError) : null,
         pending: (counts.pending ?? 0) + (counts.retry_wait ?? 0),
@@ -97,7 +117,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     // Reports Ollama failure for this project while its watcher and other projects keep running.
     warning(message, detail) {
       embeddingError = detail.error;
-      trackedProgress.embedding({ status: "failed", error: String(detail.error) });
+      trackedProgress.embedding({ projectId, status: "failed", error: String(detail.error) });
       logger.warn?.(message, { ...detail, projectId });
       bus.emit("embedding.failed", { projectId, error: detail.error });
     },
@@ -108,7 +128,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     }
   };
   try {
-    onRuntimeCreated?.(Object.freeze({ projectRoot, projectId, bus, connect, close, status }));
+    onRuntimeCreated?.(Object.freeze({ projectRoot, projectId, bus, connect, bindApplication, close, status }));
     controlDb = await openIndexDatabase(projectRoot, { storageKind: "control" });
     notebook = createNotebookStore({ controlDb, projectId });
     const databaseExisted = await indexDatabaseExists(projectRoot);
@@ -116,6 +136,8 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     database = await openIndexDatabase(projectRoot, { runtimeDir: INDEX_RUNTIME_DIR });
     retrieval = createRetrievalDependencies({ database, ollamaConfig });
     embeddingProvider ??= retrieval.embeddingProvider;
+    retainEmbeddingProvider(embeddingProvider);
+    providerRetained = true;
     const model = embeddingProvider.model ?? (ollamaConfig?.model || retrieval.embeddingProvider.model);
     retrieval = { ...retrieval, embeddingModel: model };
     retrieval.embeddingStore.removeOtherModels(model);
@@ -166,13 +188,14 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     workerTask = worker.start({ pollMs: embeddingPollMs });
     workerTask = workerTask.catch((error) => {
       embeddingError = error.message;
-      trackedProgress.embedding({ status: "failed", error: error.message });
+      trackedProgress.embedding({ projectId, status: "failed", error: error.message });
       logger.error?.("Project embedding worker stopped.", { projectId, error });
     });
+    worker.notify();
     trackedProgress.stage("startup/readiness");
     trackedProgress.reconcile(database);
     trackedProgress.finish();
-    return Object.freeze({ projectRoot, projectId, bus, database, controlDb, notebook, watch, worker, connect, close,
+    return Object.freeze({ projectRoot, projectId, bus, database, controlDb, notebook, watch, worker, connect, bindApplication, close,
       search: retrieval.search, embeddingStore: retrieval.embeddingStore, embeddingProvider, status
     });
   } catch (error) {
@@ -183,19 +206,71 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     throw error;
   }
 
-  // Upgrades unchanged legacy indexes and changed embedding models without rebuilding project identity.
-  function queueMissingEmbeddings() {
-    const model = retrieval.embeddingModel;
-    for (const symbol of database.all(`SELECT s.symbol_id, s.summary,
-      e.embedding_model, e.content_checksum FROM symbols s
-      LEFT JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id`)) {
-      const input = purposeSummaryInput(symbol.summary);
-      if (!input) continue;
-      const contentChecksum = input.checksum;
-      if (symbol.embedding_model !== model || symbol.content_checksum !== contentChecksum) {
-        embeddingJobs.enqueue({ symbolId: symbol.symbol_id, contentChecksum, model });
+  /**
+   * Business purpose: bridges this project's runtime stream and internal event bus with its composed Control API application services without mixing other projects' events.
+   * Technical description: forwards matching project-scoped subscription, internalBus, and communication bus events between the runtime and application service bundle and returns an unbind cleanup callback.
+   */
+  function bindApplication(services) {
+    if (!services || closed) return () => {};
+    if (services.projectId && services.projectId !== projectId) {
+      throw new Error("Project runtime and application identity differ.");
+    }
+    unbindServices?.();
+    boundServices = services;
+    for (const listener of conversationListeners) services.bus?.subscribeAll?.(listener);
+    let forwarding = false;
+    // Relays application subscription events belonging to this project into the runtime SSE subscription registry.
+    const onAppSubscription = (event) => {
+      if (forwarding || closed || (event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
+      forwarding = true;
+      try { subscriptions.publish(event); } finally { forwarding = false; }
+    };
+    const appSubId = services.subscriptions?.subscribe ? services.subscriptions.subscribe("*", onAppSubscription) : null;
+    const bridgedEvents = ["watcher.indexed", "agent.text_stream", "agent.message.delta", "agent.message.received", "agent.status_changed", "agent.checkpoint.updated", "agent.activity"];
+    const appBusListeners = [];
+    const runtimeBusListeners = [];
+    if (services.internalBus && services.internalBus !== bus) {
+      for (const eventType of bridgedEvents) {
+        // Relays internal application events for this project onto the runtime event bus.
+        const fromApp = (event) => {
+          if (forwarding || closed || (event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
+          forwarding = true;
+          try { bus.emit(eventType, event); } finally { forwarding = false; }
+        };
+        // Relays runtime watcher and indexing progress events onto the application internal bus.
+        const fromRuntime = (event) => {
+          if (forwarding || closed || (event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
+          forwarding = true;
+          try { services.internalBus.emit(eventType, event); } finally { forwarding = false; }
+        };
+        services.internalBus.on?.(eventType, fromApp);
+        bus.on(eventType, fromRuntime);
+        appBusListeners.push({ eventType, fn: fromApp });
+        runtimeBusListeners.push({ eventType, fn: fromRuntime });
       }
     }
+    // Detaches all bridged application listeners when the application bundle or runtime closes.
+    const detach = () => {
+      if (boundServices !== services) return;
+      for (const listener of conversationListeners) services.bus?.unsubscribeAll?.(listener);
+      if (appSubId !== null) services.subscriptions?.unsubscribe?.(appSubId);
+      for (const { eventType, fn } of appBusListeners) services.internalBus?.off?.(eventType, fn);
+      for (const { eventType, fn } of runtimeBusListeners) bus.off(eventType, fn);
+      boundServices = null;
+      unbindServices = null;
+    };
+    unbindServices = detach;
+    return detach;
+  }
+
+  // Upgrades unchanged legacy indexes and changed embedding models without rebuilding project identity.
+  function queueMissingEmbeddings() {
+    prepareEmbeddingQueue({
+      database,
+      embeddingStore: retrieval.embeddingStore,
+      jobs: embeddingJobs,
+      model: retrieval.embeddingModel
+    });
   }
 
   // Owns each SSE connection so project removal clears subscriptions and heartbeat timers.
@@ -218,7 +293,14 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   // Cancels Ollama requests and awaits the worker before its database can be closed.
   async function stopEmbedding() {
     const runningTask = worker?.stop();
-    try { await embeddingProvider?.close?.(); } finally { await (workerTask ?? runningTask); }
+    try {
+      if (providerRetained) {
+        providerRetained = false;
+        await releaseEmbeddingProvider(embeddingProvider);
+      }
+    } finally {
+      await (workerTask ?? runningTask);
+    }
   }
 
   // Makes concurrent and repeated removal share the same complete teardown.
@@ -231,6 +313,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   // Attempts all project-owned cleanup even if a stream or watcher fails to close.
   async function release() {
     const errors = [];
+    try { unbindServices?.(); } catch (error) { errors.push(error); }
     for (const connection of [...connections]) {
       try { connection.close(); } catch (error) { errors.push(error); }
     }

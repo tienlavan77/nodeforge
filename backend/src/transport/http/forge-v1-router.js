@@ -32,16 +32,41 @@ export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchS
   // Selects SSE sources through the same admitted-project boundary as JSON operations.
   async function resolveStreams({ method, url, parts }) {
     const projectId = resolveProjectRequest({ method, url, parts });
-    if (method === "GET" && parts?.length === 1 && parts[0] === "stream" && typeof projectLifecycle?.getStream === "function") {
-      if (typeof projectId !== "string" || !projectId.trim()) throw Object.assign(new ConfigurationError("project is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+    const isProjectStream = method === "GET" && parts?.length === 1 && parts[0] === "stream";
+    if (isProjectStream && (typeof projectId !== "string" || !projectId.trim())) {
+      throw Object.assign(new ConfigurationError("project is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+    }
+    if (resolveProjectRouter) {
+      if (typeof projectId !== "string" || !projectId.trim()) {
+        throw Object.assign(new ConfigurationError("project is required."), { statusCode: 400, code: "PROJECT_REQUIRED" });
+      }
+      const selected = await resolveProjectRouter(projectId);
+      if (selected?.resolveStreams) {
+        return selected.resolveStreams({ method, url, parts });
+      }
+      if (isProjectStream && typeof projectLifecycle?.getStream === "function") {
+        const lifecycleStream = await projectLifecycle.getStream(projectId);
+        if (lifecycleStream) return { projectStream: lifecycleStream, conversationStream: undefined };
+      }
+      throw Object.assign(new ConfigurationError("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
+    }
+    if (isProjectStream && typeof projectLifecycle?.getStream === "function") {
+      const sameProject = !expectedProjectId || projectId === expectedProjectId;
       const lifecycleStream = await projectLifecycle.getStream(projectId);
-      if (lifecycleStream) return { projectStream: lifecycleStream, conversationStream: guardStream(conversationStream, assertAdmission) };
-      if (!resolveProjectRouter && !projectStream) throw Object.assign(new ConfigurationError("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
+      if (sameProject && projectStream && (lifecycleStream || assertAdmission)) {
+        assertAdmission?.();
+        return { projectStream: guardStream(projectStream, assertAdmission), conversationStream: guardStream(conversationStream, assertAdmission) };
+      }
+      if (lifecycleStream) {
+        return { projectStream: lifecycleStream, conversationStream: sameProject ? guardStream(conversationStream, assertAdmission) : undefined };
+      }
+      if (!projectStream || !sameProject) {
+        throw Object.assign(new ConfigurationError("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
+      }
     }
     assertAdmission?.();
-    if (resolveProjectRouter) {
-      const selected = await selectProjectRouter({ projectId, resolveProjectRouter });
-      return selected.resolveStreams({ method, url, parts });
+    if (expectedProjectId && projectId && projectId !== expectedProjectId) {
+      throw Object.assign(new ConfigurationError("Project is unavailable."), { statusCode: 404, code: "PROJECT_NOT_FOUND" });
     }
     return { projectStream: guardStream(projectStream, assertAdmission), conversationStream: guardStream(conversationStream, assertAdmission) };
   }

@@ -1,7 +1,9 @@
 // Verify project URLs preserve identity and global navigation restores only the current browser tab's selection.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isProjectIndependentPath, projectArchitecturePath, projectSystemPath, projectCodingPath, projectIdFromPath, readSelectedProject, rememberSelectedProject, resolveSidebarProjectId } from "../lib/project-navigation.js";
+import { isProjectIndependentPath, projectArchitecturePath, projectSystemPath, projectCodingPath, projectIdFromPath, readSelectedProject, rememberSelectedProject, resolveProjectRouteSlug, resolveSidebarProjectId } from "../lib/project-navigation.js";
+import { resolveManagedProjectId, selectProject, syncProjectsToSelection } from "../lib/project-selection.js";
+import { resolveActiveProjectId } from "../lib/home-page-constants.js";
 
 test("project Architecture routes encode identities and distinguish the public directory and global pages", () => {
   assert.equal(projectArchitecturePath("PROJECT-NODEFORGE"), "/PROJECT-NODEFORGE");
@@ -10,6 +12,28 @@ test("project Architecture routes encode identities and distinguish the public d
   assert.equal(projectIdFromPath("/project%20with%20space"), "project with space");
   for (const path of ["/", "/agents", "/system", "/coding", "/code", "/control-api/forge/v1"]) assert.equal(projectIdFromPath(path), null);
   assert.equal(projectArchitecturePath(null), "/");
+});
+
+test("maps opaque UUID project_id to friendly project slug in URLs while resolving slug back to project_id", () => {
+  const uuidId = "PROJECT-a9568e6d-f01c-49a2-83d2-72daf40fbad6";
+  const projectRecord = {
+    project_id: uuidId,
+    name: "My Awesome Project",
+    root: "/home/data/sites/my-awesome-project",
+    readiness: "ready"
+  };
+  assert.equal(resolveProjectRouteSlug(projectRecord), "my-awesome-project");
+  assert.equal(projectArchitecturePath(projectRecord), "/my-awesome-project");
+  assert.equal(projectSystemPath(projectRecord), "/my-awesome-project/system");
+  assert.equal(projectCodingPath(projectRecord), "/my-awesome-project/coding");
+  assert.equal(projectArchitecturePath(uuidId, [projectRecord]), "/my-awesome-project");
+
+  syncProjectsToSelection([projectRecord]);
+  assert.equal(resolveManagedProjectId("my-awesome-project"), uuidId);
+  assert.equal(resolveActiveProjectId({ pathname: "/my-awesome-project" }), uuidId);
+  assert.equal(resolveActiveProjectId({ pathname: "/my-awesome-project/coding" }), uuidId);
+  assert.equal(resolveActiveProjectId({ pathname: "/my-awesome-project/system" }), uuidId);
+  assert.equal(selectProject("my-awesome-project"), uuidId);
 });
 
 test("Agents route is treated as project-independent by the route boundary without calling /lifecycle/list", () => {

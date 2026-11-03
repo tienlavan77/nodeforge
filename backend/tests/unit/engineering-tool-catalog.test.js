@@ -13,12 +13,29 @@ import { createRuntimeToolGovernance } from "../../src/modules/governance/runtim
 function ownerServices(role) {
   return { role, projectRoot: process.cwd(), fileService: { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listFiles() {}, listDirectories() {} },
     gitService: { status() {}, diffWorkingTree() {}, commit() {}, pushCommit() {} }, testService: { runCheck() {} },
-    conversationStateStore: { get() {}, update() {} }, context: { task_id: "OWNER", capabilities: [...ENGINEERING_TOOL_NAMES], agent_identity: { role } } };
+    conversationStateStore: { get() {}, update() {} }, context: { task_id: "OWNER", capabilities: [...ENGINEERING_TOOL_NAMES, "read_file_binary"], agent_identity: { role } } };
 }
 
 test("System Engineer uses the shared schemas without changing its owner ledger handlers", () => {
   const { definitions } = createOwnerConversationTools(ownerServices("system_engineer"));
-  assert.deepEqual(definitions.map(({ name }) => name), ENGINEERING_TOOL_NAMES);
+  assert.deepEqual(definitions.map(({ name }) => name), [
+    "search_tree",
+    "list_files",
+    "search_text",
+    "read_file",
+    "read_file_binary",
+    "Read",
+    "write_diff",
+    "edit_diff",
+    "delete_file",
+    "move_file",
+    "git_status",
+    "git_diff",
+    "run_check",
+    "commit_changes",
+    "push_commit",
+    "lookup_schema"
+  ]);
   for (const definition of engineeringToolDefinitions()) {
     const expected = structuredClone(definition.input_schema);
     if (definition.name === "search_text") {

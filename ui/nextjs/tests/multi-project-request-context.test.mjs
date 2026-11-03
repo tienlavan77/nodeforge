@@ -16,16 +16,17 @@ test("selected identity covers all client requests and isolates switched or unav
     const url = new URL(input);
     const body = init.body ? JSON.parse(init.body) : null;
     calls.push({ url, body, method: init.method ?? "GET" });
-    if (url.pathname.endsWith("/lifecycle/list")) { assert.equal(url.pathname, "/lifecycle/list"); return Response.json({ projects }); }
-    if (url.pathname.endsWith("/lifecycle/add")) {
+    if (url.pathname === "/forge/v1/projects" && (init.method ?? "GET") === "GET") {
+      return Response.json({ projects });
+    }
+    if (url.pathname === "/forge/v1/projects" && init.method === "POST") {
       assert.deepEqual(body, { root: "/b" });
       projects = [...projects, { project_id: "PROJECT-B", root: body.root }];
-      return Response.json(projects.at(-1));
+      return Response.json({ project: projects.at(-1) }, { status: 201 });
     }
-    if (url.pathname.endsWith("/lifecycle/remove")) {
-      assert.deepEqual(body, { root: "/b" });
-      projects = projects.filter((project) => project.root !== body.root);
-      return Response.json({ removed: true, root: body.root });
+    if (url.pathname === "/forge/v1/projects/PROJECT-B" && init.method === "DELETE") {
+      projects = projects.filter((project) => project.project_id !== "PROJECT-B");
+      return Response.json({ project_id: "PROJECT-B", removed: true });
     }
     if (unavailable) return Response.json({ error: { code: "PROJECT_NOT_FOUND", message: "Project is unavailable." } }, { status: 404 });
     if (delayed) return new Promise((resolve) => { delayed.resolve = resolve; });

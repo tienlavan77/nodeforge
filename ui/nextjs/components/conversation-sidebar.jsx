@@ -92,10 +92,10 @@ export function ConversationSidebar({ open, onOpen, onClose, agentSectionTitle =
             </details>
             <button type="button" onClick={newConversation} title="New conversation"><SidebarNavigationIcon name="conversation" /><span>New conversation</span></button>
           </>}
-          <Link href={projectArchitecturePath(activeRouteProjectId)} title="Architecture" aria-current={!isAgentsSection && !["System", "Code"].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
+          <Link href={projectArchitecturePath(activeRouteProjectId, selection.projects)} title="Architecture" aria-current={!isAgentsSection && !["System", "Code"].includes(agentSectionTitle) ? "page" : undefined}><SidebarNavigationIcon name="architecture" /><span>Architecture</span></Link>
           <Link href="/agents" title="Agents" aria-current={isAgentsSection ? "page" : undefined}><SidebarNavigationIcon name="agents" /><span>Agents</span></Link>
-          <Link href={projectSystemPath(activeRouteProjectId)} title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
-          <Link href={projectCodingPath(activeRouteProjectId)} title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
+          <Link href={projectSystemPath(activeRouteProjectId, selection.projects)} title="System" aria-current={agentSectionTitle === "System" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>System</span></Link>
+          <Link href={projectCodingPath(activeRouteProjectId, selection.projects)} title="Code" aria-current={agentSectionTitle === "Code" ? "page" : undefined}><SidebarNavigationIcon name="coding" /><span>Code</span></Link>
         </nav>
         {showConversationControls && children}
       </section>
