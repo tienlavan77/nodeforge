@@ -1,6 +1,6 @@
 // Project id and session/local-storage keys shared by the NodeForge home workspace page.
 
-import { getProjectSelection, subscribeProjectSelection } from "./project-selection.js";
+import { getProjectSelection, resolveManagedProjectId, subscribeProjectSelection } from "./project-selection.js";
 
 export let PROJECT_ID = "PROJECT-NODEFORGE";
 export const ARCHITECTURE_CONVERSATION_ID = "CONV-ARCHITECTURE";
@@ -20,15 +20,17 @@ subscribeProjectSelection(updateProjectKeys);
 export function resolveActiveProjectId({ explicitProjectId, routeProjectId, pathname } = {}) {
   for (const candidate of [explicitProjectId, routeProjectId]) {
     if (typeof candidate === "string" && candidate.trim()) {
-      try { return decodeURIComponent(candidate.trim()); }
-      catch { return candidate.trim(); }
+      let decoded = candidate.trim();
+      try { decoded = decodeURIComponent(decoded); } catch { /* keep raw */ }
+      return resolveManagedProjectId(decoded) || decoded;
     }
   }
   if (typeof pathname === "string" && pathname.startsWith("/")) {
     const segments = pathname.split("/").filter(Boolean);
     if (segments.length >= 1 && !["system", "coding", "code", "agents", "control-api"].includes(segments[0])) {
-      try { return decodeURIComponent(segments[0]); }
-      catch { return segments[0]; }
+      let decoded = segments[0];
+      try { decoded = decodeURIComponent(decoded); } catch { /* keep raw */ }
+      return resolveManagedProjectId(decoded) || decoded;
     }
   }
   return getProjectSelection().projectId || PROJECT_ID || "PROJECT-NODEFORGE";

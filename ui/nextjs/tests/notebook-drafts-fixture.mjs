@@ -26,7 +26,7 @@ window.fetch=async(input,init={})=>{
  const url=new URL(input,location.origin),method=init.method||"GET",body=init.body?JSON.parse(init.body):null;
  const project=url.searchParams.get("project_id")||body?.project_id;
  window.calls.push({path:url.pathname,method,body,project});
- if(url.pathname.endsWith("/lifecycle/list"))return Response.json({projects:window.control.removed?[{project_id:"B"}]:[{project_id:"A"},{project_id:"B"}]});
+ if(url.pathname==="/forge/v1/projects"||url.pathname.endsWith("/lifecycle/list"))return Response.json({projects:window.control.removed?[{project_id:"B"}]:[{project_id:"A"},{project_id:"B"}]});
  if(!url.pathname.includes("/notebook"))return Response.json([]);
  if(method==="GET"&&window.control.holdRead===project)await new Promise(resolve=>window.readWaiters.push(resolve));
  if(method!=="GET"&&window.control.holdWrite)await new Promise(resolve=>window.writeWaiters.push(resolve));

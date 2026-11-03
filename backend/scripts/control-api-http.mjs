@@ -49,11 +49,56 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices, no
   const commandService = services.planStore && (planFileService || services.fileService) ? createOwnerChatCommandService({ projectId, planRequests, publishPlanEvent: (event) => projectStream.ingest(event), fileService: planFileService || services.fileService, communications, bus, conversationCrudService: conversations, agentRoleResolver: services.agentRoleResolver, planStore: services.planStore, markdownPlanStore: services.markdownPlanStore, sprintRegistry: services.sprintRegistry, handoffApprovedPlan: ({ plan, conversationId }) => planHandoff.handoff({ plan, conversationId }) }) : null;
   const ownerChatService = createOwnerChatService({ bus, communications, agentRoleResolver: services.agentRoleResolver, projectLogger: logEvent, internalBus, buildAgentContext: buildBuilderContext, protocolStorage, conversationCrudService: conversations, commandService, debug: (detail) => agentLoopLogger.emit({ event_name: detail?.event ?? "agent.loop", level: detail?.event === "project-log.error" ? "error" : "debug", status: "info", message: detail?.event ?? "Agent loop debug event.", task_id: detail?.task_id, correlation_id: detail?.correlation_id, payload: detail }), agentStream: ({ agentId, payload, correlationId, conversationId }) => sdkStream({ agentId, payload, correlationId, conversationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion });
   const ownerExecutionControl = createOwnerExecutionControl({ checkpoint: executionCheckpoint, architectureCheckpoint, sdkStream, ownerChatService, communications, agentConfiguration });
-  const conversationStream = createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions });
+  /**
+   * Business purpose: wraps a project-scoped SSE stream so closing or removing the project immediately terminates all active SSE connections for that project without affecting other projects.
+   * Technical description: intercepts stream.connect(), registers a disconnect callback with services.registerStreamCleanup when present, and unregisters on client disconnect.
+   */
+  function bindOwnedStream(baseStream) {
+    if (!baseStream || typeof services.registerStreamCleanup !== "function") return baseStream;
+    // Wraps a resolved connection handle so application disposal closes it and ends the HTTP response.
+    const wrapConnection = (connection, input) => {
+      const unregister = services.registerStreamCleanup(() => {
+        connection?.close?.();
+        if (input?.response && !input.response.writableEnded) input.response.end?.();
+      });
+      input?.response?.once?.("close", unregister);
+      return Object.freeze({
+        ...connection,
+        // Closes the SSE connection and removes its disposal registration.
+        close() {
+          unregister();
+          return connection?.close?.();
+        }
+      });
+    };
+    return Object.freeze({
+      ...baseStream,
+      // Registers the open SSE connection with the project application disposal lifecycle.
+      connect(input) {
+        const connection = baseStream.connect(input);
+        if (typeof connection?.then === "function") {
+          return connection.then((resolved) => wrapConnection(resolved, input));
+        }
+        return wrapConnection(connection, input);
+      }
+    });
+  }
+  const conversationStream = bindOwnedStream(createConversationStream({ bus, communicationStore: communications, eventStore, subscriptions }));
   const markdownResponseFileService = projectId && projectRoot && typeof conversations?.get === "function" && typeof communications?.getById === "function" && typeof fileService?.atomicCreate === "function" && typeof fileService?.atomicWrite === "function"
     ? createMarkdownResponseFileService({ projectId, projectRoot, conversations, communications, fileService, logger: logEvent })
     : null;
-  const projectStream = createProjectStream({ projectId, watcherSnapshot: createWatcherSnapshotService({ indexDb }), subscriptions, eventBus: internalBus, bus, agentActivitySnapshot: services.executionActivity?.snapshot });
+  const projectStream = bindOwnedStream(createProjectStream({
+    projectId,
+    watcherSnapshot: createWatcherSnapshotService({ indexDb }),
+    runtimeSnapshot: () => {
+      const st = services.runtime?.status?.();
+      return st?.progress ? { readiness: st.readiness, stage: st.progress.stage, status: st.progress.status, progress: st.progress } : undefined;
+    },
+    subscriptions,
+    eventBus: internalBus,
+    bus,
+    agentActivitySnapshot: services.executionActivity?.snapshot
+  }));
   const onWatcherEvent = createWatcherCacheEvents({ projectId, codeCache, logger: agentLoopLogger.emit });
   return {
     ownerChatService,

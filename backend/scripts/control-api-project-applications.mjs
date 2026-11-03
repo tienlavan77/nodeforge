@@ -50,11 +50,18 @@ export function createProjectApplicationRegistry({ projectLifecycle, defaultAppl
     }
   }
 
-  // Maps the public project identity through active catalog entries before retrieving its runtime by root.
-  async function resolve(projectId) {
+  // Maps the public project identity or root slug alias through active catalog entries before retrieving its runtime by root.
+  async function resolve(requestedProjectId) {
     if (closed) return undefined;
-    const entry = projectLifecycle?.list().find((item) => item.projectId === projectId);
+    const activeEntries = projectLifecycle?.list() ?? [];
+    const entry = activeEntries.find((item) => item.projectId === requestedProjectId)
+      ?? activeEntries.find((item) => {
+        const rootName = String(item.root ?? "").split("/").filter(Boolean).at(-1) ?? "";
+        const slug = rootName.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        return Boolean(slug && slug === String(requestedProjectId ?? "").trim().toLowerCase());
+      });
     if (!entry) return undefined;
+    const projectId = entry.projectId;
     const runtime = await projectLifecycle.get(entry.root);
     if (!runtime || runtime.projectId !== projectId || runtime.status?.().closed || ["failed", "running"].includes(runtime.status?.().progress?.status)) return undefined;
     const defaultMatches = defaultApplication.services.projectId === projectId && await defaultCanonical === entry.root;
@@ -64,11 +71,20 @@ export function createProjectApplicationRegistry({ projectLifecycle, defaultAppl
       const useDefault = defaultAvailable && defaultMatches;
       if (useDefault) defaultAvailable = false;
       const pending = useDefault ? Promise.resolve({ application: defaultApplication, disposal: defaultDisposal }) : compose(runtime);
-      record = { pending, disposed: false, closing: undefined };
+      record = { pending, disposed: false, closing: undefined, unbindRuntime: null, streamCleanups: new Set() };
       applications.set(runtime, record);
       // Invalidates cached services before waiting for pending construction and disposing its resources.
       record.close = () => {
         record.disposed = true;
+        record.unbindRuntime?.();
+        record.unbindRuntime = null;
+        for (const closeStream of [...record.streamCleanups]) {
+          try {
+            closeStream();
+            // eslint-disable-next-line no-silent-catch -- Best-effort SSE disconnect during project disposal must not block remaining stream cleanups.
+          } catch { /* ignore individual stream close errors */ }
+        }
+        record.streamCleanups.clear();
         record.closing ??= pending.then(({ disposal }) => disposal.close());
         return record.closing;
       };
@@ -80,7 +96,24 @@ export function createProjectApplicationRegistry({ projectLifecycle, defaultAppl
       await record.close();
       return undefined;
     }
+    record.unbindRuntime ??= runtime.bindApplication?.(application.services) ?? null;
+    const defaultServices = defaultApplication?.services ?? {};
     record.services ??= { ...application.services,
+      ...(defaultServices.agentConfiguration ? { agentConfiguration: defaultServices.agentConfiguration } : {}),
+      ...(defaultServices.agentGateway ? { agentGateway: defaultServices.agentGateway } : {}),
+      ...(defaultServices.sdkGateways ? { sdkGateways: defaultServices.sdkGateways } : {}),
+      ...(defaultServices.agentSettings ? { agentSettings: defaultServices.agentSettings } : {}),
+      ...(defaultServices.agentRoleResolver ? { agentRoleResolver: defaultServices.agentRoleResolver } : {}),
+      runtime,
+      // Registers an active SSE connection cleanup callback so closing this project closes all open streams.
+      registerStreamCleanup(cleanup) {
+        if (closed || record.disposed) {
+          cleanup?.();
+          return () => {};
+        }
+        record.streamCleanups.add(cleanup);
+        return () => record.streamCleanups.delete(cleanup);
+      },
       ...(runtime.notebook ? { notebook: runtime.notebook } : {}),
       ...(runtime.controlDb ? { controlDb: runtime.controlDb } : {}),
       // Rechecks live admission when cached routers or streams use this service bundle.

@@ -4,11 +4,28 @@
 export function createProjectDirectoryLifecycle({ projectLifecycle, projectId, projectRoot }) {
   if (projectLifecycle) return projectLifecycle;
   if (!projectId || !projectRoot) return undefined;
+  // Builds a single-project directory entry for the active Control API process.
+  const singleEntry = () => ({
+    projectId,
+    root: projectRoot,
+    readiness: "ready",
+    operation: { attempt_id: 1, status: "succeeded", diagnostic: null },
+    diagnostic: null,
+    retryable: false
+  });
   return Object.freeze({
     legacyAvailable: false,
     list: () => [{ projectId, root: projectRoot }],
     // Reports the active single-project process without inferring readiness from catalog membership.
-    directory: () => [{ projectId, root: projectRoot, readiness: "ready", operation: { attempt_id: 1, status: "succeeded", diagnostic: null }, diagnostic: null, retryable: false }],
+    directory: () => [singleEntry()],
+    rest: Object.freeze({
+      // Lists the active single-project entry over the `/forge/v1/projects` REST contract.
+      list: async () => [{ ...singleEntry(), project_id: projectId, progress: null }],
+      preflight: unavailable,
+      intake: unavailable,
+      update: unavailable,
+      remove: unavailable
+    }),
     startupErrors: [],
     add: unavailable,
     remove: unavailable

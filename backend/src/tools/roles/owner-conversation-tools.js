@@ -8,6 +8,7 @@ import { engineeringToolDefinitions } from "../engineering-tool-catalog.js";
 import { createOwnerSearchTreeTool } from "./owner-search-tree.js";
 import { createRoleFileService } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { createOwnerDeleteFileTool, createOwnerMoveFileTool } from "./owner-delete-file.js";
+import { createOwnerReadFileBinaryTool, ownerReadFileBinaryDefinition } from "./owner-read-file-binary.js";
 import { createGitReadTools } from "../discovery/git-read-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 import { createSourceReadTool } from "../discovery/source-read.js";
@@ -17,7 +18,7 @@ import { extractOwnerToolPathMeta, recordDiscoveryCompactStep, updateActiveFileC
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
 export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
-  const allowed = ownerRoleTools(role).filter((name) => !context?.planning_input_only || ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "lookup_schema"].includes(name));
+  const allowed = ownerRoleTools(role).filter((name) => !context?.planning_input_only || ["search_tree", "list_files", "search_text", "read_file", "read_file_binary", "Read", "git_status", "git_diff", "lookup_schema"].includes(name));
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
     await scopedFiles.assertReadPath(path);
@@ -30,6 +31,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
     ...base,
     search_tree: createOwnerSearchTreeTool({ fileService: scopedFiles, role }),
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: scopedCache, projectRoot, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch) }),
+    ...( ["architecture_manager", "system_engineer"].includes(role) ? { read_file_binary: createOwnerReadFileBinaryTool({ fileService: scopedFiles }) } : {} ),
     Read: createSourceReadTool({ fileService: scopedFiles, codeCache: scopedCache, projectRoot }),
     write_diff: createWriteDiffTool({ fileService: scopedFiles, codeCache }),
     edit_diff: createEditDiffTool({ fileService: scopedFiles, codeCache }),
@@ -39,7 +41,12 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   if (["architecture_manager", "system_engineer", "reviewer"].includes(role) && typeof gitService?.status === "function" && typeof gitService?.diffWorkingTree === "function") Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
-  const definitions = engineeringToolDefinitions().map((definition) => role === "system_engineer" && definition.name === "search_text" ? { ...definition, input_schema: { ...definition.input_schema, properties: { ...definition.input_schema.properties, paths: { type: "array", minItems: 1, items: { type: "string", pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*|\\.forge(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*)$" } } } } } : definition)
+  const baseDefinitions = engineeringToolDefinitions();
+  const readIdx = baseDefinitions.findIndex(({ name }) => name === "read_file");
+  const candidateDefinitions = ["architecture_manager", "system_engineer"].includes(role) && readIdx >= 0
+    ? [...baseDefinitions.slice(0, readIdx + 1), ownerReadFileBinaryDefinition, ...baseDefinitions.slice(readIdx + 1)]
+    : baseDefinitions;
+  const definitions = candidateDefinitions.map((definition) => role === "system_engineer" && definition.name === "search_text" ? { ...definition, input_schema: { ...definition.input_schema, properties: { ...definition.input_schema.properties, paths: { type: "array", minItems: 1, items: { type: "string", pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*|\\.forge(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*)$" } } } } } : definition)
     .filter(({ name }) => allowed.includes(name) && typeof implementations[name]?.execute === "function");
   const registry = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input, toolContext = context) => {
     const started = Date.now();

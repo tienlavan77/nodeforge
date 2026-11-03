@@ -29,7 +29,7 @@ export async function createBrowserFixture({ sourceRoot, build }) {
     'window.fetch = async (input, init = {}) => {',
     '  const url = new URL(input, location.origin), method = init.method || "GET", body = init.body ? JSON.parse(init.body) : null;',
     '  window.calls.push({ path: url.pathname, method, body });',
-    '  if (url.pathname.endsWith("/lifecycle/list")) return Response.json({ projects: [{ project_id: "PROJECT-A", root: "/fixture/a" }] });',
+    '  if (url.pathname === "/forge/v1/projects" || url.pathname.endsWith("/lifecycle/list")) return Response.json({ projects: [{ project_id: "PROJECT-A", root: "/fixture/a" }] });',
     '  if (url.pathname.endsWith("/agents")) { const role = url.searchParams.get("role"); return Response.json(role ? agents.filter(a => a.role === role) : agents); }',
     '  if (url.pathname.endsWith("/conversations")) return Response.json([{ id: "CONV-1", title: "Workspace conversation" }]);',
     '  if (url.pathname.includes("/messages")) return Response.json({ items: [], has_more: false });',

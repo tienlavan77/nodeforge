@@ -2,5 +2,9 @@
   {
     "root": "/home/data/sites/nodeforge",
     "projectId": "PROJECT-NODEFORGE"
+  },
+  {
+    "root": "/home/data/sites/sitesdev/blog/wp-content/plugins/document",
+    "projectId": "PROJECT-a9568e6d-f01c-49a2-83d2-72daf40fbad6"
   }
 ]

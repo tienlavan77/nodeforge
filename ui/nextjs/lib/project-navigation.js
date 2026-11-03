@@ -1,20 +1,61 @@
 // Share project workspace URLs and remember the selection independently in each browser tab.
 const STORAGE_KEY = "nodeforge:selected-project";
 const globalRoutes = new Set(["system", "coding", "code", "agents"]);
+const UUID_PROJECT_ID_PATTERN = /^PROJECT-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Build the owner-facing Architecture route from the persisted project identity.
-export function projectArchitecturePath(projectId) {
-  return projectId ? `/${encodeURIComponent(projectId)}` : "/";
+// Business purpose: normalizes a human-readable project name or root directory basename into a URL-safe slug so UUID-based project IDs can be displayed as readable project names in browser URLs.
+// Technical description: strips diacritics, converts `đ/Đ` to `d`, lowercases alphanumeric tokens separated by single hyphens, and avoids reserved system routes by appending `-project`.
+export function toProjectSlug(value) {
+  if (typeof value !== "string") return "";
+  const slug = value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+  if (!slug) return "";
+  return globalRoutes.has(slug) || ["forge", "control-api", "lifecycle", "projects", "api", "_next"].includes(slug)
+    ? `${slug}-project`
+    : slug;
+}
+
+// Business purpose: derives a friendly route segment for a project record or ID, mapping opaque `PROJECT-<uuid>` identifiers to the project's human-readable name slug while keeping explicit custom IDs intact.
+// Technical description: inspects a project object or matches a project ID against an optional project list; if the ID matches `PROJECT-<uuid>`, returns the normalized slug from `name`, `title`, or `root` basename.
+export function resolveProjectRouteSlug(projectOrId, projects = []) {
+  if (!projectOrId) return "";
+  const record = typeof projectOrId === "object"
+    ? projectOrId
+    : Array.isArray(projects)
+      ? projects.find((item) => item && (item.project_id === projectOrId || item.projectId === projectOrId || item.slug === projectOrId))
+      : null;
+  const rawId = typeof projectOrId === "object"
+    ? String(projectOrId.project_id ?? projectOrId.projectId ?? "").trim()
+    : String(projectOrId).trim();
+  if (record?.slug && UUID_PROJECT_ID_PATTERN.test(rawId)) return record.slug;
+  if (UUID_PROJECT_ID_PATTERN.test(rawId) && record) {
+    const candidateName = record.name || record.title || String(record.root ?? "").split("/").filter(Boolean).at(-1) || "";
+    const derived = toProjectSlug(candidateName);
+    if (derived) return derived;
+  }
+  return rawId;
+}
+
+// Build the owner-facing Architecture route from the persisted project identity or friendly slug.
+export function projectArchitecturePath(projectId, projects) {
+  const segment = resolveProjectRouteSlug(projectId, projects);
+  return segment ? `/${encodeURIComponent(segment)}` : "/";
 }
 
 // Open System conversations within the selected project's workspace.
-export function projectSystemPath(projectId) {
-  return projectId ? `${projectArchitecturePath(projectId)}/system` : "/";
+export function projectSystemPath(projectId, projects) {
+  return projectId ? `${projectArchitecturePath(projectId, projects)}/system` : "/";
 }
 
 // Open the Coding dashboard within the selected project's workspace.
-export function projectCodingPath(projectId) {
-  return projectId ? `${projectArchitecturePath(projectId)}/coding` : "/";
+export function projectCodingPath(projectId, projects) {
+  return projectId ? `${projectArchitecturePath(projectId, projects)}/coding` : "/";
 }
 
 // Business purpose: keeps the global Agents management page and the public project directory

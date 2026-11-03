@@ -61,7 +61,11 @@ test("AC-3 & AC-6: Option B locks project readiness at running across preflight,
       }
     })
   });
-  t.after(() => lifecycle.close());
+  t.after(async () => {
+    releaseCommentStage?.();
+    releaseEmbeddingStage?.();
+    await lifecycle.close();
+  });
 
   const intakePromise = lifecycle.rest.intake({ name: "Option B Service", root: projectRoot });
 
@@ -83,28 +87,31 @@ test("AC-3 & AC-6: Option B locks project readiness at running across preflight,
   assert.equal(listDuringComments[0].progress.stages.resolve, "pending");
   assert.equal(listDuringComments[0].progress.stages.embedding, "pending");
 
-  // 2. Release comment_normalization and inspect state while paused in embedding (after scan/index and resolve).
+  // 2. Release comment_normalization and inspect state while embedding is running in the background.
   releaseCommentStage();
+  const admitted = await intakePromise;
+  assert.ok(admitted.project_id);
   await embeddingStageEntered;
 
   const dirDuringEmbedding = lifecycle.directory();
-  assert.equal(dirDuringEmbedding[0].readiness, "running");
-  assert.equal(await lifecycle.get(projectRoot), undefined);
+  assert.equal(dirDuringEmbedding[0].readiness, "ready");
+  assert.ok(await lifecycle.get(projectRoot));
 
   const listDuringEmbedding = await lifecycle.rest.list();
-  assert.equal(listDuringEmbedding[0].readiness, "running");
-  assert.equal(listDuringEmbedding[0].progress.stage, "embedding");
-  assert.equal(listDuringEmbedding[0].progress.status, "running");
+  assert.equal(listDuringEmbedding[0].readiness, "ready");
+  assert.equal(listDuringEmbedding[0].progress.stage, "startup/readiness");
+  assert.equal(listDuringEmbedding[0].progress.status, "succeeded");
+  assert.equal(listDuringEmbedding[0].progress.embedding.status, "running");
   assert.equal(listDuringEmbedding[0].progress.stages.preflight, "completed");
   assert.equal(listDuringEmbedding[0].progress.stages.comment_normalization, "completed");
   assert.equal(listDuringEmbedding[0].progress.stages["scan/index"], "completed");
   assert.equal(listDuringEmbedding[0].progress.stages.resolve, "completed");
-  assert.equal(listDuringEmbedding[0].progress.stages.embedding, "running");
 
-  // 3. Release embedding and verify transition to ready only after 100% completion.
+  // 3. Release background embedding and verify embedding progress settles to succeeded.
   releaseEmbeddingStage();
-  const admitted = await intakePromise;
-  assert.ok(admitted.project_id);
+  for (let i = 0; i < 100 && (await lifecycle.rest.list())[0]?.progress?.embedding?.status === "running"; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 
   const dirAfter = lifecycle.directory();
   assert.equal(dirAfter[0].readiness, "ready");

@@ -74,15 +74,16 @@ const storage = await createControlApiStorage({
   onWrite: createOnWriteVerifier({ getTestService: () => testService })
 });
 const { processLock, controlDb, indexDb } = storage;
+const sharedAgent = createControlApiAgent({ database: controlDb, fileService: storage.fileService, config });
 let projectLifecycle;
 // Builds a complete application bundle while leaving startup initialization and lifecycle admission intact.
-async function createProjectApplication({ config, storage, startProjectWorkers = false, onTestService = () => {} }) {
+async function createProjectApplication({ config, storage, agent = sharedAgent, startProjectWorkers = false, onTestService = () => {} }) {
 const { fileService, protocolStorage, conversationStateStore, controlDb, indexDb } = storage;
 let testService;
 const { logEvent, readLogEvents } = createProjectLogService({ projectRoot: config.cwd, fileService });
 try {
 const database = controlDb;
-const { profiles, agentConfiguration, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver } = createControlApiAgent({ database, fileService, config });
+const { profiles, agentConfiguration, agentGateway, claudeSdkGateway, codexSdkGateway, openaiSdkGateway, ollamaSdkGateway, agentSettings, agentRoleResolver, agentDatabase = database } = agent ?? createControlApiAgent({ database, fileService, config });
 const planFileService = createFileService({ projectRoot: config.cwd, allowPlanStorage: true });
 const markdownPlanStore = createMarkdownPlanStore({ projectId: config.projectId, database, fileService: planFileService });
 const planStore = createHumanPlanStore({ projectId: config.projectId, database, fileService: planFileService, markdownPlans: markdownPlanStore });
@@ -110,7 +111,7 @@ const reportService = createCompletionReportService({ protocolStorage, fileServi
 const onEvalCase = createEvalCaseRecorder({ root: config.cwd });
 const { projectId, indexDb: platformIndexDb, codeSearch, fileGraph, relevantTreeSelector, freshnessChecker, ticketSprintLeader, sprintPlanLeader, communications, conversations, bus, decisions, roadmaps, knowledge, sprintPlans, provenance, eventStore, subscriptions, internalBus, eventPublisher, taskStore, ticketStatusStore, contextEngine, sprintOrchestration, proseTicketService, ticketFileStore, sprintPlanUpload, taskSummaries, projectMemory } = platform;
 const executionActivity = platform.executionActivity;
-const agentOccupancy = createAgentOccupancyStore({ database, profiles, defaultProjectId: projectId, configuration: agentConfiguration,
+const agentOccupancy = createAgentOccupancyStore({ database: agentDatabase, profiles, defaultProjectId: projectId, configuration: agentConfiguration,
   ...createAgentOccupancyNotifications({ projectId, logEvent, internalBus, executionActivity, eventPublisher }) });
 testService = platform.testService;
 onTestService(testService);
@@ -181,7 +182,10 @@ const projectWorkers = startProjectWorkers ? storage.disposal.own(startControlAp
   indexDb,
   runtimeLogger: createRuntimeLogger({ logEvent: createAgentActivityLogger({ logEvent, executionActivity }), source: "project-watcher" }),
   codeCache,
-  subscriptions
+  subscriptions,
+  bus,
+  internalBus,
+  executionActivity
 }), "stop", 10) : null;
 if (projectWorkers) workers.push(projectWorkers);
 // Reconciles a retained unknown-provider blocker stage so the owner can clear a stuck ticket and a later RUN may re-arm it.

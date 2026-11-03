@@ -2,8 +2,8 @@
 "use client";
 // eslint-disable-next-line no-unused-vars -- Fragment is rendered in JSX.
 import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
-import { getProjectSelection, refreshProjects, selectProject, subscribeProjectSelection } from "../lib/project-selection.js";
-import { readSelectedProject } from "../lib/project-navigation.js";
+import { getProjectSelection, refreshProjects, resolveManagedProjectId, selectProject, subscribeProjectSelection } from "../lib/project-selection.js";
+import { readSelectedProject, resolveProjectRouteSlug } from "../lib/project-navigation.js";
 import { getNotebookSession } from "../lib/notebook-session.js";
 
 const initialSelection = { projects: [], projectId: null, generation: 0, loaded: false, error: null };
@@ -30,11 +30,22 @@ export function ProjectWorkspace({ children, projectId }) {
       try {
         const current = getProjectSelection();
         const soleProject = current.projects.length === 1 ? current.projects[0].project_id : null;
-        const target = projectId ?? readSelectedProject() ?? current.projectId ?? soleProject;
-        if (!target) throw new Error("Choose a project to open its workspace.");
+        const rawTarget = projectId ?? readSelectedProject() ?? current.projectId ?? soleProject;
+        if (!rawTarget) throw new Error("Choose a project to open its workspace.");
+        const target = resolveManagedProjectId(rawTarget) || rawTarget;
         if (!getProjectSelection().projects.some((project) => project.project_id === target)) throw new Error("This project is unavailable. Choose an available project.");
         selectProject(target);
         setAdmitted(target);
+        if (typeof window !== "undefined" && window.history?.replaceState && projectId && /^PROJECT-[0-9a-f]{8}-[0-9a-f]{4}-/i.test(projectId)) {
+          const friendlySlug = resolveProjectRouteSlug(target, getProjectSelection().projects);
+          if (friendlySlug && friendlySlug !== projectId) {
+            const parts = String(window.location?.pathname ?? "").split("/").filter(Boolean);
+            if (parts.length >= 1) {
+              parts[0] = encodeURIComponent(friendlySlug);
+              window.history.replaceState(window.history.state, "", `/${parts.join("/")}${window.location?.search ?? ""}${window.location?.hash ?? ""}`);
+            }
+          }
+        }
       } catch (failure) { if (active) setError(failure.message); }
     }
     void load();
