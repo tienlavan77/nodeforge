@@ -1,5 +1,5 @@
 // Business purpose: verifies and materializes commit-bound source snapshots, symbol extraction for .mjs files, verbatim split diffs, and durable verification artifacts for PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792.
-// Technical description: re-indexes backend/scripts/*.mjs into .forge/runtime/wc/index.db, materializes commit-bound snapshots for dbeac8ddd6092a5790e4e3f184fcda605407a491 and HEAD, and writes/verifies 5-part Markdown unified diffs and durable verification artifacts (each .md <= 250 lines).
+// Technical description: re-indexes backend/scripts/*.mjs into .forge/runtime/wc/index.db, materializes commit-bound snapshots for dbeac8ddd6092a5790e4e3f184fcda605407a491 and HEAD, and writes/verifies 5-part Markdown unified diffs, durable verification artifacts, and verification reports (each .md <= 250 lines).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -199,6 +199,85 @@ function writeVerificationArtifact({ snapshot, patchMeta, symbolsByPath, roundLa
   return { jsonPath, jsonSha256: sha256(readFileSync(jsonPath, "utf8")), mdPath, mdSha256: sha256(mdLines) };
 }
 
+// Business purpose: writes the consolidated human- and Reviewer-readable verification report to docs/reports/ and .forge/runtime/reports/.
+// Technical description: formats commit-bound snapshots, manifest digests, per-file checksums, symbol maps, and split diff tables into <= 250 lines.
+function writeVerificationReports({ r1Snapshot, headSnapshot, r1PartMeta, activePartMeta, r1Artifact, headArtifact, symbolsByPath }) {
+  const headFileRows = Object.entries(headSnapshot.fileDetails)
+    .map(([p, info], idx) => `| ${idx + 1} | \`${p}\` | \`${info.sha256}\` | ${info.total_lines} | ${info.code_lines} |`)
+    .join("\n");
+  const r1FileRows = Object.entries(r1Snapshot.fileDetails)
+    .map(([p, info], idx) => `| ${idx + 1} | \`${p}\` | \`${info.sha256}\` | ${info.total_lines} | ${info.code_lines} |`)
+    .join("\n");
+  const activePatchRows = activePartMeta
+    .map((p) => `| ${p.part} | \`${p.path}\` | \`${p.sha256}\` | ${p.total_lines} | ${p.diff_lines} |`)
+    .join("\n");
+  const r1PatchRows = r1PartMeta
+    .map((p) => `| ${p.part} | \`${p.path}\` | \`${p.sha256}\` | ${p.total_lines} | ${p.diff_lines} |`)
+    .join("\n");
+  const symbolRows = R1_SCOPED_FILES.map((p) => {
+    const syms = (symbolsByPath[p] ?? []).map((s) => `\`${s.name}\` (${s.kind}, L${s.start_line}–${s.end_line})`).join(", ");
+    return `- \`${p}\`: ${syms}`;
+  }).join("\n");
+
+  const reportMd = [
+    `# Verification & Review Snapshot Report — ${PLAN_ID} (r1, Round 2)`,
+    "",
+    `- **Plan ID**: \`${PLAN_ID}\` (\`r1\`)`,
+    `- **Handoff ID**: \`HANDOFF-${PLAN_ID}-R1\` (\`CORR-HANDOFF-${PLAN_ID}-SE-R2\`)`,
+    `- **Source / Ledger Revision (\`commit_id\`)**: \`${LEDGER_COMMIT_ID}\``,
+    `- **Declared Base Commit SHA (\`base_sha\`)**: \`${BASE_SHA}\` (\`base_tree_sha: ${BASE_TREE_SHA}\`)`,
+    `- **Round 1 Commit SHA**: \`${R1_COMMIT_SHA}\` (\`tree_sha: ${r1Snapshot.treeSha}\`, \`manifest_sha256: ${r1Snapshot.manifestSha256}\`)`,
+    `- **Round 2 Review Commit SHA (\`HEAD\`)**: \`${headSnapshot.commitSha}\` (\`tree_sha: ${headSnapshot.treeSha}\`, \`manifest_sha256: ${headSnapshot.manifestSha256}\`)`,
+    `- **Durable Verification Artifacts**:`,
+    `  - \`.forge/runtime/tickets/ticket-verification/${PLAN_ID}/artifacts/ARTIFACT-${headSnapshot.commitSha}.json\` (\`${headArtifact.jsonSha256}\`)`,
+    `  - \`.forge/runtime/tickets/ticket-verification/${PLAN_ID}/artifacts/ARTIFACT-${headSnapshot.commitSha}.md\` (\`${headArtifact.mdSha256}\`)`,
+    `  - \`.forge/runtime/tickets/ticket-verification/${PLAN_ID}/artifacts/ARTIFACT-${R1_COMMIT_SHA}.json\` (\`${r1Artifact.jsonSha256}\`)`,
+    `  - \`.forge/runtime/tickets/ticket-verification/${PLAN_ID}/artifacts/ARTIFACT-${R1_COMMIT_SHA}.md\` (\`${r1Artifact.mdSha256}\`)`,
+    `- **Commit-Bound Snapshot Roots**:`,
+    `  - Round 2 (\`${headSnapshot.commitSha}\`): \`.forge/runtime/reports/${PLAN_ID}-r1-snapshot/${headSnapshot.commitSha}/\` & \`.forge/runtime/tickets/ticket-verification/${PLAN_ID}/snapshot/${headSnapshot.commitSha}/\``,
+    `  - Round 1 (\`${R1_COMMIT_SHA}\`): \`.forge/runtime/reports/${PLAN_ID}-r1-snapshot/${R1_COMMIT_SHA}/\` & \`.forge/runtime/tickets/ticket-verification/${PLAN_ID}/snapshot/${R1_COMMIT_SHA}/\``,
+    "",
+    "## 1. Indexed Symbol Map for `Read({file_path, symbol})` Across All 6 O1/O2 Files",
+    "",
+    symbolRows,
+    "",
+    `## 2. Round 2 Scoped File Manifest (\`${headSnapshot.commitSha}\`, \`manifest_sha256: ${headSnapshot.manifestSha256}\`)`,
+    "",
+    "| # | Scoped File Path | `sha256` | `total_lines` | `code_lines` |",
+    "| ---: | --- | --- | ---: | ---: |",
+    headFileRows,
+    "",
+    `## 3. Round 1 Scoped File Manifest (\`${R1_COMMIT_SHA}\`, \`manifest_sha256: ${r1Snapshot.manifestSha256}\`)`,
+    "",
+    "| # | Scoped File Path | `sha256` | `total_lines` | `code_lines` |",
+    "| ---: | --- | --- | ---: | ---: |",
+    r1FileRows,
+    "",
+    `## 4. Verbatim 5-Part Scoped Unified Diff (\`${BASE_SHA}..${headSnapshot.commitSha}\`, All \`<= 250\` Lines)`,
+    "",
+    "| Part | Path | `sha256` | `total_lines` | Diff Lines |",
+    "| ---: | --- | --- | ---: | --- |",
+    activePatchRows,
+    "",
+    `## 5. Verbatim 4-Part Round 1 Scoped Unified Diff (\`${BASE_SHA}..${R1_COMMIT_SHA}\`, All \`<= 250\` Lines)`,
+    "",
+    "| Part | Path | `sha256` | `total_lines` | Diff Lines |",
+    "| ---: | --- | --- | ---: | --- |",
+    r1PatchRows,
+    ""
+  ].join("\n");
+
+  const docsReportPath = resolve(`docs/reports/${PLAN_ID}-r1-verification.md`);
+  const runtimeReportPath = resolve(`.forge/runtime/reports/${PLAN_ID}-r1-verification.md`);
+  mkdirSync(dirname(docsReportPath), { recursive: true });
+  mkdirSync(dirname(runtimeReportPath), { recursive: true });
+  writeFileSync(docsReportPath, reportMd, "utf8");
+  writeFileSync(runtimeReportPath, reportMd, "utf8");
+  const reportLines = reportMd.split("\n").length - 1;
+  assert.ok(reportLines <= 250, `Verification report has ${reportLines} lines, exceeding 250-line limit`);
+  return { reportSha256: sha256(reportMd), reportLines };
+}
+
 test("reindexes .mjs files, materializes commit-bound snapshots, and verifies 5-part unified diffs", async () => {
   const projectRoot = process.cwd();
   const fileService = createFileService({ projectRoot });
@@ -290,10 +369,11 @@ test("reindexes .mjs files, materializes commit-bound snapshots, and verifies 5-
 
   const r1Artifact = writeVerificationArtifact({ snapshot: r1Snapshot, patchMeta: r1PartMeta, symbolsByPath, roundLabel: "Round 1" });
   const headArtifact = writeVerificationArtifact({ snapshot: headSnapshot, patchMeta: activePartMeta, symbolsByPath, roundLabel: "Round 2" });
+  const reportInfo = writeVerificationReports({ r1Snapshot, headSnapshot, r1PartMeta, activePartMeta, r1Artifact, headArtifact, symbolsByPath });
 
   writeFileSync(
     `.forge/runtime/reports/${PLAN_ID}-r1-git-meta.json`,
-    JSON.stringify({ baseSha: BASE_SHA, r1Snapshot, headSnapshot, r1PartMeta, activePartMeta, r1Artifact, headArtifact, symbolsByPath }, null, 2),
+    JSON.stringify({ baseSha: BASE_SHA, r1Snapshot, headSnapshot, r1PartMeta, activePartMeta, r1Artifact, headArtifact, reportInfo, symbolsByPath }, null, 2),
     "utf8"
   );
 });
