@@ -8,7 +8,16 @@ const ACTIVE_STATUSES = ["pending", "processing", "retry_wait"];
 export function createEmbeddingJobStore({ database, clock = () => new Date(), onEnqueue = null } = {}) {
   if (!database || typeof database.all !== "function" || typeof database.run !== "function") throw new ConfigurationError("Embedding job store requires a database.");
   if (typeof clock !== "function") throw new ConfigurationError("Embedding job store clock must be a function.");
-  return Object.freeze({ enqueue, claimNext, recoverProcessing, complete, retry, supersede, counts });
+  return Object.freeze({ enqueue, claimNext, recoverProcessing, complete, retry, supersede, counts, removeOtherModels });
+
+  /**
+   * Discards jobs belonging to retired embedding models before recovery and
+   * requeueing, preserving current-model work and every source symbol.
+   */
+  function removeOtherModels(model) {
+    if (typeof model !== "string" || !model.trim()) throw new ConfigurationError("Embedding cleanup requires a model tag.");
+    return Number(database.run("DELETE FROM embedding_jobs WHERE model IS NULL OR model != ?", [model]).changes ?? 0);
+  }
 
   // Enqueues only the latest checksum for a symbol and supersedes older work.
   function enqueue({ symbolId, contentChecksum, model, priority = 100 } = {}) {

@@ -137,7 +137,7 @@ export function NotebookPanel({ client, projectId, open, onClose, panelId, minim
         <label htmlFor={panelId + "-entry"}>Ghi chú mới</label>
         <textarea ref={input} id={panelId + "-entry"} value={draft.content}
           onChange={(event) => changeDraft({ ...draft, content: event.target.value })} />
-        <button className="notebook-entry-submit" disabled={blocked || !draft.content.trim()} type="submit">Thêm sổ tay</button>
+        <button className="notebook-entry-submit" disabled={blocked || !draft.content.trim()} type="submit">Thêm ghi chú</button>
       </form>
       <div role="status" aria-live="polite">{loading ? "Đang tải…" : saving ? "Đang lưu…" : saved ? <><span>Đã lưu</span>{" bản đã gửi. Phần nhập mới vẫn là bản nháp."}</> : ""}</div>
       {error && <div role="alert"><p>{error}</p>
@@ -145,7 +145,7 @@ export function NotebookPanel({ client, projectId, open, onClose, panelId, minim
       </div>}
       {uncertain && <p role="note">Chưa xác nhận lưu. {uncertain.checked && "Đã tải dữ liệu để đối chiếu. "}{uncertain.kind === "create" ? "Không thể xác định chắc chắn sổ tay đã được tạo. Gửi lại có thể tạo bản trùng." : "Kiểm tra dữ liệu server trước khi gửi lại."}</p>}
       {comparison && <aside aria-label="Bản server"><h3>Bản server để đối chiếu</h3><p>{comparison.content}</p><p>Version: {comparison.version ?? "—"}</p></aside>}
-      {loaded && !loading && !visibleItems.length && <p>Chưa có sổ tay.</p>}
+      {loaded && !loading && !visibleItems.length && <p>Chưa có bất k.</p>}
       <div className="notebook-lists-container">
         <div className="notebook-list-section" data-list-status="open">
           <h4 className="notebook-list-heading">Chưa hoàn thành ({openItems.length})</h4>

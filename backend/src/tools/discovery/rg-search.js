@@ -164,5 +164,5 @@ function invalidInput(message) {
 
 // Authorizes narrowly scoped runtime searches only for System Engineer without accepting traversal.
 function isForgeScope(path, context) {
-  return ["system_engineer", "reviewer"].includes(context.agent_identity?.role) && typeof path === "string" && (path === ".forge" || path.startsWith(".forge/")) && !/[\\\0]/.test(path) && path.split("/").every((part) => part && part !== "." && part !== "..");
+  return ["system_engineer", "reviewer", "architecture_manager"].includes(context.agent_identity?.role) && typeof path === "string" && (path === ".forge" || path.startsWith(".forge/")) && !/[\\\0]/.test(path) && path.split("/").every((part) => part && part !== "." && part !== "..");
 }

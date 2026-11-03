@@ -79,6 +79,7 @@ test("Only Coding monitor chrome loses padding while monitor content scrolls ins
   assert.equal(declarations(".workspace-monitor-header").flex, "none");
   assert.equal(declarations(".coding-agent-monitor .workspace-monitor-header").padding, "0");
   assert.equal(declarations(".coding-agent-monitor .workspace-monitor-content").padding, "0");
+  assert.equal(declarations(".coding-agent-monitor strong").display, "inline");
   const content = declarations(".workspace-monitor-content");
   assert.equal(content.padding, "10px 14px");
   assert.equal(content["min-height"], "0");
@@ -169,4 +170,19 @@ test("Unified Agents Activity resolver formats multiple agents, missing optional
   const profiledDirectory = [{ agent_id: "coder-1", project_id: "PROJ-A", role: "coder", agent_name: "Coder One", color: "#ffcb6b" }];
   assert.equal(resolveCodingAgentActivities(rollingBuffer, profiledDirectory, "PROJ-A")[0].tone, "#ffcb6b");
   assert.equal(resolveCodingAgentActivities(rollingBuffer.slice(1), profiledDirectory, "PROJ-A")[0].tone, "#ffcb6b");
+
+  const seDirectory = [...directory, { agent_id: "se-1", agent_name: "System Engineer", role: "system_engineer", project_id: "PROJ-A" }];
+  const seActivities = resolveCodingAgentActivities([
+    { event_id: "se-tool", event_type: "agent.activity", project_id: "PROJ-A", payload: { agent_id: "se-1", activity_type: "tool_completed", status: "success", summary: "Forge tool edit_diff success", tool_name: "edit_diff" } },
+    { event_id: "se-turn", event_type: "agent.activity", project_id: "PROJ-A", payload: { agent_id: "se-1", agent_role: "system_engineer", activity_type: "progress", status: "working", summary: "System Engineer reply", sdk_event: { type: "conversation_turn", entries: [] } } }
+  ], seDirectory, "PROJ-A");
+  assert.equal(seActivities.length, 1);
+  assert.equal(seActivities[0].agentName, "System Engineer");
+  assert.equal(seActivities[0].role, "system_engineer");
+  assert.equal(seActivities[0].activityType, "tool completed");
+  assert.equal(seActivities[0].status, "success");
+
+  assert.match(monitor, /latestWatcherKey/);
+  assert.match(monitor, /latestActivityKey/);
+  assert.match(monitor, /hasWorkingAgent/);
 });

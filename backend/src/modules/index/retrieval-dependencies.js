@@ -2,7 +2,7 @@
 import { createCodeSearch } from "./code-search.js";
 import { createFileGraph } from "./file-graph.js";
 import { createEmbeddingStore } from "./embedding-store.js";
-import { createOllamaEmbeddingProvider } from "./ollama-embedding-provider.js";
+import { createOnnxEmbeddingProvider } from "./onnx-embedding-provider.js";
 
 const DEFAULT_OLLAMA_BASE_URL = "http://192.168.1.180:11434";
 const DEFAULT_OLLAMA_MODEL = "embeddinggemma";
@@ -14,7 +14,8 @@ export function createRetrievalDependencies({ database, ollamaConfig = {} } = {}
   const search = createCodeSearch({ database });
   const fileGraph = createFileGraph({ database });
   const embeddingStore = createEmbeddingStore({ database });
-  const embeddingProvider = createOllamaEmbeddingProvider(config);
+  const embeddingProvider = createOnnxEmbeddingProvider();
+  config.model = embeddingProvider.model;
   return Object.freeze({ search, fileGraph, embeddingStore, embeddingProvider, ollamaConfig: Object.freeze(config) });
 }
 

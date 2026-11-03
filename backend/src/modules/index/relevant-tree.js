@@ -33,8 +33,8 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
       const queryText = [args.title, args.objective].filter((value) => typeof value === "string" && value.trim()).join("\n").slice(0, 2000);
       if (!queryText.trim()) return limitedBase();
       const prefixes = base.allowed_prefixes ? [...base.allowed_prefixes] : undefined;
-      const queryVector = await embeddingProvider.embed(queryText);
-      const hits = embeddingStore.search(queryVector, { limit: maxFiles * 2, allowedPrefixes: prefixes });
+      const queryVector = await embeddingProvider.embed(queryText, { purpose: "query" });
+      const hits = embeddingStore.search(queryVector, { limit: maxFiles * 2, allowedPrefixes: prefixes, model: embeddingProvider.model });
       if (!hits.length) return limitedBase();
       const lexicalWeight = readWeight(process.env.RETRIEVAL_LEXICAL_WEIGHT, 0.65);
       const semanticWeight = readWeight(process.env.RETRIEVAL_SEMANTIC_WEIGHT, 0.35);

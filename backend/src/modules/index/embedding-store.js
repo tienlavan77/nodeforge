@@ -9,7 +9,16 @@ import { purposeSummaryInput } from "./purpose-summary-input.js";
 // only reads/writes, never creates tables.
 export function createEmbeddingStore({ database, logger = console } = {}) {
   if (!database || typeof database.all !== "function" || typeof database.run !== "function") throw new ConfigurationError("Embedding store requires an index database.");
-  return Object.freeze({ upsert, remove, removeByFile, search });
+  return Object.freeze({ upsert, remove, removeByFile, search, removeOtherModels });
+
+  /**
+   * Removes incompatible vectors during model upgrades while retaining current
+   * vectors and all source summaries. Rejects an absent model before deleting.
+   */
+  function removeOtherModels(model) {
+    if (typeof model !== "string" || !model.trim()) throw new ConfigurationError("Embedding cleanup requires a model tag.");
+    return Number(database.run("DELETE FROM symbol_embeddings WHERE embedding_model IS NULL OR embedding_model != ?", [model]).changes ?? 0);
+  }
 
   // Defines upsert function behavior for embedding-store.js.
   function upsert({ symbolId, vector, model, checksum }) {
