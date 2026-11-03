@@ -18,7 +18,7 @@ export function scopedGraph(graph, context) {
     if (typeof path !== "string") return false;
     if (context.agent_identity?.role === "coder") return isAgentPathAllowed(path, context);
     if (context.file_access_version !== undefined || context.file_access_policy !== undefined) return isAgentPathAllowed(path, context);
-    if (context.agent_identity?.role === "architecture_manager" || context.agent_identity?.role === "system_engineer") {
+    if (["architecture_manager", "system_engineer", "reviewer", "sprint_leader"].includes(context.agent_identity?.role)) {
       if (context.agent_identity.role === "system_engineer" && !isAgentPathAllowed(path, context)) return false;
       try { assertRoleFileAccess(context.agent_identity.role, "read", path); return true; }
       catch (error) { if (error.code === "FILE_ROLE_FORBIDDEN") return false; throw error; }

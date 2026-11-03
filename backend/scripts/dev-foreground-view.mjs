@@ -10,9 +10,11 @@ let gitCache = { at: 0, text: "git --" };
 let embeddingCache = { at: 0, text: "" };
 
 // Creates a terminal view over the shared service and log state.
-export function createForegroundView({ children, serviceState, logLines, suggestions, isActive, output = process.stdout, getGitInfo, getEmbeddingProgress }) {
+export function createForegroundView({ children, serviceState, logLines, suggestions, isActive, output = process.stdout, projectRoot = process.cwd(), getGitInfo, getEmbeddingProgress }) {
   const readGitInfo = getGitInfo ?? gitInfo;
   const readEmbeddingProgress = getEmbeddingProgress ?? embeddingProgressLine;
+  embeddingCache = { at: 0, text: "", counts: null, lastWorkerLog: "" };
+  let instanceEmbeddingCache = embeddingCache;
 // Summary: Redraws the log area, status bar, and boxed prompt like the Claude Code CLI.
 function render(state) {
   if (!isActive() || !state || state.copyMode || state.selecting) return;
@@ -116,44 +118,79 @@ function processStats(pid) {
   } catch { return "--"; }
 }
 
-// Summary: Reads embedding queue counts and renders a progress bar with throughput.
+// Summary: Parses the latest API worker log entries for embedding progress events.
+function parseWorkerLogProgress() {
+  let done = 0;
+  let failed = 0;
+  let active = 0;
+  let vectors = 0;
+  let hasWorkerEvent = false;
+  let lastWorkerLog = "";
+  for (const entry of logLines ?? []) {
+    const line = String(entry?.line ?? "");
+    if (!/embedding_worker\.|Embedding job (?:completed|failed)|Recovered \d+ interrupted embedding job|Indexer updated file/.test(line)) continue;
+    lastWorkerLog = `${entry?.time ?? ""}:${line}`;
+    const recovered = line.match(/Recovered (\d+) interrupted embedding job/);
+    if (recovered) { active = Math.max(active, Number(recovered[1])); hasWorkerEvent = true; }
+    if (line.includes("Embedding job failed")) { failed += 1; hasWorkerEvent = true; }
+    const completed = line.match(/Embedding job completed \((\d+) done, (\d+) queued, (\d+) vectors\)/);
+    if (completed) {
+      done = Number(completed[1]);
+      active = Number(completed[2]);
+      vectors = Number(completed[3]);
+      hasWorkerEvent = true;
+    }
+  }
+  return { hasWorkerEvent, done, failed, active, vectors, lastWorkerLog };
+}
+
+// Summary: Reads embedding queue counts from SQLite and API worker logs and renders a progress bar with throughput.
 function embeddingProgressLine() {
-  if (Date.now() - embeddingCache.at < 2000) return embeddingCache.text;
-  let text = "";
+  const logProgress = parseWorkerLogProgress();
+  if (logProgress.lastWorkerLog === instanceEmbeddingCache.lastWorkerLog && Date.now() - instanceEmbeddingCache.at < 2000) {
+    return instanceEmbeddingCache.text;
+  }
+  let done = logProgress.done;
+  let failed = logProgress.failed;
+  let active = logProgress.active;
+  let vectors = logProgress.vectors;
   try {
-    const database = new DatabaseSync(join(process.cwd(), ".forge", "runtime", "wc", "index.db"), { readOnly: true });
+    const database = new DatabaseSync(join(projectRoot, ".forge", "runtime", "wc", "index.db"), { readOnly: true });
     try {
       const counts = Object.fromEntries(
         database.prepare("SELECT status, COUNT(*) AS count FROM embedding_jobs GROUP BY status").all()
           .map((row) => [row.status, Number(row.count)])
       );
-      const done = counts.completed ?? 0;
-      const failed = counts.failed ?? 0;
-      const active = (counts.pending ?? 0) + (counts.retry_wait ?? 0) + (counts.processing ?? 0);
-      const total = done + failed + active;
-      const vectors = Number(database.prepare("SELECT COUNT(*) AS count FROM symbol_embeddings").all()[0]?.count ?? 0);
-      if (total > 0) {
-        const width = 12;
-        const filled = Math.round((width * (done + failed)) / total);
-        const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
-        const percent = Math.round(((done + failed) / total) * 100);
-        const previous = embeddingCache.counts;
-        let rate = "";
-        if (previous && embeddingCache.at > 0) {
-          const elapsed = (Date.now() - embeddingCache.at) / 1000;
-          const delta = done - previous.done;
-          if (elapsed > 0 && delta >= 0) rate = ` · ${(delta / elapsed).toFixed(1)}/s`;
-        }
-        embeddingCache.counts = { done };
-        const failedPart = failed > 0 ? ` · \x1b[31m${failed} failed\x1b[0m` : "";
-        text = `\x1b[38;5;245membed \x1b[36m${bar}\x1b[0m\x1b[38;5;245m ${percent}% · ${done}/${total} done · ${active} queued · ${vectors} vectors${rate}${failedPart}\x1b[0m`;
-      }
+      done = Math.max(done, counts.completed ?? 0);
+      failed = Math.max(failed, counts.failed ?? 0);
+      active = (counts.pending ?? 0) + (counts.retry_wait ?? 0) + (counts.processing ?? 0);
+      vectors = Math.max(vectors, Number(database.prepare("SELECT COUNT(*) AS count FROM symbol_embeddings").all()[0]?.count ?? 0));
     } finally {
       database.close();
     }
-  // eslint-disable-next-line no-silent-catch -- SQLite probe: watcher DB may not exist yet on first run.
-  } catch { text = ""; }
-  embeddingCache = { at: Date.now(), text, counts: embeddingCache.counts };
+  // eslint-disable-next-line no-silent-catch -- SQLite probe: watcher DB may not exist yet when worker logs arrive first.
+  } catch { /* fallback to parsed worker log counts */ }
+  let text = "";
+  const total = done + failed + active;
+  if (total > 0 || logProgress.hasWorkerEvent) {
+    const effectiveTotal = Math.max(1, total);
+    const width = 12;
+    const filled = Math.round((width * (done + failed)) / effectiveTotal);
+    const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
+    const percent = Math.round(((done + failed) / effectiveTotal) * 100);
+    const previous = instanceEmbeddingCache.counts;
+    let rate = "";
+    if (previous && instanceEmbeddingCache.at > 0) {
+      const elapsed = (Date.now() - instanceEmbeddingCache.at) / 1000;
+      const delta = done - previous.done;
+      if (elapsed > 0 && delta >= 0) rate = ` · ${(delta / elapsed).toFixed(1)}/s`;
+    }
+    instanceEmbeddingCache.counts = { done };
+    const failedPart = failed > 0 ? ` · \x1b[31m${failed} failed\x1b[0m` : "";
+    text = `\x1b[38;5;245membed \x1b[36m${bar}\x1b[0m\x1b[38;5;245m ${percent}% · ${done}/${total} done · ${active} queued · ${vectors} vectors${rate}${failedPart}\x1b[0m`;
+  }
+  instanceEmbeddingCache = { at: Date.now(), text, counts: instanceEmbeddingCache.counts, lastWorkerLog: logProgress.lastWorkerLog };
+  embeddingCache = instanceEmbeddingCache;
   return text;
 }
 

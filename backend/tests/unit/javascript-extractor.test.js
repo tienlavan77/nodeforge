@@ -76,6 +76,33 @@ function verifyUnsupportedAndModuleExtensions() {
 
 test("returns an empty normalized extraction for an unsupported extension", verifyUnsupportedAndModuleExtensions);
 
+// Business purpose: verifies that Reviewer scopedGraph retains graph edges for snapshot and project files and createDependencyGraph resolves snapshot-relative imports.
+// Technical description: exercises scopedGraph with role=reviewer and createDependencyGraph.resolve with a .forge/runtime/tickets/ticket-verification snapshot path.
+async function verifyReviewerSnapshotGraphAndResolution() {
+  const { scopedGraph } = await import("../../src/tools/discovery/agent-file-index-view.js");
+  const { createDependencyGraph } = await import("../../src/modules/index/dependency-graph.js");
+  const snapshotFile = ".forge/runtime/tickets/ticket-verification/PLAN-TEST/snapshot/0123456789abcdef0123456789abcdef01234567/backend/scripts/control-api-project-runtime.mjs";
+  const targetFile = "backend/src/modules/index/embedding-worker.js";
+  const graph = {
+    imports: [{ path: targetFile, name: "createEmbeddingWorker", kind: "named", broken: false }],
+    imported_by: [{ path: "backend/scripts/start-control-api.mjs", name: "startControlApiWorkers", kind: "named", broken: false }],
+    calls: [{ caller: { path: snapshotFile, name: "startControlApiWorkers" }, target: { path: targetFile, name: "createEmbeddingWorker" }, line: 45 }]
+  };
+  const filtered = scopedGraph(graph, { agent_identity: { role: "reviewer" } });
+  assert.equal(filtered.imports.length, 1);
+  assert.equal(filtered.imported_by.length, 1);
+  assert.equal(filtered.calls.length, 1);
+
+  const depGraph = createDependencyGraph({
+    database: { run() {} },
+    files: { findByPath: (path) => (path === targetFile ? { file_id: "FILE-EMBED-WORKER" } : null) },
+    projectRoot: "/repo"
+  });
+  assert.equal(depGraph.resolve(snapshotFile, "../src/modules/index/embedding-worker.js", false), "FILE-EMBED-WORKER");
+}
+
+test("preserves Reviewer code_graph links and resolves snapshot relative imports", verifyReviewerSnapshotGraphAndResolution);
+
 test("extracts JSX UI metadata symbols for .jsx files but not plain .js", () => {
   const source = `export function Panel({ open }) {
   return (
