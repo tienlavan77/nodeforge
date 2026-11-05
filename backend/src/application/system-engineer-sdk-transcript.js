@@ -112,6 +112,11 @@ export function formatForgeToolCommand(rawName, rawInput, complete = true) {
   if (typeof input?.command === "string" && input.command.trim()) return input.command.trim();
   if (!rawName.startsWith("mcp__forge__") && !FORGE_TOOLS.has(name)) return "";
   if (!input || typeof input !== "object" || (!complete && !Object.keys(input).length)) return "";
+  if (name === "delegate_subagent") {
+    const tasks = Array.isArray(input.tasks) ? input.tasks : [];
+    const paths = tasks.flatMap((task) => Array.isArray(task?.paths) ? task.paths : []).filter(Boolean);
+    return `${name} (${tasks.length} tasks${paths.length ? `: ${[...new Set(paths)].slice(0, 8).join(", ")}` : ""})`;
+  }
   if (name === "search_text" || name === "rg_search") return [name, ...(Array.isArray(input.flags) ? input.flags : []), typeof input.pattern === "string" ? JSON.stringify(input.pattern) : "", ...(Array.isArray(input.paths) ? input.paths : [])].filter(Boolean).join(" ");
   if (name === "search_tree") return [name, input.path ?? ".", Number.isInteger(input.max_depth) ? `--max-depth=${input.max_depth}` : "", Number.isInteger(input.limit) ? `--limit=${input.limit}` : ""].filter(Boolean).join(" ");
   if (name === "list_files" || name === "rg_files") return [name, ...(Array.isArray(input.flags) ? input.flags : [ "--default" ])].filter(Boolean).join(" ");
@@ -148,6 +153,11 @@ export function formatForgeToolActivitySummary(rawName, rawInput, status, result
     else if (typeof result.matches === "number") details.push(`${result.matches} matches`);
     else if (typeof result.count === "number") details.push(`${result.count} results`);
     if (typeof result.changed_files === "number") details.push(`${result.changed_files} changed files`);
+    if (name === "delegate_subagent" && Array.isArray(result.tasks)) {
+      const fulfilled = result.tasks.filter((task) => task?.status === "fulfilled").length;
+      const observed = Array.isArray(result.observed_files) ? result.observed_files.length : 0;
+      details.push(`${fulfilled}/${result.tasks.length} tasks, ${observed} files observed`);
+    }
     if (typeof result.commit_sha === "string") details.push(`sha=${result.commit_sha.slice(0, 12)}`);
     else if (typeof result.sha256 === "string") details.push(result.sha256.slice(0, 19));
     if (typeof result.exit_code === "number") details.push(`exit=${result.exit_code}`);

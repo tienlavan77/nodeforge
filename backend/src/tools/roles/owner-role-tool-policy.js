@@ -5,7 +5,8 @@ import { assertRoleFileAccess, roleWritePrefixes } from "../../infrastructure/fi
 import { isProjectGitkeepPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 
 const READ_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "Read", "lookup_schema"]);
-const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, "read_file_binary", "git_status", "git_diff", "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze([...READ_TOOLS, "read_file_binary", "write_diff", "edit_diff", "delete_file", "move_file", "run_check", "git_status", "git_diff", "commit_changes", "push_commit"]), sprint_leader: READ_TOOLS, coder: READ_TOOLS, reviewer: Object.freeze([...READ_TOOLS, "git_status", "git_diff"]), linguist: Object.freeze(["read_file", "Read", "lookup_schema"]), runtime: Object.freeze([]) });
+const DELEGATE_TOOL = "delegate_subagent";
+const ROLE_TOOLS = Object.freeze({ architecture_manager: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, "read_file_binary", "git_status", "git_diff", "write_diff", "edit_diff", "delete_file"]), system_engineer: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, "read_file_binary", "write_diff", "edit_diff", "delete_file", "move_file", "run_check", "git_status", "git_diff", "commit_changes", "push_commit"]), sprint_leader: Object.freeze([...READ_TOOLS, DELEGATE_TOOL]), coder: Object.freeze([...READ_TOOLS, DELEGATE_TOOL]), reviewer: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, "git_status", "git_diff"]), linguist: Object.freeze(["read_file", "Read", "lookup_schema"]), runtime: Object.freeze([]) });
 const PRIVATE_PATH = /(^|\/)(?:\.[^/]+|node_modules|vendor|dist|build|coverage|cache|\.next|(?:secret|secrets|credential|credentials|private|id_rsa|id_ed25519)(?:[._-]|$)|[^/]+\.(?:pem|key|p12|pfx|crt|keystore)$)/i;
 const WRITE_TOOLS = new Set(["write_diff", "edit_diff"]);
 

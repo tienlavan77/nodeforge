@@ -46,7 +46,12 @@ export function createSourceReadTool({ fileService, projectRoot, codeCache }) {
     const lines = file.content.split("\n");
     if (start > lines.length) throw invalid(`Read start_line exceeds the file (${lines.length} lines).`);
     recordRead(context, { path, window: bySymbol ? input.symbol : `${start}-${end}` });
-    return { path, file_path: path, content: lines.slice(start - 1, end).map((line, index) => `${String(start + index).padStart(6)}→${line}`).join("\n"), sha256: file.sha256,
+    const observed = Array.isArray(context.observed_files) ? context.observed_files : [];
+    const current = observed.find((item) => item.path === path);
+    const symbolsRead = bySymbol ? [input.symbol] : [];
+    if (current) { current.sha256 = file.sha256; current.symbols_read = [...new Set([...(current.symbols_read ?? []), ...symbolsRead])]; }
+    else context.observed_files = [...observed, { path, sha256: file.sha256, symbols_read: symbolsRead }];
+    return { path, file_path: path, content: lines.slice(start - 1, end).map((line, index) => `${String(start + index).padStart(6)}→${line}`).join("\n"), sha256: file.sha256, observed_file: { path, sha256: file.sha256, symbols_read: symbolsRead },
       start_line: start, end_line: Math.min(end, lines.length), total_lines: lines.length, truncated: end < lines.length, ...(bySymbol ? { symbol: input.symbol } : {}),
       ...(codeCache ? { cache: file.cache, index_status: file.index_status } : {}), discovery_budget: discoveryNotice(context) };
   } };

@@ -1,9 +1,10 @@
 // claude sdk gateway — handles claude sdk gateway logic for the agent subsystem.
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { ConfigurationError } from "../../shared/errors.js";
+import { safeSubagentId } from "./runtime-instance.js";
 import { resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { prependNodeBin } from "./node-bin-path.js";
 import { codexShellEnvironment } from "./codex-shell-environment.js";
@@ -41,13 +42,15 @@ export function createClaudeSdkGateway({
   return Object.freeze({ execute, assertSessionStopped: ({ agentId, sessionId, endedAt }) => assertClaudeSessionStopped(agentId, active.has(agentId), "/proc", sessionId, endedAt), provider: "claude", conversationMode: "history" });
 
   // Defines execute function behavior for claude-sdk-gateway.js.
-  async function execute({ agentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, onEvent, abortSignal } = {}) {
+  async function execute({ agentId, subagentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, onEvent, abortSignal } = {}) {
     const config = getEnabledConfig(agentId);
+    const instanceKey = subagentId ? `${agentId}:sub:${safeSubagentId(subagentId, "Claude SDK")}` : agentId;
     assertString(prompt, "Claude SDK prompt");
     assertString(correlationId, "Claude SDK correlation_id");
     const credential = await resolveCredential(config.credential_ref);
     const workingDirectory = cwd ?? options.cwd ?? process.cwd();
-    const claudeHome = join(claudeHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/claude-homes"), config.agent_id);
+    const safeChildId = subagentId ? safeSubagentId(subagentId, "Claude SDK") : null;
+    const claudeHome = join(claudeHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/claude-homes"), config.agent_id, ...(safeChildId ? ["subagents", safeChildId] : []));
     mkdirSync(claudeHome, { recursive: true, mode: 0o700 });
     const controller = new AbortController();
     // Defines stop function behavior for claude-sdk-gateway.js.
@@ -59,7 +62,8 @@ export function createClaudeSdkGateway({
     const { canUseTool, onBuiltinToolEvent, onTextDelta, hooks, ...cloneableOptions } = options;
     delete cloneableOptions.mcpServers;
     delete cloneableOptions.forgeTools;
-    const effort = options.effort ?? config.reasoning?.effort;
+    const model = subagentId ? config.subagent_model ?? options.model ?? config.model : options.model ?? config.model;
+    const effort = subagentId ? options.effort ?? "low" : options.effort ?? config.reasoning?.effort;
     if (effort !== undefined && !["none", "low", "medium", "high", "xhigh", "max"].includes(effort)) throw new ConfigurationError("Claude SDK reasoning effort is invalid.");
     const maxOutputTokens = options.maxOutputTokens ?? options.max_output_tokens ?? config.max_output_tokens;
     const queryOptions = {
@@ -72,12 +76,12 @@ export function createClaudeSdkGateway({
       abortController: controller,
       cwd: workingDirectory,
       additionalDirectories: [...additionalDirectories],
-      ...(config.model || options.model ? { model: options.model ?? config.model } : {}),
+      ...(model ? { model } : {}),
       env: createGatewayEnvironment({ config, credential, optionsEnv: options.env, projectRoot: workingDirectory, claudeHome }),
       ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
       ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
       ...(options.tools === undefined ? {} : { tools: options.tools }),
-      ...(resumeSessionId ? { resume: resumeSessionId } : {})
+      ...(!subagentId && resumeSessionId ? { resume: resumeSessionId } : {})
     };
 
     let session;
@@ -95,7 +99,7 @@ export function createClaudeSdkGateway({
       try { onSessionReady(id); } catch { /* best-effort */ }
     };
     try {
-      active.add(agentId);
+      active.add(instanceKey);
       session = queryFn({ prompt, options: queryOptions });
       for await (const message of session) {
         const clean = sanitize(message, credential);
@@ -143,7 +147,12 @@ export function createClaudeSdkGateway({
       clearTimeout(timeout);
       if (typeof session?.close === "function") session.close();
       if (typeof session?.return === "function") await session.return();
-      active.delete(agentId);
+      active.delete(instanceKey);
+      if (subagentId) {
+        try { rmSync(claudeHome, { recursive: true, force: true }); }
+        // eslint-disable-next-line no-unused-vars -- Child cleanup is best-effort and cannot mask the original SDK result.
+        catch (cleanupError) { terminalOutput?.write?.(`[nodeforge] child Claude home cleanup failed for ${config.agent_id}.\n`); }
+      }
     }
   }
 
@@ -213,6 +222,8 @@ function assertString(value, label) {
 }
 
 // sanitize — sanitize logic.
+// Business purpose: validates child instance identifiers before they become runtime keys or filesystem segments.
+// Technical description: accepts opaque identifiers with a conservative alphanumeric, underscore, and hyphen alphabet.
 function sanitize(value, credential) {
   if (typeof value === "string") return value.split(credential).join("[REDACTED]");
   if (Array.isArray(value)) return value.map((item) => sanitize(item, credential));
