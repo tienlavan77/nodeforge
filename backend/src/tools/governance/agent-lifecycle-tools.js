@@ -15,6 +15,19 @@ import { discoveryNotice, recordRead, resetExploration } from "../discovery/expl
 const MAX_CONTENT = 200000;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
+// Business purpose: records verified file observations so Read-Only Explorer results can be handed to the parent without relying on prose.
+// Technical description: merges path, checksum, symbol names, and symbol metadata into the child execution context.
+function recordObservedFile(context, file) {
+  if (!context || !file?.path || !file?.sha256) return;
+  const observed = Array.isArray(context.observed_files) ? context.observed_files : [];
+  const current = observed.find((item) => item.path === file.path);
+  if (current) {
+    current.sha256 = file.sha256;
+    current.symbols_read = [...new Set([...(current.symbols_read ?? []), ...(file.symbols_read ?? [])])];
+    if (file.symbol_map) current.symbol_map = file.symbol_map;
+  } else context.observed_files = [...observed, { path: file.path, sha256: file.sha256, symbols_read: [...new Set(file.symbols_read ?? [])], ...(file.symbol_map ? { symbol_map: file.symbol_map } : {}) }];
+}
+
 const safePath = (value, operation = "read", role) => {
   if (typeof value !== "string" || !value || value.startsWith("/") || value.includes("\\") || value.split("/").some((part) => !part || part === "." || part === "..") || isProtectedPath(value, { operation, role }) || role !== "coder" && operation !== "read" && isDependencyPath(value)) throw error("PATH_FORBIDDEN", "Path is outside the permitted project scope.");
   return value;
@@ -70,7 +83,8 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
     }
     recordRead(context, { path, window: "metadata" });
     recordSourceMetadata(context, metadata);
-    return { ...metadata, notice: "Metadata only. Inspect code_graph and symbol_map, then use Read with file_path and symbol for code. Line windows are allowed only for .md files." };
+    recordObservedFile(context, { path, sha256, symbols_read: symbols.map((symbol) => symbol.name).filter(Boolean), symbol_map: symbols });
+    return { ...metadata, observed_file: { path, sha256, symbols_read: symbols.map((symbol) => symbol.name).filter(Boolean) }, notice: "Metadata only. Inspect code_graph and symbol_map, then use Read with file_path and symbol for code." };
   }});
 }
 

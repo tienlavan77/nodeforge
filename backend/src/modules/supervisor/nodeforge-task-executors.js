@@ -16,11 +16,13 @@ import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-
 import { coderFailureTriage } from "./coder/coder-recovery-policy.js";
 import { withCoderExchange, coderExchangePrompt } from "./coder/coder-agent-exchange.js";
 import { createFunctionCallingTaskExecutor } from "./function-calling-task-executor.js";
+import { createDelegateSubagentTool } from "../../tools/discovery/delegate-subagent-tool.js";
+import { delegateSubagentDefinition } from "../../tools/discovery/delegate-subagent-tool.js";
 
 const CODER_FORGE_TOOL_NAMES = new Set(CODER_TOOL_NAMES.map((name) => `mcp__forge__${name}`));
 
 // Creates SDK executors that keep Claude and Claude Code ticket policies aligned.
-export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints }) {
+export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGateway, codexSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints, delegateSubagentExecutor }) {
   return Object.freeze({ runOpenAiHello, runOllamaHello,
     runFunctionCallingTask: createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkGateway, toolRegistry, runtimeGovernance, projectRoot, projectLogger, checkpoints }),
     runToolTicket: withCoderExchange(runToolTicket, { projectRoot, projectLogger }), runCodexTask: withCoderExchange(runCodexTask, { projectRoot, projectLogger }) });
@@ -60,7 +62,10 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
-    const mcpServers = { forge: createForgeSdkMcpServer({ registry: binding.registry, context: binding.context, includeCommit: true, includeClaudeFileTools: false, includeEngineeringTools: selected.role === "coder" && !labMode, excludeTools: [...(selected.role === "coder" && !labMode ? [] : ["respond_to_review"]), ...(candidateDiscoveryEnabled ? [] : ["select_code_graph_candidates"])] }) };
+    const delegateTool = selected.role === "coder" ? createDelegateSubagentTool({ executeTask: delegateSubagentExecutor ?? (async () => { throw Object.assign(new ConfigurationError("Coder subagent executor is unavailable."), { code: "SUBAGENT_EXECUTOR_UNAVAILABLE" }); }) }) : null;
+    const boundRegistry = delegateTool && selected.role === "coder" ? { ...binding.registry, delegate_subagent: delegateTool } : binding.registry;
+    const boundContext = delegateTool && selected.role === "coder" ? { ...binding.context, capabilities: [...new Set([...(binding.context.capabilities ?? []), "delegate_subagent"])] } : binding.context;
+    const mcpServers = { forge: createForgeSdkMcpServer({ registry: boundRegistry, context: boundContext, includeCommit: true, includeClaudeFileTools: false, includeEngineeringTools: selected.role === "coder" && !labMode, excludeTools: [...(selected.role === "coder" && !labMode ? [] : ["respond_to_review"]), ...(candidateDiscoveryEnabled ? [] : ["select_code_graph_candidates"])] }) };
     let result;
     try {
       const completed = await runTicketSdkTurns({ selected, request, resumeState, checkpoints, projectRoot, projectLogger, priorTools: priorCompletedTools, labMode: Boolean(labMode),
@@ -68,7 +73,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
         readToolEvents: (turn) => collectToolCalls(Array.isArray(turn?.messages) ? turn.messages : []),
         executeTurn: (prompt) => claudeSdkGateway.execute({
         agentId: selected.agent_id, correlationId: request.correlation_id, cwd: projectRoot, abortSignal: request.abortSignal,
-        options: createClaudeForgeOptions({ mcpServers, allowedTools: (selected.role === "coder" && !labMode ? [...CODER_FORGE_TOOL_NAMES] : forgeSdkToolNames).filter((name) => {
+        options: createClaudeForgeOptions({ mcpServers, allowedTools: (selected.role === "coder" && !labMode ? [...CODER_FORGE_TOOL_NAMES, ...(delegateTool ? ["mcp__forge__delegate_subagent"] : [])] : forgeSdkToolNames).filter((name) => {
           if ((name === "mcp__forge__respond_to_review" && (selected.role !== "coder" || labMode)) || (!candidateDiscoveryEnabled && name === "mcp__forge__select_code_graph_candidates")) return false;
           return !["mcp__forge__Read", "mcp__forge__Glob", "mcp__forge__Grep"].includes(name);
         }) }, { effort: complexity.effort, thinking: complexity.thinking }),
@@ -135,8 +140,11 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
+    const delegateTool = selected.role === "coder" ? createDelegateSubagentTool({ executeTask: delegateSubagentExecutor ?? (async () => { throw Object.assign(new ConfigurationError("Coder subagent executor is unavailable."), { code: "SUBAGENT_EXECUTOR_UNAVAILABLE" }); }) }) : null;
+    const boundRegistry = delegateTool && selected.role === "coder" ? { ...binding.registry, delegate_subagent: delegateTool } : binding.registry;
+    const boundContext = delegateTool && selected.role === "coder" ? { ...binding.context, capabilities: [...new Set([...(binding.context.capabilities ?? []), "delegate_subagent"])] } : binding.context;
     const definitions = selected.role === "coder" && !labMode
-      ? coderToolDefinitions()
+      ? [...coderToolDefinitions(), ...(delegateTool ? [delegateSubagentDefinition] : [])]
       : [...(candidateDiscoveryEnabled ? [selectCodeGraphCandidatesDefinition] : []), searchCodeDefinition, readFileDefinition, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, gitStatusDefinition, gitDiffDefinition, commitChangesDefinition, reportDoneDefinition];
     const forgeToolNames = new Set(definitions.map((definition) => definition.name));
     const codexToolEvents = [];
@@ -152,7 +160,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
           if (Array.isArray(toolNames)) projectLogger({ event_name: "supervisor.codex_mcp_session_ready", level: "info", status: "success", message: "Codex Forge MCP session ready.", task_id: request.task_id, correlation_id: request.correlation_id, source: "codex-sdk-ticket", payload: { request_id: request.request_id, agent_id: selected.agent_id, tools: toolNames } });
           saveProgressCheckpoint(checkpoints, resumeState, { task_id: request.task_id, execution_context: binding.context.execution_context });
         },
-        options: { model: selected.model, forgeTools: { registry: binding.registry, context: binding.context, definitions }, approvalPolicy: labMode?.approval_policy ?? "on-request", ...(selected.role === "coder" ? { sandboxMode: "read-only" } : {}) },
+        options: { model: selected.model, forgeTools: { registry: boundRegistry, context: boundContext, definitions }, approvalPolicy: labMode?.approval_policy ?? "on-request", ...(selected.role === "coder" ? { sandboxMode: "read-only" } : {}) },
         prompt,
         onEvent: async (event) => {
           if (selected.role === "coder") assertForgeOnlyCodexEvent(event);
