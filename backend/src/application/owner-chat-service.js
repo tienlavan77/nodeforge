@@ -130,9 +130,9 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
         approvalRevision: input.payload.approval_revision,
         approvalSha256: input.payload.approval_sha256,
         approvalComments: input.payload.approval_comments,
-        requestArchitecture: (prompt, conversationId, options = {}) => streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType: options.responseContentType, exposeText: options.exposeText ?? !isPlanCommand }),
-        requestSystemEngineer: ({ agentId: seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId }) => streamHandoffSystemEngineer({ seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId }),
-        requestReviewer: ({ agentId: rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId }) => streamHandoffReviewer({ rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId })
+        requestArchitecture: (prompt, conversationId, options = {}) => streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType: options.responseContentType, exposeText: options.exposeText ?? !isPlanCommand, correlationId: options.correlationId, withEvidence: options.withEvidence === true }),
+        requestSystemEngineer: ({ agentId: seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId, withEvidence }) => streamHandoffSystemEngineer({ seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId, withEvidence }),
+        requestReviewer: ({ agentId: rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId, withEvidence }) => streamHandoffReviewer({ rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId, withEvidence })
       });
       const response = responseMessage({ ...input, id: input.message_id, recipient: { id: "NODE", role: "node" } }, "owner.command.result", result, `COMMAND-${input.message_id}`);
       bus.send(response);
@@ -146,13 +146,14 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
   }
   // Streams an Architecture response and persists it in the same conversation.
-  async function streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType, exposeText = true }) {
+  async function streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType, exposeText = true, correlationId, withEvidence = false }) {
     agentId = agentRoleResolver ? agentRoleResolver.resolveProfile("architecture_manager")?.agent_id : architectureManagerId; if (!agentId || typeof agentStream !== "function") throw new ConfigurationError("Configured Architecture agent stream is unavailable.");
     const contentType = responseContentType ?? (prompt.startsWith("Architecture clarification discovery") ? "text/plain" : "text/markdown");
-    const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: `${input.correlation_id}-ARCH-${randomUUID()}`, payload: { text: prompt }, timestamp: new Date().toISOString() };
-    let text = ""; let index = 0;
+    const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: correlationId ?? `${input.correlation_id}-ARCH-${randomUUID()}`, payload: { text: prompt }, timestamp: new Date().toISOString() };
+    let text = ""; let index = 0; let terminal;
     if (exposeText) bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "COMMAND-WORKING"));
-    for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType, planning_input_only: true }, correlationId: message.correlation_id, conversationId })) {
+    for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType, planning_input_only: true, ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId: message.correlation_id, conversationId })) {
+      if (chunk?.handoff_terminal) terminal = chunk.handoff_terminal;
       if (typeof chunk.text !== "string" || !chunk.text) continue;
       text += chunk.text;
       if (exposeText) bus.sendFast(responseMessage(message, "architecture.message.delta", { text: chunk.text, accumulated_text: text, content_type: contentType, chunk_index: index++ }, `COMMAND-DELTA-${index}`));
@@ -160,30 +161,32 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     const isIdea = isIdeaSummaryResponse({ ownerText: input?.payload?.text, agentText: text });
     const response = responseMessage(message, "architecture.message.received", { text, content_type: contentType, ...(isIdea ? { is_idea: true } : {}), agent_status: "COMPLETED" }, "COMMAND-COMPLETED");
     if (exposeText) bus.send(response);
-    return text;
+    return withEvidence ? { text, ...terminal } : text;
   }
   // Business purpose: streams one System Engineer implementation turn during an automatic AM to SE plan handoff while linking live SDK events back to the Architecture conversation.
   // Technical description: invokes agentStream with response_content_type set to text/markdown and linked_conversation_id bound to the originating Architecture conversation, returning the accumulated reply text.
-  async function streamHandoffSystemEngineer({ seAgentId, prompt, conversationId, linkedConversationId, correlationId }) {
+  async function streamHandoffSystemEngineer({ seAgentId, prompt, conversationId, linkedConversationId, correlationId, withEvidence = false }) {
     if (typeof agentStream !== "function") throw new ConfigurationError("Configured System Engineer agent stream is unavailable.");
-    let text = "";
-    for await (const chunk of agentStream({ agentId: seAgentId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null }, correlationId, conversationId })) {
+    let text = ""; let terminal;
+    for await (const chunk of agentStream({ agentId: seAgentId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null, ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId })) {
       if (typeof chunk?.text === "string" && chunk.text) text += chunk.text;
+      if (chunk?.handoff_terminal) terminal = chunk.handoff_terminal;
     }
-    return text;
+    return withEvidence ? { text, ...terminal } : text;
   }
   /**
    * Business purpose: streams one independent Reviewer (RV) read-only verification turn during an automatic AM-SE-RV execution handoff.
    * Technical description: resolves the reviewer agent profile if needed and invokes agentStream with response_content_type set to text/markdown and linked_conversation_id bound to the Architecture conversation.
    */
-  async function streamHandoffReviewer({ rvAgentId, prompt, conversationId, linkedConversationId, correlationId }) {
+  async function streamHandoffReviewer({ rvAgentId, prompt, conversationId, linkedConversationId, correlationId, withEvidence = false }) {
     const resolvedRvId = rvAgentId ?? (agentRoleResolver ? agentRoleResolver.resolveProfile("reviewer")?.agent_id : "reviewer");
     if (!resolvedRvId || typeof agentStream !== "function") throw new ConfigurationError("Configured Reviewer agent stream is unavailable.");
-    let text = "";
-    for await (const chunk of agentStream({ agentId: resolvedRvId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null }, correlationId, conversationId })) {
+    let text = ""; let terminal;
+    for await (const chunk of agentStream({ agentId: resolvedRvId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null, ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId })) {
       if (typeof chunk?.text === "string" && chunk.text) text += chunk.text;
+      if (chunk?.handoff_terminal) terminal = chunk.handoff_terminal;
     }
-    return text;
+    return withEvidence ? { text, ...terminal } : text;
   }
   // Adds available project context to agent requests.
   async function enrichAgentText(message, agentId) {

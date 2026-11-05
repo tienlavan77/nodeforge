@@ -2,6 +2,7 @@
 // Technical description: stores JSON handoff records under .forge/runtime/nf/se-handoffs/<projectId>/<handoffId>.json through the project FileService with status validation and lookup helpers.
 import { randomUUID } from "node:crypto";
 import { statePath } from "../infrastructure/filesystem/forge-paths.js";
+import { acquireTicketFileLock } from "../modules/supervisor/ticket/ticket-file-lock.js";
 import { ConfigurationError } from "../shared/errors.js";
 
 const VALID_STATUSES = new Set(["critiquing", "running", "rv_reviewing", "reviewing", "am_reviewing", "completed", "paused", "failed"]);
@@ -86,8 +87,12 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
       created_at: now,
       updated_at: now
     };
-    await fileService.atomicWrite({ path: pathFor(handoffId), content: `${JSON.stringify(record, null, 2)}\n`, replace: true });
-    return record;
+    const claim = await acquireTicketFileLock(fileService, `${pathFor(handoffId)}.lock`);
+    try {
+      if (await get(handoffId)) throw storeError("HANDOFF_ALREADY_EXISTS", "Handoff already exists; resume by its ID instead.", 409);
+      await fileService.atomicWrite({ path: pathFor(handoffId), content: `${JSON.stringify(record, null, 2)}\n`, replace: false });
+      return record;
+    } finally { await claim.release(); }
   }
 
   // Business purpose: loads an existing handoff session by its identifier.
@@ -104,25 +109,47 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
   // Business purpose: updates the state, phase, round counter, or history of an active handoff session.
   // Technical description: merges the patch into the stored record, validates the status and phase enums, updates updated_at, and writes atomically.
   async function update(handoffId, patch = {}) {
-    const current = await get(handoffId);
-    if (!current) throw storeError("HANDOFF_NOT_FOUND", `Handoff session not found: ${handoffId}.`, 404);
-    if (patch.status !== undefined && !VALID_STATUSES.has(patch.status)) {
-      throw storeError("HANDOFF_STATUS_INVALID", `Invalid handoff status: ${patch.status}.`);
-    }
-    if (patch.phase !== undefined && !VALID_PHASES.has(patch.phase)) {
-      throw storeError("HANDOFF_PHASE_INVALID", `Invalid handoff phase: ${patch.phase}.`);
-    }
-    const next = {
-      ...current,
-      ...patch,
-      handoff_id: current.handoff_id,
-      project_id: current.project_id,
-      plan_id: current.plan_id,
-      updated_at: new Date().toISOString()
-    };
-    await fileService.atomicWrite({ path: pathFor(handoffId), content: `${JSON.stringify(next, null, 2)}\n`, replace: true });
-    return next;
+    const claim = await acquireTicketFileLock(fileService, `${pathFor(handoffId)}.lock`);
+    try {
+      const current = await get(handoffId);
+      if (current?.checkpoint) throw storeError("HANDOFF_CHECKPOINT_TRANSITION_REQUIRED", "Checkpointed handoffs require a guarded transition.", 409);
+      if (!current) throw storeError("HANDOFF_NOT_FOUND", `Handoff session not found: ${handoffId}.`, 404);
+      if (patch.status !== undefined && !VALID_STATUSES.has(patch.status)) {
+        throw storeError("HANDOFF_STATUS_INVALID", `Invalid handoff status: ${patch.status}.`);
+      }
+      if (patch.phase !== undefined && !VALID_PHASES.has(patch.phase)) {
+        throw storeError("HANDOFF_PHASE_INVALID", `Invalid handoff phase: ${patch.phase}.`);
+      }
+      const next = {
+        ...current,
+        ...patch,
+        handoff_id: current.handoff_id,
+        project_id: current.project_id,
+        plan_id: current.plan_id,
+        updated_at: new Date().toISOString()
+      };
+      await fileService.atomicWrite({ path: pathFor(handoffId), content: `${JSON.stringify(next, null, 2)}\n`, replace: true });
+      return next;
+    } finally { await claim.release(); }
   }
 
-  return Object.freeze({ create, get, update, pathFor });
+  // Business purpose: serializes durable step transitions across concurrent handoff resume requests.
+  // Technical description: holds a project-scoped file claim while validating the generation and persisting a single successor record.
+  async function transition(handoffId, expectedGeneration, transform) {
+    const claim = await acquireTicketFileLock(fileService, `${pathFor(handoffId)}.lock`);
+    try {
+      const current = await get(handoffId);
+      if (!current) throw storeError("HANDOFF_NOT_FOUND", "Handoff not found.", 404);
+      if ((current.checkpoint?.generation ?? 0) !== expectedGeneration) throw storeError("HANDOFF_STALE", "Handoff checkpoint changed.", 409);
+      const next = await transform(current);
+      if (!next || next.handoff_id !== current.handoff_id || next.project_id !== current.project_id || next.plan_id !== current.plan_id) throw storeError("HANDOFF_TRANSITION_INVALID", "Invalid handoff transition.", 409);
+      if (current.checkpoint?.plan_locked && (!next.checkpoint?.plan_locked || next.plan_revision !== current.plan_revision || next.plan_sha256 !== current.plan_sha256 || next.plan_source_path !== current.plan_source_path)) throw storeError("HANDOFF_PLAN_LOCKED", "Execution plan identity cannot change.", 409);
+      next.checkpoint = { ...next.checkpoint, generation: expectedGeneration + 1 };
+      next.updated_at = new Date().toISOString();
+      await fileService.atomicWrite({ path: pathFor(handoffId), content: `${JSON.stringify(next, null, 2)}\n`, replace: true });
+      return next;
+    } finally { await claim.release(); }
+  }
+
+  return Object.freeze({ create, get, update, transition, pathFor });
 }

@@ -210,11 +210,11 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
   assert.match(slPrompts[0], /Feature Spec/);
   assert.equal(slSeCalls.length, 1);
   assert.equal(slSeCalls[0].phase, "plan_critique");
-  assert.equal(slRes.status, "handed_to_node");
+  assert.equal(slRes.status, "paused");
+  assert.equal(slRes.reason, "PLAN_APPROVAL_REQUIRED");
   assert.equal(slRes.delivery_target, "sl");
-  assert.equal(slRes.critique_rounds_completed, 1);
-  assert.equal(slRes.sprint_status, "ready");
-  assert.equal(f.registry.get(slRes.sprint_id).status, "ready");
+  assert.equal(slSeCalls.length, 1);
+  assert.equal(slRes.sprint_id, undefined);
 
   // 2. Markdown file + automatic SE handoff -> 2-round AM-SE critique ([CRITIQUE: DISCUSS] -> [CRITIQUE: ALIGNED]), then implementation REVISE -> PASS.
   let reviewRound = 0;
@@ -228,6 +228,7 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
       reviewRound += 1;
       return reviewRound === 1 ? "Vòng 1: Cần bổ sung kiểm thử cho O1.\n[VERDICT: REVISE]" : "Nghiệm thu hoàn tất: O1 đạt đầy đủ.\n[VERDICT: PASS]";
     },
+    requestReviewer: async ({ round }) => `RV đã kiểm tra code và test vòng ${round}.\n[VERDICT: PASS]`,
     requestSystemEngineer: async (req) => {
       seCalls.push(req);
       if (req.phase === "plan_critique") {
@@ -237,19 +238,19 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
     }
   });
   assert.equal(seRes.delivery_target, "se");
-  assert.equal(seRes.phase, "implementation");
-  assert.equal(seRes.status, "completed");
-  assert.equal(seRes.critique_rounds_completed, 2);
-  assert.equal(seRes.rounds_completed, 2);
-  assert.equal(seCalls.length, 4);
+  assert.equal(seRes.phase, "plan_critique");
+  assert.equal(seRes.status, "paused");
+  assert.equal(seRes.reason, "PLAN_APPROVAL_REQUIRED");
+  assert.match(seRes.text, /chờ Owner approval; SE chưa được giao thực thi/);
+  assert.doesNotMatch(seRes.text, /undefined/);
+  assert.equal(seRes.revision, 1);
+  assert.equal(seCalls.length, 2);
   assert.equal(seCalls[0].phase, "plan_critique");
   assert.equal(seCalls[1].phase, "plan_critique");
-  assert.equal(seCalls[2].phase, "implementation");
-  assert.equal(seCalls[3].phase, "implementation");
   assert.equal(seCalls[0].linkedConversationId, "CONV-ARCH");
   assert.match(seCalls[0].prompt, /## Trình bày & Phản biện kế hoạch kiến trúc/);
   assert.doesNotMatch(seCalls[0].prompt, /"acceptance_criteria":\s*\[/);
-  assert.match(seCalls[3].prompt, /Hướng dẫn điều chỉnh vòng 2/);
+  assert.ok(!seCalls.some((call) => call.phase === "implementation"), "SE cannot implement before Owner approval");
   assert.ok(busMessages.some((m) => m.conversation_id === "CONV-ARCH" && m.payload.linked_conversation_id === `CONV-SE-${seRes.plan_id}`));
   assert.ok(busMessages.every((m) => !m.conversation_id?.startsWith("CONV-SE-")), "handoff dialogue stays in its source conversation");
   const seConversations = conversations.list({ projectId: "PROJECT-A", agentId: "se-1" });
@@ -310,22 +311,18 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
     }
   });
 
-  assert.equal(cycleRes.status, "completed");
-  assert.equal(cycleRes.rounds_completed, 3);
-  assert.equal(cycleRvCalls.length, 3, "RV reviews every SE implementation round");
-  assert.equal(cycleAmCalls.length, 2, "AM is NOT called in round 1 when RV returns REVISE; AM is called only in rounds 2 and 3 after RV returns PASS");
-  assert.match(cycleSeCalls[2].prompt, /Yêu cầu chỉnh sửa vòng 2 từ Reviewer độc lập \(RV\)/, "Round 1 RV REVISE routes directly back to SE");
-  assert.match(cycleAmCalls[0], /Independent Reviewer \(RV\) round 2 assessment \(\[VERDICT: PASS\]\)/, "AM receives RV PASS assessment alongside SE report");
-  assert.match(cycleSeCalls[3].prompt, /Hướng dẫn điều chỉnh vòng 3 từ Architecture Manager/, "Round 2 AM REVISE routes to SE for round 3");
-  assert.equal(cycleRes.history.filter((h) => h.phase === "implementation").length, 3);
-  assert.equal(cycleRes.history.find((h) => h.round === 1).stage, "rv_review");
-  assert.equal(cycleRes.history.find((h) => h.round === 1).rv_verdict, "REVISE");
-  assert.equal(cycleRes.history.find((h) => h.round === 2).stage, "am_acceptance");
-  assert.equal(cycleRes.history.find((h) => h.round === 2).rv_verdict, "PASS");
-  assert.equal(cycleRes.history.find((h) => h.round === 2).verdict, "REVISE");
-  assert.equal(cycleRes.history.find((h) => h.round === 3).verdict, "PASS");
-  assert.ok(cycleBusMessages.some((m) => m.message_type === "reviewer.message.received" && m.sender.role === "reviewer"));
+  assert.equal(cycleRes.status, "paused");
+  assert.equal(cycleRes.reason, "PLAN_APPROVAL_REQUIRED");
+  assert.equal(cycleRvCalls.length, 0, "RV cannot review before Owner approval");
+  assert.equal(cycleAmCalls.length, 0, "AM cannot accept before Owner approval");
+  assert.ok(cycleSeCalls.every((call) => call.phase === "plan_critique"), "SE cannot implement before Owner approval");
+  assert.equal(cycleRes.history.filter((entry) => entry.phase === "implementation").length, 0);
+  assert.ok(!cycleBusMessages.some((m) => m.message_type === "reviewer.message.received"), "no synthetic Reviewer result before Owner approval");
   assert.match(formatHumanReadableHandoffBrief(JSON.parse(planJSON), { planId: "PLAN-1", sourceKind: "markdown_file", sourceFilePath: "docs/spec.md" }), /docs\/spec\.md/);
+  assert.equal(parseAmReviewVerdict("Cannot confirm PASS").verdict, null);
+  assert.equal(parseAmReviewVerdict("Please REVISE the checks").verdict, null);
+  assert.equal(parseAmReviewVerdict("Evidence pending.\n[VERDICT: PASS]\nAdditional text").verdict, null);
+  assert.equal(parseAmReviewVerdict("\n[VERDICT: PASS]").verdict, null);
   const parsedVerdict = parseAmReviewVerdict("Khi RV trả `[VERDICT: REVISE]` hoặc `[VERDICT: PASS]` đều hoạt động đúng.\nKết luận: đạt yêu cầu.\n`[VERDICT: PASS]`");
   assert.equal(parsedVerdict.verdict, "PASS");
   assert.doesNotMatch(parsedVerdict.cleanText, /`\[VERDICT: PASS\]`$/);

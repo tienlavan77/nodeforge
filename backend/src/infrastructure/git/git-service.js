@@ -17,7 +17,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   if (mutationLock !== undefined && typeof mutationLock !== "function") throw new ConfigurationError("Git mutation lock must be a function.");
   // Keeps every Forge mutation under the same project lock as root ticket commits.
   const guard = (action) => (...args) => mutationLock ? mutationLock(() => action(...args)) : action(...args);
-  return Object.freeze({ status, statusSummary, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), pushCommit: guard(pushCommit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
+  return Object.freeze({ status, statusSummary, indexEntries, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), pushCommit: guard(pushCommit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
 
   // Summarizes Git for the workspace indicator without exposing paths or remote URLs.
   async function statusSummary() {
@@ -40,6 +40,14 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     const result = await execute([...statusArgs, ...(safePaths.length ? ["--", ...safePaths] : [])], "GIT_STATUS_FAILED");
     if (result.exitCode !== 0) throw gitError("GIT_STATUS_FAILED", `Git status failed: ${result.stderr ?? "unknown Git error"}`);
     emit("git.status", { paths: safePaths, output: result.stdout });
+    return result.stdout;
+  }
+
+  // Business purpose: binds handoff workspace checkpoints to staged blob content and index modes.
+  // Technical description: reads the complete NUL-delimited Git index listing without exposing file bytes or changing the index.
+  async function indexEntries() {
+    const result = await execute(["ls-files", "--stage", "-z"], "GIT_INDEX_FAILED");
+    if (result.exitCode !== 0) throw gitError("GIT_INDEX_FAILED", "Git index listing failed.");
     return result.stdout;
   }
 

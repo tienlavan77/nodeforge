@@ -49,7 +49,7 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
     const systemEngineer = profile.role === "system_engineer";
     const controller = new AbortController();
     controllers.set(conversationId, controller);
-    const checkpointStore = profile.role === "architecture_manager" && payload.planning_input_only === true ? undefined : checkpointStores[profile.role];
+    const checkpointStore = profile.role === "architecture_manager" && payload.planning_input_only === true && payload.handoff_execution !== true ? undefined : checkpointStores[profile.role];
     let checkpoint;
     let toolMode = "forge";
     let heartbeat;
@@ -182,10 +182,15 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
       projectLogger?.({ event_name: "owner.sdk_request_completed", level: "info", status: "success", message: "Owner SDK request completed.", task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, source: "owner-sdk-stream", payload: { agent_id: agentId, provider: profile.provider, response_chars: finalResult?.text?.length ?? 0, thread_id: resolvedThreadId, ...(turnInputTokens > 0 ? { input_tokens: turnInputTokens } : {}), ...(subagentUsage > 0 ? { subagent_usage: subagentUsage } : {}) } });
       if (finalResult?.text && payload.planning_input_only !== true) await conversationStateStore?.update?.(conversationId, { sdk_provider: profile.provider, sdk_tool_mode: toolMode, sdk_thread_id: sdk.conversationMode === "thread" || (Boolean(checkpoint) && ["claude", "anthropic"].includes(profile.provider)) ? resolvedThreadId : null, last_turn_input_tokens: turnInputTokens, ...(rolloverCount ? { compaction_rollover_count: rolloverCount } : {}), ...(architectureMemory ? { architecture_conversation_memory: buildArchitectureConversationMemory(architectureMemory, [{ role: "User", text: payload.text }, { role: "Assistant", text: finalResult.text }]) } : {}), sdk_history: [...history, { role: "User", text: payload.text }, { role: "Assistant", text: finalResult.text }].slice(-8) });
       if (checkpoint && !finalResult?.text?.trim()) throw new ConfigurationError("System Engineer execution ended without a response.");
-      if (checkpoint) await checkpointStore.patch(conversationId, correlationId, { status: "completed", completed_at: new Date().toISOString() });
+      const handoffCompleted = finalResult?.status === "completed" && (finalResult?.turn_completed === undefined || finalResult.turn_completed === true);
+      if (payload.handoff_execution === true && !handoffCompleted) throw Object.assign(new ConfigurationError("Handoff SDK turn has no successful terminal receipt."), { code: "HANDOFF_EXECUTION_UNKNOWN" });
+      const handoffTerminal = { execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: finalResult?.status, turn_completed: finalResult?.turn_completed ?? null, provider_session_id: resolvedThreadId }, read_only_enforced: profile.role === "reviewer" && toolMode === "forge" };
+      if (checkpoint) await checkpointStore.patch(conversationId, correlationId, { status: "completed", completed_at: new Date().toISOString(), ...(payload.handoff_execution === true ? { handoff_result: { ...handoffTerminal, text: finalResult?.text ?? "" } } : {}) });
       if (sdk.conversationMode === "history" && !nativeTextStreamed && finalResult?.text) yield { text: finalResult.text };
       if (sdk.conversationMode === "thread" && !seenText.size && finalResult?.text) yield { text: finalResult.text };
       if (finalResult?.usage) yield { usage: finalResult.usage };
+      // A handoff terminal receipt represents the SDK's own completed turn, not stream exhaustion or partial text.
+      if (payload.handoff_execution === true) yield { handoff_terminal: handoffTerminal };
     } catch (error) {
       if (checkpoint) {
         const current = await checkpointStore.load(conversationId, correlationId);
