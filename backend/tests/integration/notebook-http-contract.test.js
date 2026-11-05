@@ -197,15 +197,21 @@ test("Notebook HTTP persists and reorders item positions atomically within the p
   const first = await request("notebook", { method: "POST", status: 201, body: { project_id: projectId, content: "First" } });
   const second = await request("notebook", { method: "POST", status: 201, body: { project_id: projectId, content: "Second" } });
   const third = await request("notebook", { method: "POST", status: 201, body: { project_id: projectId, content: "Third" } });
-  assert.deepEqual([first.position, second.position, third.position], [0, 1, 2]);
-  const moved = await request(`notebook/${third.id}`, { method: "PATCH", body: { position: 0, status: "done", expected_version: 1 } });
+  assert.deepEqual([first.position, second.position, third.position], [0, 0, 0]);
+  const initialList = await request(`notebook?project_id=${projectId}&status=all`);
+  assert.deepEqual(initialList.map((i) => ({ id: i.id, position: i.position, status: i.status })), [
+    { id: third.id, position: 0, status: "open" },
+    { id: second.id, position: 1, status: "open" },
+    { id: first.id, position: 2, status: "open" }
+  ]);
+  const moved = await request(`notebook/${first.id}`, { method: "PATCH", body: { position: 0, status: "done", expected_version: 1 } });
   assert.equal(moved.position, 0);
   assert.equal(moved.status, "done");
   assert.equal(moved.version, 2);
   const all = await request(`notebook?project_id=${projectId}&status=all`);
   assert.deepEqual(all.map((i) => ({ id: i.id, position: i.position, status: i.status })), [
-    { id: third.id, position: 0, status: "done" },
-    { id: first.id, position: 1, status: "open" },
+    { id: first.id, position: 0, status: "done" },
+    { id: third.id, position: 1, status: "open" },
     { id: second.id, position: 2, status: "open" }
   ]);
 });

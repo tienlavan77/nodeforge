@@ -250,7 +250,7 @@ return { services, storage, codeCache, ticketWorkspaceService, workers, projectW
 }
 const application = await createProjectApplication({ config, storage, startProjectWorkers: true, onTestService: (value) => { testService = value; } });
 defaultProjectWorkers = application.projectWorkers;
-projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath, startRuntime: createControlApiProjectRuntime({ projectRoot: config.cwd, projectId: config.projectId, getDefaultWorkers: () => defaultProjectWorkers }) }) : undefined;
+projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath, logger: createRuntimeLogger({ logEvent: application.services.logEvent, source: "project-watcher" }), startRuntime: createControlApiProjectRuntime({ projectRoot: config.cwd, projectId: config.projectId, getDefaultWorkers: () => defaultProjectWorkers }) }) : undefined;
 const projectApplications = createProjectApplicationRegistry({ projectLifecycle, defaultApplication: application, defaultRoot: config.cwd, createApplication: createProjectApplication });
 const api = createControlApiHttp({ services: application.services, resolveProjectServices: projectLifecycle ? projectApplications.resolve : undefined });
 return startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache: application.codeCache, ticketWorkspaceService: application.ticketWorkspaceService, projectLifecycle, workers: [...application.workers, { stop: projectApplications.close }] });
