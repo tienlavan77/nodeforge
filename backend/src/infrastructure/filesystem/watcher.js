@@ -22,7 +22,8 @@ export const DEFAULT_WATCHER_IGNORE = Object.freeze([
   "**/.next.stale-*/**",
   "coverage/**",
   "**/.DS_Store",
-  "**/._*"
+  "**/._*",
+  "**/*.tmp-*"
 ]);
 
 const RAW_EVENTS = ["add", "change", "unlink"];

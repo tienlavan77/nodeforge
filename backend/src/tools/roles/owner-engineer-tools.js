@@ -31,7 +31,7 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
     const state = await conversationStateStore?.get?.(conversationId);
     const changedPaths = [...new Set([...(state?.owner_changed_paths ?? []), ...(context.changed_paths ?? [])])].sort();
     const result = await testService.runCheck({ commitId: ownerRunId(context), taskId: conversationId, sessionId: context.correlation_id, type: input.type, command: input.command, signal: context.abortSignal });
-    return { ...result, changed_paths: changedPaths };
+    return { ...result, changed_paths: changedPaths, output_preview: checkOutputPreview(result) };
   }
 
   // Commits only paths recorded by successful Forge writes in this conversation.
@@ -76,12 +76,41 @@ export const pushCommitDefinition = definition("push_commit", "Push the exact co
 function definition(name, description, inputSchema) { return Object.freeze({ name, description, input_schema: inputSchema }); }
 
 // Restricts shell syntax and executables before delegating the check to Node's verification service.
+// Builds a bounded, redacted output preview so the owner can inspect a focused check without receiving unbounded process output.
+// Business purpose: exposes actionable PHP/Ghostscript diagnostics while protecting secrets and keeping Forge tool responses compact.
+// Technical description: maps breakdown entries or top-level stdout/stderr into a 4KB-per-stream preview and redacts common credential assignments.
+function checkOutputPreview(result) {
+  const redact = (value) => String(value ?? "").replace(/(?:api[_-]?key|credential|secret|password|token|authorization)\s*[:=]\s*[^\s,}]+/gi, "[REDACTED]").slice(0, 4_000);
+  const checks = Array.isArray(result?.breakdown) ? result.breakdown.map((check) => ({
+    ...(typeof check.kind === "string" ? { kind: check.kind } : {}),
+    ...(typeof check.status === "string" ? { status: check.status } : {}),
+    ...(Number.isInteger(check.exit_code) || check.exit_code === null ? { exit_code: check.exit_code } : {}),
+    ...(typeof check.command === "string" ? { command: check.command } : {}),
+    ...(typeof check.stdout === "string" ? { stdout: redact(check.stdout) } : {}),
+    ...(typeof check.stderr === "string" ? { stderr: redact(check.stderr) } : {})
+  })) : [];
+  if (checks.length) return checks;
+  return [{
+    ...(typeof result?.status === "string" ? { status: result.status } : {}),
+    ...(typeof result?.stdout === "string" ? { stdout: redact(result.stdout) } : {}),
+    ...(typeof result?.stderr === "string" ? { stderr: redact(result.stderr) } : {})
+  }];
+}
+
+// Recognizes one safely quoted PHP inline script without permitting shell operators or extra arguments.
+// Business purpose: allows project integration checks such as `php -r '...'` while preserving the focused verification boundary.
+// Technical description: accepts exactly `php -r` followed by one single- or double-quoted argument and rejects unquoted command text.
+function isQuotedPhpInlineCommand(command) {
+  return typeof command === "string" && /^php -r\s+'(?:[^'\\]|\\.)*'$/s.test(command.trim());
+}
+
 export function validateCheckCommand(command, type) {
-  if (typeof command !== "string" || !command.trim() || /[\0\r\n;&|<>`$]/.test(command) || /(^|\s)(?:\/|[A-Za-z]:\\)/.test(command) || /(^|\s)\.\.(?:\/|\s|$)/.test(command)) throw invalid("Check command contains shell syntax or a path outside the project.");
-  const allowed = /^(?:node --test(?:\s|$)|pnpm (?:test|lint|typecheck|build|validate:schemas|exec (?:eslint|tsc|vitest|jest|mocha)(?:\s|$)|--filter [A-Za-z0-9@/._-]+ (?:test|lint|typecheck|build)(?:\s|$)|--dir [A-Za-z0-9._/-]+ (?:build|run (?:test|lint|typecheck|build))(?:\s|$))|npm (?:test|run (?:test|lint|typecheck|build|validate:schemas)(?:\s|$)))/;
+  const phpInline = isQuotedPhpInlineCommand(command);
+  if (typeof command !== "string" || !command.trim() || (!phpInline && /[\0\r\n;&|<>`$]/.test(command)) || /(^|\s)(?:\/|[A-Za-z]:\\)/.test(command) || /(^|\s)\.\.(?:\/|\s|$)/.test(command)) throw invalid("Check command contains shell syntax or a path outside the project.");
+  const allowed = /^(?:node --test(?:\s|$)|(?:npm exec -- )?php (?:-l|[A-Za-z0-9._/-]+\.php)(?:\s|$)|php -r\s|pnpm (?:test|lint|typecheck|build|validate:schemas|exec (?:eslint|tsc|vitest|jest|mocha)(?:\s|$)|--filter [A-Za-z0-9@/._-]+ (?:test|lint|typecheck|build)(?:\s|$)|--dir [A-Za-z0-9._/-]+ (?:build|run (?:test|lint|typecheck|build))(?:\s|$))|npm (?:test|run (?:test|lint|typecheck|build|validate:schemas)(?:\s|$)))/;
   // Permits the canonical retrieval benchmark without admitting arbitrary package scripts or arguments.
   const retrievalBenchmark = type === "test" && command.trim() === "pnpm --dir backend eval:retrieval";
-  if (!allowed.test(command.trim()) && !retrievalBenchmark) throw invalid("Check command must use an approved Node, pnpm, or npm project check.");
+  if ((!allowed.test(command.trim()) || (command.trim().startsWith("php -r") && !phpInline)) && !retrievalBenchmark) throw invalid("Check command must use an approved Node, pnpm, npm, or quoted PHP project check.");
   if (type === "test" && /^(?:pnpm test|npm test|node --test)$/i.test(command.trim())) throw invalid("Specify test file paths; run_check does not start the full project suite by default.");
   if (type === "lint" && /^(?:pnpm lint|npm run lint)$/i.test(command.trim())) throw invalid("Specify changed file paths for lint; run_check does not lint the full project by default.");
 }

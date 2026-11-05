@@ -82,3 +82,43 @@ Thay vì phụ thuộc vào built-in tool `Agent` của riêng Claude SDK, kiế
   - **Số lượng Subagent chạy song song tối đa:** `3` subagents / lần gọi (và tối đa `3–4` subagents trong 1 turn của Agent cha) để tránh nghẽn rate limit API.
   - **Độ sâu lồng nhau (Nesting depth):** Tối đa `1` cấp (Subagent không được gọi tiếp Subagent).
   - **Lifecycle & Abort:** Gắn trực tiếp `abortSignal` của Agent cha vào mọi Subagent đang chạy để khi Owner bấm Stop/Pause, toàn bộ Subagent dừng ngay lập tức.
+
+---
+
+## 4. Các Kiến nghị Kỹ thuật Hoàn thiện (Production-Grade Refinements)
+
+Để `mcp__forge__delegate_subagent` vận hành nhanh, tiết kiệm token và khớp nối trơn tru với toàn bộ cơ chế bảo mật/cache sẵn có của Nodeforge, bổ sung **9 đặc tả kỹ thuật** sau:
+
+1. **Hỗ trợ Batch Parallel ngay trong 1 lần gọi Tool (`tasks: [...]`):**
+   - Cho phép truyền mảng `tasks` (tối đa 3 phần tử/lần gọi, mỗi phần tử gồm `{ id, objective, paths }`).
+   - Backend chạy song song tất cả các task ngay trong 1 tool call, không phụ thuộc vào việc model/provider có tự phát nhiều `tool_use` song song hay không.
+
+2. **Chế độ Partial Success (`Promise.allSettled`):**
+   - Khi chạy song song nhiều subagents trong một batch, dùng `Promise.allSettled` thay vì `Promise.all`.
+   - Nếu 1 subagent gặp lỗi/timeout, kết quả và `sha256` thu thập được từ các subagent thành công còn lại vẫn được giữ nguyên và trả về cho Agent cha (tránh mất trắng toàn bộ batch).
+
+3. **Cấu trúc kết quả trả về (Structured Return Envelope) kèm `observed_files`:**
+   - Handler của `delegate_subagent` tự động gom danh sách `{ path, sha256, symbols_read }` từ mọi lệnh `read_file`/`Read` mà Subagent đã thực thi để trả về trong `observed_files`, không phụ thuộc vào việc Subagent có nhớ chép `sha256` vào văn bản tóm tắt hay không.
+
+4. **Chuyển giao biên lai `source-metadata-receipts.js` (`recordSourceMetadata`):**
+   - Trong `backend/src/tools/discovery/source-metadata-receipts.js`, quyền gọi `Read({ file_path, symbol })` được kiểm tra qua `WeakMap` theo reference `context.agent_identity` và key `${execution_id}:${path}`.
+   - Khi Subagent kết thúc, handler phải gọi `recordSourceMetadata(parentContext, metadata)` cho mọi file Subagent đã đọc để Agent cha có thể gọi tiếp `Read({ file_path, symbol })` hoặc `edit_diff` ngay lập tức mà không bị lỗi `READ_INPUT_INVALID`.
+
+5. **Kế thừa nguyên vẹn `scopedFiles` và File Access Policy của Role cha (Zero Privilege Escalation):**
+   - Subagent sử dụng chính instance `scopedFiles` (`createRoleFileService({ fileService, role, projectRoot })`) và `allowed_file_paths` / `allowed_prefixes` của Agent cha.
+   - Đảm bảo Subagent của AM/SL/Coder/Reviewer không thể vượt rào đọc `.forge/` hoặc các đường dẫn ngoài phạm vi cho phép, trong khi Subagent của System Engineer vẫn đọc được `.forge/` và `node_modules/`.
+
+6. **Tiered Model & Low Reasoning Effort cho Subagent:**
+   - Mặc định đặt `effort: "low"` (hoặc `"medium"`) cho Subagent để giảm độ trễ và chi phí token.
+   - Cho phép cấu hình tùy chọn `subagent_model` nhẹ hơn (ví dụ Sonnet/Haiku khi Agent cha chạy Opus) trên cùng credential/gateway, mặc định fallback về model của Agent cha.
+
+7. **Giới hạn kích thước tóm tắt trả về (`max_summary_chars`):**
+   - Giới hạn văn bản trả về của mỗi Subagent (ví dụ tối đa `4.000–6.000` ký tự) để buộc Subagent trả về báo cáo cô đọng (file, symbol, dòng/anchor, phân tích chính), ngăn việc dump nguyên file code dài làm phình context của Agent cha.
+
+8. **Hiển thị gọn trên UI Transcript & Activity Stream:**
+   - Không stream text thô của các Subagent chồng chéo lên khung chat chính của Agent cha.
+   - Chỉ hiển thị command block `delegate_subagent` của Agent cha và phát sự kiện tiến độ gọn qua `agent.activity`.
+
+9. **Tách bạch Token Usage và Dọn dẹp thư mục tạm `claudeHome`:**
+   - Cộng token của Subagent vào thống kê chi phí (`subagent_usage`), nhưng **không cộng** `input_tokens` của Subagent vào `last_turn_input_tokens` dùng để tính ngưỡng Context Rollover/Compaction của Agent cha (vì context của Subagent đã được giải phóng ngay khi kết thúc).
+   - Xóa sạch thư mục tạm `.forge/runtime/nf/claude-homes/${agentId}/subagents/${subagentId}` trong khối `finally` ngay sau khi Subagent đóng phiên.

@@ -171,7 +171,7 @@ test("concurrent create acknowledged while initial read is pending remains prese
 test("NotebookPanel removes the error retry button and aligns the quick-entry submit button to the bottom right with fit-content width", () => {
   assert.doesNotMatch(notebookPanelSource, />\s*Thử lại\s*</);
   assert.match(notebookPanelSource, /Tải bản server để đối chiếu/);
-  assert.match(notebookPanelSource, /<button\b(?=[^>]*\btype=["']submit["'])[^>]*>\s*Thêm sổ tay\s*<\/button>/);
+  assert.match(notebookPanelSource, /<button\b(?=[^>]*\btype=["']submit["'])[^>]*>\s*Thêm (?:sổ tay|ghi chú)\s*<\/button>/);
   assert.match(notebookStylesSource, /align-self:\s*flex-end/);
   assert.match(notebookStylesSource, /width:\s*fit-content/);
 });
@@ -204,4 +204,34 @@ test("reorder mutation sends position and optional status while updating session
     { id: "i1", position: 1, status: "open" },
     { id: "i2", position: 2, status: "open" }
   ]);
+});
+
+test("create mutation places newly added note at the top of the notebook list", async () => {
+  const session = createSession("prepend-proj");
+  const existing = [
+    { id: "n1", project_id: "prepend-proj", content: "Older note 1", status: "open", position: 0, version: 1 },
+    { id: "n2", project_id: "prepend-proj", content: "Older note 2", status: "open", position: 1, version: 1 }
+  ];
+  const client = {
+    listNotebook: async () => existing,
+    createNotebook: async ({ content }) => ({
+      id: "n3",
+      project_id: "prepend-proj",
+      content,
+      status: "open",
+      position: 0,
+      version: 1
+    })
+  };
+  await session.load(client);
+  session.changeDraft({ content: "Newest note at top", edit: null });
+  assert.equal(await session.mutate(client, "create"), true);
+  assert.deepEqual(
+    session.getSnapshot().items.map((item) => ({ id: item.id, content: item.content, position: item.position })),
+    [
+      { id: "n3", content: "Newest note at top", position: 0 },
+      { id: "n1", content: "Older note 1", position: 1 },
+      { id: "n2", content: "Older note 2", position: 2 }
+    ]
+  );
 });

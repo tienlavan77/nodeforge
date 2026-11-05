@@ -257,3 +257,22 @@ export async function normalizeProjectComments({
   emitCoderActivity(internalBus, projectId, "completed", "success", "Completed English comment normalization.");
   return { succeeded: violations.length === 0, commentLanguage: "en", normalizedFiles: results.filter((r) => r.normalized).length, results, violations };
 }
+
+// Normalizes English purpose comments on a single created or modified project file before incremental indexing.
+// Business purpose: ensures new or edited functions and methods in watched projects always receive English purpose comments so the Embedding Worker can vectorize their summaries immediately.
+// Technical description: inspects the target file via inspectFileCommentNeeds, generates English header/symbol comments when missing, validates comment-only mutation integrity, and writes the updated source to disk.
+export async function normalizeSingleFileComments(projectRoot, relPath, { commentLanguage = "en", registry = extractorRegistry } = {}) {
+  if (typeof projectRoot !== "string" || typeof relPath !== "string" || !relPath || !registry.supports(relPath)) return false;
+  const absolutePath = join(projectRoot, relPath);
+  let beforeSource;
+  // eslint-disable-next-line no-silent-catch -- Missing or unreadable files are handled by the incremental indexer's readSnapshot step.
+  try { beforeSource = await readFile(absolutePath, "utf8"); } catch { return false; }
+  const inspection = inspectFileCommentNeeds(relPath, beforeSource, { commentLanguage, registry });
+  if (inspection.parseError || !inspection.needsNormalization) return false;
+  const proposedContent = generateEnglishCommentsForFile(relPath, beforeSource, { commentLanguage, registry });
+  if (proposedContent === beforeSource) return false;
+  const validation = validateCommentOnlyMutation(beforeSource, proposedContent, { filePath: relPath, commentLanguage, registry });
+  if (!validation.valid) return false;
+  await writeFile(absolutePath, proposedContent, "utf8");
+  return true;
+}

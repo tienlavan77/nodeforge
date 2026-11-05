@@ -126,10 +126,13 @@ function parseWorkerLogProgress() {
   let vectors = 0;
   let hasWorkerEvent = false;
   let lastWorkerLog = "";
+  let projectId = null;
   for (const entry of logLines ?? []) {
     const line = String(entry?.line ?? "");
     if (!/embedding_worker\.|Embedding job (?:completed|failed)|Recovered \d+ interrupted embedding job|Indexer updated file/.test(line)) continue;
     lastWorkerLog = `${entry?.time ?? ""}:${line}`;
+    const projectMatch = line.match(/\[([A-Za-z0-9_-]+)\|[^\]]*\]/);
+    if (projectMatch?.[1] && projectMatch[1] !== "-") projectId = projectMatch[1];
     const recovered = line.match(/Recovered (\d+) interrupted embedding job/);
     if (recovered) { active = Math.max(active, Number(recovered[1])); hasWorkerEvent = true; }
     if (line.includes("Embedding job failed")) { failed += 1; hasWorkerEvent = true; }
@@ -141,7 +144,7 @@ function parseWorkerLogProgress() {
       hasWorkerEvent = true;
     }
   }
-  return { hasWorkerEvent, done, failed, active, vectors, lastWorkerLog };
+  return { hasWorkerEvent, done, failed, active, vectors, lastWorkerLog, projectId };
 }
 
 // Summary: Reads embedding queue counts from SQLite and API worker logs and renders a progress bar with throughput.
@@ -154,8 +157,17 @@ function embeddingProgressLine() {
   let failed = logProgress.failed;
   let active = logProgress.active;
   let vectors = logProgress.vectors;
+  let targetRoot = projectRoot;
   try {
-    const database = new DatabaseSync(join(projectRoot, ".forge", "runtime", "wc", "index.db"), { readOnly: true });
+    const catalog = JSON.parse(readFileSync(join(projectRoot, ".nodeforge", "catalog", "projects.json"), "utf8"));
+    if (Array.isArray(catalog)) {
+      const matched = logProgress.projectId ? catalog.find((item) => item?.projectId === logProgress.projectId && typeof item?.root === "string") : null;
+      if (matched) targetRoot = matched.root;
+    }
+  // eslint-disable-next-line no-silent-catch -- Catalog is optional in single-project or temporary test roots.
+  } catch { /* use default projectRoot */ }
+  try {
+    const database = new DatabaseSync(join(targetRoot, ".forge", "runtime", "wc", "index.db"), { readOnly: true });
     try {
       const counts = Object.fromEntries(
         database.prepare("SELECT status, COUNT(*) AS count FROM embedding_jobs GROUP BY status").all()

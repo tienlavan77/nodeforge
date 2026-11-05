@@ -52,11 +52,15 @@ function stripStringLiteralsKeepNewlines(source) {
 }
 
 // Finds declared function names before and after an agent edit.
+const FUNCTION_MODIFIERS = "(?:(?:export|default|public|protected|private|static|abstract|final|async)\\s+)*";
+const TOP_LEVEL_FUNCTION_RE = new RegExp(`^${FUNCTION_MODIFIERS}function\\s+&?([A-Za-z0-9_$]+)\\s*\\(`);
+const ANY_LINE_FUNCTION_RE = new RegExp(`^\\s*${FUNCTION_MODIFIERS}function\\s+&?([A-Za-z0-9_$]+)\\s*\\(`);
+
 export function extractFunctionSignatures(content) {
   const out = new Set();
   if (!content || typeof content !== "string") return out;
   const cleaned = stripStringLiteralsKeepNewlines(content);
-  const re = /(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/g;
+  const re = new RegExp(`(?:^|\\n)\\s*${FUNCTION_MODIFIERS}function\\s+&?([A-Za-z0-9_$]+)\\s*\\(`, "g");
   let match;
   while ((match = re.exec(cleaned))) out.add(match[1]);
   return out;
@@ -66,9 +70,9 @@ export function extractFunctionSignatures(content) {
 // Technical description: scans stripped source lines for `fnName`, preferring unindented (top-level) declarations over indented nested declarations so comments before top-level functions are matched accurately.
 export function findFunctionDeclarationLine(content, fnName) {
   const lines = stripStringLiteralsKeepNewlines(content).split("\n");
-  const topLevelIdx = lines.findIndex((line) => /^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/.exec(line)?.[1] === fnName);
+  const topLevelIdx = lines.findIndex((line) => TOP_LEVEL_FUNCTION_RE.exec(line)?.[1] === fnName);
   if (topLevelIdx >= 0) return topLevelIdx;
-  return lines.findIndex((line) => /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)\s*\(/.exec(line)?.[1] === fnName);
+  return lines.findIndex((line) => ANY_LINE_FUNCTION_RE.exec(line)?.[1] === fnName);
 }
 
 // Checks that a new function has a purpose comment immediately above it.
@@ -144,7 +148,7 @@ export function countBudgetLines(content) {
         continue;
       }
       if (rest.startsWith("//")) break;
-      if (character === "#" && !line.slice(0, index).trim() && /^(?:#!|#\s)/.test(rest)) break;
+      if (character === "#" && !line.slice(0, index).trim() && !rest.startsWith("#[")) break;
       if (rest.startsWith("/*")) { block = "*/"; index++; continue; }
       if (rest.startsWith("<!--")) { block = "-->"; index += 3; continue; }
       if (!character.trim()) continue;

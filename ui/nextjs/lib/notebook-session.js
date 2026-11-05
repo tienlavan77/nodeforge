@@ -90,7 +90,7 @@ export function createSession(projectId) {
       if (kind === "create" && nextDraft.content === submitted && nextDraft === draft) nextDraft = { ...nextDraft, content: "" };
       if (kind === "edit" && nextDraft.edit === item) nextDraft = { ...nextDraft, edit: null };
       let items;
-      if (kind === "create") items = [...state.items, result];
+      if (kind === "create") items = [result, ...state.items.map((entry, idx) => ({ ...entry, position: (entry.position ?? idx) + 1 }))];
       else if (kind === "delete") items = state.items.filter(entry => entry.id !== item.id);
       else if (kind === "reorder") {
         const rest = state.items.filter(entry => entry.id !== result.id);
