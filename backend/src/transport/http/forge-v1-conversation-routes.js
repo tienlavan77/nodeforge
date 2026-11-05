@@ -83,12 +83,12 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
         if (conversation.status !== "active") throw Object.assign(new ConfigurationError("Conversation is not active."), { statusCode: 409, code: "CONVERSATION_NOT_ACTIVE" });
         conversationAgentId = conversation.agent_id;
       }
-      const ownerId = /^\/(?:approve|plan-continue)\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
+      const ownerId = /^\/(?:approve|plan-continue|resume-se-handoff)\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
       return { status: 202, body: await ownerChatService.submit({ ...body, project_id: projectId, conversation_id: parts[1], approved_owner_id: ownerId ?? undefined, ...(conversationAgentId ? { agent_id: conversationAgentId } : {}) }) };
     }
     if (method === "POST" && parts.length === 1 && parts[0] === "conversations") {
       if (!ownerChatService?.submit) throw unavailable("Conversation");
-      const ownerId = /^\/(?:approve|plan-continue)\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
+      const ownerId = /^\/(?:approve|plan-continue|resume-se-handoff)\s+\S+\s*$/i.test(String(body.payload?.text ?? "")) ? planOwnerAuth?.verify(headers) : null;
       return { status: 202, body: await ownerChatService.submit({ ...body, project_id: body.project_id ?? projectId, conversation_id: body.conversation_id ?? body.conversationId, approved_owner_id: ownerId ?? undefined }) };
     }
     return null;

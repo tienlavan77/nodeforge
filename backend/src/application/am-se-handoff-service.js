@@ -6,6 +6,7 @@ import { appendArchitectureDecisions, readArchitectureDecisions } from "../modul
 import { architectureSessionFromRecord, canonicalArchitecturePlanSha256, canonicalizeArchitecturePlanJSON, mergeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../modules/governance/architecture-plan-json.js";
 import { retainConversationPlanSource } from "../modules/governance/conversation-plan-source.js";
 import { createAmSeHandoffStore } from "./am-se-handoff-store.js";
+import { createAmSeHandoffCheckpoint } from "./am-se-handoff-checkpoint.js";
 
 // Business purpose: formats an Architecture Plan JSON object into a clear, natural-language Markdown brief so human readers and the System Engineer can review and critique the plan without reading raw JSON dumps.
 // Technical description: renders the plan title, metadata, delivery target (SL or SE), objective, background, itemized outcomes with acceptance criteria and guardrails, evidence references, verification instructions, a critique invitation, and the canonical JSON source path.
@@ -51,18 +52,9 @@ export function parseSePlanCritique(rawText) {
 // Technical description: matches the trailing [VERDICT: PASS|REVISE] marker case-insensitively and returns both the normalized verdict and the cleaned display text.
 export function parseAmReviewVerdict(rawText) {
   const text = String(rawText ?? "").trim();
-  const allMatches = [...text.matchAll(/[`*_~]*\[\s*VERDICT\s*:\s*(PASS|REVISE)\s*\][`*_~]*/gi)];
-  const lastMatch = allMatches.at(-1);
-  const tailText = text.split("\n").slice(-5).join("\n");
-  const verdict = lastMatch
-    ? lastMatch[1].toUpperCase()
-    : /\bPASS\b/i.test(tailText) && !/\bREVISE\b/i.test(tailText)
-      ? "PASS"
-      : /\bPASS\b/.test(text) && !/\bREVISE\b/i.test(text)
-        ? "PASS"
-        : "REVISE";
-  const cleanText = text.replace(/\s*[`*_~]*\[\s*VERDICT\s*:\s*(?:PASS|REVISE)\s*\][`*_~]*\s*$/i, "").trim();
-  return { verdict, cleanText: cleanText || text };
+  const terminal = /(?:^|\n)\s*[`*_~]*\[\s*VERDICT\s*:\s*(PASS|REVISE)\s*\][`*_~]*\s*$/i.exec(text);
+  const cleanText = terminal ? text.slice(0, terminal.index).trim() : text;
+  return { verdict: terminal && cleanText ? terminal[1].toUpperCase() : null, cleanText };
 }
 
 /**
@@ -124,12 +116,13 @@ function buildAmAcceptanceReviewPrompt({ planJson, planId, round, maxRounds, seR
 // Business purpose: creates the orchestration service that manages Phase 1 AM-SE plan critique and Phase 2 automatic handoffs to Sprint Leader or System Engineer (with independent Reviewer RV verification).
 // Technical description: wires fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, and requestReviewer into startHandoff.
 export function createAmSeHandoffService({
-  projectId, fileService, markdownPlanStore, handoffStore, bus, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, requestReviewer, maxCritiqueRounds = 2, maxRounds = 5
+  projectId, fileService, markdownPlanStore, handoffStore, gitService, executionCheckpoint, bus, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, requestReviewer, maxCritiqueRounds = 2, maxRounds = 5
 } = {}) {
   if (!projectId || !fileService?.readFile || !markdownPlanStore?.decide) {
     throw Object.assign(new ConfigurationError("AM-SE handoff service requires projectId, FileService, and markdownPlanStore."), { code: "SE_HANDOFF_UNAVAILABLE", statusCode: 503 });
   }
   const store = handoffStore ?? createAmSeHandoffStore({ projectId, fileService });
+  const checkpoint = gitService ? createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileService, gitService, projectId, executionCheckpoint }) : null;
 
   // Business purpose: publishes a communication message to both the Architecture conversation and the System Engineer conversation so human observers see the full dialogue in either workspace.
   // Technical description: sends a message on the shared bus for amConversationId (with linked_conversation_id pointing to seConversationId) and mirrors it to seConversationId when bus.send is available.
@@ -164,7 +157,53 @@ export function createAmSeHandoffService({
     }
   }
 
-  // Business purpose: runs Phase 1 (1-2 rounds of AM-SE plan critique) and Phase 2 (execution handoff to SL or SE) immediately after plan revision r1 is created.
+  // Business purpose: resumes a saved handoff from the next durable SE, RV, or AM step.
+  // Technical description: checks exact Owner approval, invokes only the role selected by the checkpoint, and retains each result before advancing.
+  async function resumeHandoff({ handoffId, approvedOwnerId, requestSystemEngineer: se = requestSystemEngineer, requestReviewer: rv = requestReviewer, requestArchitecture: am = requestArchitecture, drain = false, expectedRevision, expectedSha256 } = {}) {
+    if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
+    let record = await store.get(handoffId);
+    if (!record || record.project_id !== projectId || record.delivery_target !== "se" || !approvedOwnerId || record.am_conversation_id == null) throw Object.assign(new ConfigurationError("Handoff identity is unavailable."), { code: "HANDOFF_IDENTITY_INVALID", statusCode: 409 });
+    if (expectedRevision !== undefined && expectedRevision !== record.plan_revision || expectedSha256 !== undefined && expectedSha256 !== record.plan_sha256) throw Object.assign(new ConfigurationError("Plan identity changed."), { code: "HANDOFF_PLAN_MISMATCH", statusCode: 409 });
+    const approved = await checkpoint.verifyPlan(record);
+    if (approved.decision?.approver_id !== approvedOwnerId) throw Object.assign(new ConfigurationError("Owner approval does not match."), { code: "PLAN_APPROVAL_OWNER_MISMATCH", statusCode: 409 });
+    if (record.checkpoint?.approval_pending) record = await checkpoint.initialize(handoffId);
+    if (!record.checkpoint) {
+      if (record.phase !== "plan_critique" || record.status !== "paused" || !record.history?.length || record.history.at(-1)?.critique_status !== "ALIGNED" || record.history.at(-1)?.critique_round !== record.critique_round) throw Object.assign(new ConfigurationError("Critique cannot resume safely."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
+      record = await store.transition(handoffId, 0, (current) => {
+        if (current.phase !== "plan_critique" || current.status !== "paused" || current.plan_revision !== record.plan_revision || current.plan_sha256 !== record.plan_sha256 || current.checkpoint) throw Object.assign(new ConfigurationError("Handoff changed."), { code: "HANDOFF_STALE", statusCode: 409 });
+        return { ...current, phase: "implementation", status: "running", round: 1, checkpoint: { generation: 0, approval_pending: true } };
+      });
+      record = await checkpoint.initialize(handoffId);
+    }
+    const planJson = parseArchitecturePlanJSON(await fileService.readFile({ path: record.plan_source_path }));
+    const invoke = async ({ record: active, step, round, executionId, previous }) => {
+      const seResult = [...previous].reverse().find((item) => item.round === round && item.step === "se");
+      const rvResult = [...previous].reverse().find((item) => item.round === round && item.step === "rv");
+      const preceding = previous.at(-1);
+      const prompt = step === "se"
+        ? preceding?.verdict === "REVISE" ? `Please address the saved ${preceding.step.toUpperCase()} findings for round ${round}:\n${preceding.text}` : `Implement approved plan ${active.plan_id} r${active.plan_revision} (${active.plan_source_path}). Report implementation and verification evidence.`
+        : step === "rv" ? buildRvImplementationReviewPrompt({ planJson, planId: active.plan_id, round, maxRounds: active.max_rounds, seReplyText: seResult?.text })
+          : buildAmAcceptanceReviewPrompt({ planJson, planId: active.plan_id, round, maxRounds: active.max_rounds, seReplyText: seResult?.text, rvReviewText: rvResult?.text });
+      let raw;
+      if (step === "se" && typeof se === "function") raw = await se({ agentId: active.se_agent_id, prompt, conversationId: active.se_conversation_id, linkedConversationId: active.am_conversation_id, correlationId: executionId, phase: "implementation", round, withEvidence: true });
+      else if (step === "rv" && typeof rv === "function") raw = await rv({ agentId: active.rv_agent_id, prompt, conversationId: active.rv_conversation_id, linkedConversationId: active.am_conversation_id, correlationId: executionId, phase: "implementation", round, withEvidence: true });
+      else if (step === "am" && typeof am === "function") raw = await am(prompt, active.am_conversation_id, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, withEvidence: true });
+      else throw Object.assign(new ConfigurationError("Role stream unavailable."), { code: "HANDOFF_ADAPTER_UNAVAILABLE" });
+      const parsed = step === "se" ? { cleanText: String(raw?.text ?? "").trim() } : parseAmReviewVerdict(raw?.text);
+      return { execution_id: raw?.execution_id, terminal_status: raw?.terminal_status, result_evidence: raw?.result_evidence, read_only_enforced: raw?.read_only_enforced, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) };
+    };
+    let pending = true;
+    while (pending) {
+      record = await checkpoint.resume(handoffId, { invoke, recoverResult: (step, receipt) => {
+        const parsed = step === "se" ? { cleanText: receipt.text } : parseAmReviewVerdict(receipt.text);
+        return { ...receipt, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) };
+      }, expectedRevision: record.plan_revision, expectedSha256: record.plan_sha256 });
+      pending = drain && record.checkpoint.execution_status === "pending";
+    }
+    return { handoff_id: record.handoff_id, phase: record.phase, status: record.status, reason: record.checkpoint.error_code, delivery_target: record.delivery_target, plan_id: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, rounds_completed: record.checkpoint.round, history: record.history, checkpoint: record.checkpoint };
+  }
+
+  // Business purpose: runs Phase 1 (1-2 rounds of AM-SE plan critique) and Phase 2 automatic handoff to SL or SE.
   // Technical description: publishes the human-readable brief, coordinates 1-2 rounds of AM-SE critique, auto-approves the unified revision, and dispatches either SL sprint generation or SE multi-round implementation and AM acceptance review.
   async function startHandoff({
     plan, planJson: suppliedPlanJson, intake = {}, deliveryTarget = "se", conversationId, approvedOwnerId = "project-owner",
@@ -238,11 +277,16 @@ export function createAmSeHandoffService({
       }
     }
 
-    await markdownPlanStore.decide({
-      planId: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256,
-      decision: "approved", approverId: approvedOwnerId || "project-owner", comments: `Auto-approved after AM-SE plan critique (${critiqueRound} round(s)).`
-    });
-    const consensusText = `### Chốt thống nhất kế hoạch giữa AM & SE: ${currentPlan.plan_id} (r${currentPlan.revision})\nArchitecture Manager và System Engineer đã hoàn tất ${critiqueRound} vòng phản biện kỹ thuật, thống nhất phương án và tự động duyệt kế hoạch **${currentPlan.plan_id} r${currentPlan.revision}** để chuyển sang giai đoạn thực thi (**${target.toUpperCase()}**).`;
+    let approvedPlan;
+    try {
+      approvedPlan = await markdownPlanStore.assertApproved({ planId: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256 });
+      if (!approvedOwnerId || approvedPlan.decision?.approver_id !== approvedOwnerId) throw new ConfigurationError("Authenticated Owner approval is required.");
+    } catch (error) {
+      void error;
+      record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, critique_round: critiqueRound, history });
+      return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: "PLAN_APPROVAL_REQUIRED", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
+    }
+    const consensusText = `### Chốt thống nhất kế hoạch giữa AM & SE: ${currentPlan.plan_id} (r${currentPlan.revision})\nArchitecture Manager và System Engineer đã hoàn tất ${critiqueRound} vòng phản biện kỹ thuật. Kế hoạch **${currentPlan.plan_id} r${currentPlan.revision}** có approval hợp lệ trước khi chuyển sang giai đoạn thực thi (**${target.toUpperCase()}**).`;
     publishDualConversationMessage({
       sender: { id: amProfile.agent_id, role: "architecture_manager" }, recipient: { id: seProfile.agent_id, role: "system_engineer" },
       messageType: "architecture.message.received", amConversationId: conversationId, seConversationId, correlationId: `${correlationBase}-CONSENSUS`,
@@ -263,74 +307,24 @@ export function createAmSeHandoffService({
     }
 
     record = await store.update(record.handoff_id, { phase: "implementation", status: "running", round: 1, plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, critique_round: critiqueRound, history });
-    if (typeof turnRequestSystemEngineer !== "function") {
-      return { handoff_id: record.handoff_id, phase: "implementation", status: "running", delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, critique_rounds_completed: critiqueRound, brief, rounds_completed: 0, history };
+    if (checkpoint) {
+      record = await checkpoint.initialize(record.handoff_id);
+      return resumeHandoff({ handoffId: record.handoff_id, approvedOwnerId, requestArchitecture: turnRequestArchitecture, requestSystemEngineer: turnRequestSystemEngineer, requestReviewer: turnRequestReviewer, drain: true });
     }
-
-    let currentInstruction = `### Bắt đầu giai đoạn thực thi kế hoạch ${currentPlan.plan_id} (r${currentPlan.revision})\n\n${brief}\n\nKế hoạch đã được AM & SE thống nhất và duyệt. Hãy tiến hành triển khai mã nguồn, chạy kiểm thử xác nhận cho từng hạng mục và báo cáo kết quả.`;
-    for (let round = 1; round <= record.max_rounds; round += 1) {
-      record = await store.update(record.handoff_id, { phase: "implementation", status: "running", round });
-      const seCorrelationId = `${correlationBase}-SE-R${round}`;
-      const seReplyText = String(await turnRequestSystemEngineer({
-        agentId: seProfile.agent_id, prompt: currentInstruction, conversationId: seConversationId, linkedConversationId: conversationId, correlationId: seCorrelationId, phase: "implementation", round
-      }) ?? "").trim();
-
-      publishDualConversationMessage({
-        sender: { id: seProfile.agent_id, role: "system_engineer" }, recipient: { id: rvProfile.agent_id, role: "reviewer" },
-        messageType: "system_engineer.message.received", amConversationId: conversationId, seConversationId, correlationId: seCorrelationId,
-        text: seReplyText, extraPayload: { handoff_id: record.handoff_id, phase: "implementation", round }
-      });
-
-      record = await store.update(record.handoff_id, { phase: "implementation", status: "rv_reviewing", round });
-      const rvPrompt = buildRvImplementationReviewPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, round, maxRounds: record.max_rounds, seReplyText });
-      const rvCorrelationId = `${correlationBase}-RV-REVIEW-R${round}`;
-      const rawRvReview = typeof turnRequestReviewer === "function"
-        ? String(await turnRequestReviewer({
-          agentId: rvProfile.agent_id, prompt: rvPrompt, conversationId: rvConversationId, linkedConversationId: conversationId, correlationId: rvCorrelationId, phase: "implementation", round
-        }) ?? "").trim()
-        : "Reviewer (RV) kiểm tra độc lập hoàn tất: Mã nguồn và bộ kiểm thử của SE đáp ứng đầy đủ các tiêu chí.\n[VERDICT: PASS]";
-      const { verdict: rvVerdict, cleanText: rvCleanText } = parseRvReviewVerdict(rawRvReview);
-
-      publishDualConversationMessage({
-        sender: { id: rvProfile.agent_id, role: "reviewer" }, recipient: rvVerdict === "PASS" ? { id: amProfile.agent_id, role: "architecture_manager" } : { id: seProfile.agent_id, role: "system_engineer" },
-        messageType: "reviewer.message.received", amConversationId: conversationId, seConversationId, correlationId: rvCorrelationId,
-        text: rvCleanText, extraPayload: { handoff_id: record.handoff_id, phase: "implementation", round, rv_verdict: rvVerdict, verdict: rvVerdict }
-      });
-
-      if (rvVerdict !== "PASS") {
-        history.push({ phase: "implementation", round, se_report: seReplyText, rv_review: rvCleanText, rv_verdict: rvVerdict, verdict: "REVISE", stage: "rv_review", timestamp: new Date().toISOString() });
-        if (round >= record.max_rounds) {
-          record = await store.update(record.handoff_id, { phase: "implementation", status: "paused", round, history });
-          return { handoff_id: record.handoff_id, phase: "implementation", status: "paused", delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, rv_conversation_id: rvConversationId, brief, rv_review: rvCleanText, critique_rounds_completed: critiqueRound, rounds_completed: round, history };
-        }
-        currentInstruction = `### Yêu cầu chỉnh sửa vòng ${round + 1} từ Reviewer độc lập (RV) (${currentPlan.plan_id} r${currentPlan.revision})\n\n${rvCleanText}\n\nVui lòng khắc phục đầy đủ các điểm Reviewer đã chỉ ra, chạy lại kiểm thử xác nhận và báo cáo kết quả để trình lại RV kiểm tra trước khi AM nghiệm thu.`;
-        continue;
-      }
-
-      record = await store.update(record.handoff_id, { phase: "implementation", status: "reviewing", round });
-      const reviewPrompt = buildAmAcceptanceReviewPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, round, maxRounds: record.max_rounds, seReplyText, rvReviewText: rvCleanText });
-      const rawAmReview = typeof turnRequestArchitecture === "function"
-        ? String(await turnRequestArchitecture(reviewPrompt, conversationId, { responseContentType: "text/markdown", exposeText: false }) ?? "").trim()
-        : "Nghiệm thu hoàn tất: Toàn bộ các hạng mục trong kế hoạch đã được SE triển khai và RV kiểm tra độc lập đạt yêu cầu.\n[VERDICT: PASS]";
-      const { verdict, cleanText } = parseAmReviewVerdict(rawAmReview);
-
-      history.push({ phase: "implementation", round, se_report: seReplyText, rv_review: rvCleanText, rv_verdict: rvVerdict, am_review: cleanText, verdict, stage: "am_acceptance", timestamp: new Date().toISOString() });
-      publishDualConversationMessage({
-        sender: { id: amProfile.agent_id, role: "architecture_manager" }, recipient: { id: seProfile.agent_id, role: "system_engineer" },
-        messageType: "architecture.message.received", amConversationId: conversationId, seConversationId, correlationId: `${correlationBase}-AM-REVIEW-R${round}`,
-        text: cleanText, extraPayload: { handoff_id: record.handoff_id, phase: "implementation", round, rv_verdict: rvVerdict, verdict }
-      });
-
-      if (verdict === "PASS" || round >= record.max_rounds) {
-        const finalStatus = verdict === "PASS" ? "completed" : "paused";
-        record = await store.update(record.handoff_id, { phase: "implementation", status: finalStatus, round, history });
-        return { handoff_id: record.handoff_id, phase: "implementation", status: finalStatus, delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, rv_conversation_id: rvConversationId, brief, rv_review: rvCleanText, am_review: cleanText, critique_rounds_completed: critiqueRound, rounds_completed: round, history };
-      }
-
-      currentInstruction = `### Hướng dẫn điều chỉnh vòng ${round + 1} từ Architecture Manager (${currentPlan.plan_id} r${currentPlan.revision})\n\n${cleanText}\n\nVui lòng kiểm tra và hoàn thiện các điểm còn thiếu trên, chạy lại kiểm thử liên quan và báo cáo kết quả (sẽ qua cổng Reviewer độc lập kiểm tra lại trước khi trình AM nghiệm thu).`;
-    }
-    return { handoff_id: record.handoff_id, phase: record.phase, status: record.status, delivery_target: "se", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, rv_conversation_id: rvConversationId, critique_rounds_completed: critiqueRound, brief, history };
+    record = await store.update(record.handoff_id, { status: "paused" });
+    return { handoff_id: record.handoff_id, phase: "implementation", status: "paused", reason: "HANDOFF_CHECKPOINT_UNAVAILABLE", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
   }
 
-  return Object.freeze({ startHandoff, store, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
+  // Business purpose: expose guarded reconciliation only to the exact Owner and approved plan revision.
+  // Technical description: verifies persisted handoff identity and approval before assessing runner stop evidence; it never retries an uncertain execution automatically.
+  async function reconcileHandoff({ handoffId, approvedOwnerId, expectedRevision, expectedSha256, operatorApproved = false } = {}) {
+    if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
+    const record = await store.get(handoffId);
+    if (!record || record.project_id !== projectId || record.delivery_target !== "se" || !approvedOwnerId || expectedRevision !== record.plan_revision || expectedSha256 !== record.plan_sha256) throw Object.assign(new ConfigurationError("Handoff identity is unavailable."), { code: "HANDOFF_IDENTITY_INVALID", statusCode: 409 });
+    const approved = await checkpoint.verifyPlan(record);
+    if (approved.decision?.approver_id !== approvedOwnerId) throw Object.assign(new ConfigurationError("Owner approval does not match."), { code: "PLAN_APPROVAL_OWNER_MISMATCH", statusCode: 409 });
+    return checkpoint.reconcile(handoffId, { operatorApproved });
+  }
+
+  return Object.freeze({ startHandoff, resumeHandoff, reconcileHandoff, store, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
 }
