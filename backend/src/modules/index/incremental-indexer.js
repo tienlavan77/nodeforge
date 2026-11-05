@@ -158,7 +158,7 @@ export function createIncrementalIndexer({ database, projectRoot, registry = ext
 
   // Defines writeLog function behavior for incremental-indexer.js.
   function writeLog(eventName, level, message, event, path, status = level === "error" ? "failed" : "info") {
-    try { projectLogger({ timestamp: new Date().toISOString(), event_name: eventName, level, status, message, task_id: event?.task_id ?? event?.payload?.task_id ?? `INDEX-${path}`, ticket_id: event?.ticket_id ?? event?.payload?.ticket_id, conversation_id: event?.conversation_id ?? event?.payload?.conversation_id, source: "incremental-indexer" }); } catch (error) { logger.warning?.("Project log write failed.", { error: error.message, path }); }
+    try { projectLogger({ timestamp: new Date().toISOString(), event_name: eventName, level, status, message, task_id: event?.task_id ?? event?.payload?.task_id ?? `INDEX-${path}`, ticket_id: event?.ticket_id ?? event?.payload?.ticket_id, conversation_id: event?.conversation_id ?? event?.payload?.conversation_id, ...(event?.project_id ? { project_id: event.project_id } : {}), source: "incremental-indexer" }); } catch (error) { logger.warning?.("Project log write failed.", { error: error.message, path }); }
   }
 
   // Defines withTransaction function behavior for incremental-indexer.js.

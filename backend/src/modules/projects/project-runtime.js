@@ -118,7 +118,8 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     warning(message, detail) {
       embeddingError = detail.error;
       trackedProgress.embedding({ projectId, status: "failed", error: String(detail.error) });
-      logger.warn?.(message, { ...detail, projectId });
+      if (typeof logger.warn === "function") logger.warn(message, { ...detail, projectId });
+      else logger.error?.(message, { event_name: "embedding_worker.failed", project_id: projectId, payload: { error: detail.error ?? message, project_id: projectId } });
       bus.emit("embedding.failed", { projectId, error: detail.error });
     },
     // Clears transient Ollama error state after a retry succeeds and no failed or retry_wait jobs remain.
@@ -159,7 +160,20 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       model,
       logger: workerLogger,
       onJobClaimed: syncEmbeddingProgress,
-      onJobSettled: syncEmbeddingProgress
+      // Synchronizes durable embedding progress and emits terminal completion logs with queue and vector counts.
+      onJobSettled(job, outcome = {}) {
+        syncEmbeddingProgress(job, outcome);
+        if (closed || outcome?.status !== "completed" || !database) return;
+        const counts = embeddingJobs.counts();
+        const queued = (counts.pending ?? 0) + (counts.retry_wait ?? 0) + (counts.processing ?? 0);
+        const vectors = Number(database.all("SELECT COUNT(*) AS count FROM symbol_embeddings")[0]?.count ?? 0);
+        logger.info?.(`Embedding job completed (${counts.completed ?? 0} done, ${queued} queued, ${vectors} vectors).`, {
+          event_name: "embedding_worker.completed",
+          status: "success",
+          project_id: projectId,
+          payload: { job_id: job.job_id, symbol_id: job.symbol_id, model, counts, vectors, project_id: projectId }
+        });
+      }
     });
     watch = await startProjectWatch({
       projectRoot, projectId, database, databaseExisted, deferReadiness: true,
@@ -240,6 +254,9 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
         // Relays runtime watcher and indexing progress events onto the application internal bus.
         const fromRuntime = (event) => {
           if (forwarding || closed || (event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
+          if (eventType === "watcher.indexed" && typeof event?.payload?.path === "string" && event.payload.path) {
+            services.codeCache?.invalidate?.({ path: event.payload.path });
+          }
           forwarding = true;
           try { services.internalBus.emit(eventType, event); } finally { forwarding = false; }
         };
@@ -265,12 +282,19 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
 
   // Upgrades unchanged legacy indexes and changed embedding models without rebuilding project identity.
   function queueMissingEmbeddings() {
-    prepareEmbeddingQueue({
+    const startup = prepareEmbeddingQueue({
       database,
       embeddingStore: retrieval.embeddingStore,
       jobs: embeddingJobs,
       model: retrieval.embeddingModel
     });
+    if (startup?.recovered > 0) {
+      logger.info?.(`Recovered ${startup.recovered} interrupted embedding job(s).`, {
+        event_name: "embedding_worker.recovered",
+        project_id: projectId,
+        payload: { count: startup.recovered, model: retrieval.embeddingModel, project_id: projectId }
+      });
+    }
   }
 
   // Owns each SSE connection so project removal clears subscriptions and heartbeat timers.

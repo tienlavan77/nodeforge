@@ -40,8 +40,8 @@ window.fetch=async(input,init={})=>{
   const id=decodeURIComponent(url.pathname.split("/").at(-1)),item=window.records.find(entry=>entry.id===id);
   if(method==="GET")return Response.json(id==="notebook"?window.records:item);
   if(method==="POST"){
-   const created={id:"notebook-"+Date.now(),project_id:body.project_id,content:body.content,status:"open",version:1};
-   window.records.push(created);window.persist();return Response.json(created,{status:201});
+   const created={id:"notebook-"+Date.now(),project_id:body.project_id,content:body.content,status:"open",version:1,position:0};
+   window.records=[created,...window.records.map((entry,idx)=>({...entry,position:idx+1}))];window.persist();return Response.json(created,{status:201});
   }
   const version=method==="PATCH"?body.expected_version:Number(url.searchParams.get("expected_version"));
   if(!item||item.version!==version)return Response.json({error:{message:"Notebook version conflict"}},{status:409});

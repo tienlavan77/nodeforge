@@ -38,6 +38,7 @@ test("System Engineer uses Node services for edit, checks, exact-path commit, pu
     const check = await registry.run_check.execute({ type: "lint", command: "pnpm exec eslint src/example.js" }, context);
     assert.equal(check.status, "passed");
     assert.equal(check.breakdown[0].exit_code, 0);
+    assert.deepEqual(check.output_preview, [{ kind: "lint", status: "passed", exit_code: 0 }]);
     assert.deepEqual(check.changed_paths, [path]);
     await assert.rejects(() => registry.run_check.execute({ type: "test", command: "pnpm test" }, context), { code: "INPUT_INVALID" });
     const commit = await registry.commit_changes.execute({ message: "Update example value" }, context);

@@ -57,16 +57,15 @@ export function createNotebookStore({ controlDb, projectId, clock = () => new Da
       return controlDb.all(`SELECT * FROM notebooks WHERE project_id = ?${status === "all" ? "" : " AND status = ?"} ORDER BY position ASC, created_at ASC, id ASC`,
         status === "all" ? [projectId] : [projectId, status]);
     },
-    /** Saves a new Notebook entry with a server-owned identity, next position, timestamps and initial version. */
+    /** Saves a new Notebook entry at the top position (0) with a server-owned identity, timestamps and initial version. */
     create({ content, status = "open" } = {}) {
       validate(content, status, 0);
       const id = createId();
       const now = clock().toISOString();
       return controlDb.transaction(() => {
-        const nextRow = controlDb.all("SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM notebooks WHERE project_id = ?", [projectId])[0];
-        const position = Number.isSafeInteger(nextRow?.next_pos) && nextRow.next_pos >= 0 ? nextRow.next_pos : 0;
-        controlDb.run("INSERT INTO notebooks (id, project_id, content, status, created_at, updated_at, version, position) VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
-          [id, projectId, content, status, now, now, position]);
+        controlDb.run("UPDATE notebooks SET position = position + 1 WHERE project_id = ?", [projectId]);
+        controlDb.run("INSERT INTO notebooks (id, project_id, content, status, created_at, updated_at, version, position) VALUES (?, ?, ?, ?, ?, ?, 1, 0)",
+          [id, projectId, content, status, now, now]);
         return get(id);
       });
     },

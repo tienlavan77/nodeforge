@@ -249,17 +249,21 @@ export const browserAssertions = {
     for (const text of ["Todo Alpha", "Todo Beta", "Todo Gamma"]) await create(page, text);
     const openList = panel.getByRole("list", { name: "Danh sách sổ tay", exact: true });
     const doneList = panel.getByRole("list", { name: "Danh sách sổ tay đã hoàn thành", exact: true });
-    assert.deepEqual(await openList.locator("li .notebook-todo-content").allInnerTexts(), ["Todo Alpha", "Todo Beta", "Todo Gamma"]);
+    assert.deepEqual(await openList.locator("li .notebook-todo-content").allInnerTexts(), ["Todo Gamma", "Todo Beta", "Todo Alpha"]);
     const alphaRow = openList.locator("li").filter({ hasText: "Todo Alpha" });
+    const gammaRow = openList.locator("li").filter({ hasText: "Todo Gamma" });
     const styles = await alphaRow.evaluate((li) => {
       const p = li.querySelector(".notebook-todo-content"), cb = li.querySelector(".notebook-todo-checkbox"), editBtn = li.querySelector('button[aria-label="Sửa"]'), delBtn = li.querySelector('button[aria-label="Xóa"]');
       const pRect = p.getBoundingClientRect(), cbRect = cb.getBoundingClientRect(), eRect = editBtn.getBoundingClientRect(), dRect = delBtn.getBoundingClientRect();
       return { fontSize: getComputedStyle(p).fontSize, rightOfContent: eRect.left >= pRect.right - 2, cbW: Math.round(cbRect.width), editW: Math.round(eRect.width), editH: Math.round(eRect.height), delW: Math.round(dRect.width), delH: Math.round(dRect.height) };
     });
     assert.deepEqual(styles, { fontSize: "12px", rightOfContent: true, cbW: 12, editW: 12, editH: 12, delW: 12, delH: 12 });
-    await openList.locator("li").filter({ hasText: "Todo Gamma" }).dragTo(alphaRow);
+    await openList.locator("li").filter({ hasText: "Todo Beta" }).dragTo(gammaRow);
     await panel.getByText("Đã lưu", { exact: true }).waitFor();
-    assert.deepEqual(await openList.locator("li .notebook-todo-content").allInnerTexts(), ["Todo Gamma", "Todo Alpha", "Todo Beta"]);
+    assert.deepEqual(await openList.locator("li .notebook-todo-content").allInnerTexts(), ["Todo Beta", "Todo Gamma", "Todo Alpha"]);
+    await openList.locator("li").filter({ hasText: "Todo Gamma" }).dragTo(openList.locator("li").filter({ hasText: "Todo Beta" }));
+    await panel.getByText("Đã lưu", { exact: true }).waitFor();
+    assert.deepEqual(await openList.locator("li .notebook-todo-content").allInnerTexts(), ["Todo Gamma", "Todo Beta", "Todo Alpha"]);
     await alphaRow.getByRole("checkbox", { name: "Hoàn thành" }).click();
     const doneAlpha = doneList.locator("li").filter({ hasText: "Todo Alpha" });
     await doneAlpha.waitFor();

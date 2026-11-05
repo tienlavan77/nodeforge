@@ -11,7 +11,7 @@ import { createIncrementalIndexer } from "../index/incremental-indexer.js";
 import { rebuildIndex } from "../index/index-rebuild.js";
 import { createIndexProgress } from "../index/index-progress.js";
 import { ProjectRegistry } from "../projects/project-registry.js";
-import { normalizeProjectComments } from "../projects/project-comment-normalization.js";
+import { normalizeProjectComments, normalizeSingleFileComments } from "../projects/project-comment-normalization.js";
 import { createDebouncedWatcher } from "./debounced-watcher.js";
 
 export const INDEX_RUNTIME_DIR = join(".forge", "runtime", "wc");
@@ -100,7 +100,7 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     rawWatcher = watcherFactory({
       root,
       ignore: config.watcherIgnore,
-      chokidarOptions: { ...chokidarOptions, ignoreInitial: true }
+      chokidarOptions: { usePolling: true, interval: 250, ...chokidarOptions, ignoreInitial: true }
     });
     ready = once(rawWatcher, "ready");
     watcher = createDebouncedWatcher({
@@ -118,8 +118,16 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
     bootstrap = createBootstrap({ configOptions: { cwd: root }, loggerOptions, internalBus, watcher, indexer: {
       // Publishes watcher outcomes through the same commit-aware collector used by baseline work.
       async handle(event) {
+        logger.info?.(`Watcher event ${event.type}.`, {
+          event_name: "watcher.event",
+          project_id: resolvedProjectId,
+          payload: { type: event.type, path: event.payload?.path ?? null, event_id: event.event_id, project_id: resolvedProjectId }
+        });
         const readySettled = !deferReadiness || progress.snapshot().stages["startup/readiness"] !== "pending";
         if (readySettled) progress.stage("scan/index");
+        if (normalizeComments && (event.type === "watcher.file_created" || event.type === "watcher.file_modified") && typeof event.payload?.path === "string") {
+          await normalizeSingleFileComments(root, event.payload.path);
+        }
         const result = await indexer.handleDetailed(event);
         progress.result(result);
         progress.reconcile(database);
@@ -127,6 +135,12 @@ export async function startProjectWatch({ projectRoot, loggerOptions, chokidarOp
           progress.stage("startup/readiness");
           progress.finish();
         }
+        logger.info?.(result.committed ? "Indexer updated file." : "Indexer skipped file.", {
+          event_name: "watcher.indexed",
+          status: result.committed ? "success" : "info",
+          project_id: resolvedProjectId,
+          payload: { path: event.payload?.path ?? null, event_id: event.event_id, project_id: resolvedProjectId }
+        });
         internalBus?.emit("index.result", result);
         if (result.error && result.marker !== "parse_failed") throw result.error;
         return result.committed;
