@@ -12,13 +12,15 @@ import { createOwnerReadFileBinaryTool, ownerReadFileBinaryDefinition } from "./
 import { createGitReadTools } from "../discovery/git-read-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 import { createSourceReadTool } from "../discovery/source-read.js";
+import { createDelegateSubagentTool } from "../discovery/delegate-subagent-tool.js";
 import { createLookupSchemaTool } from "../discovery/lookup-schema-tool.js";
 import { formatForgeToolActivitySummary } from "../../application/system-engineer-sdk-transcript.js";
 import { extractOwnerToolPathMeta, recordDiscoveryCompactStep, updateActiveFileChecksums } from "../../application/owner-context-compaction.js";
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
-export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context }) {
-  const allowed = ownerRoleTools(role).filter((name) => !context?.planning_input_only || ["search_tree", "list_files", "search_text", "read_file", "read_file_binary", "Read", "git_status", "git_diff", "lookup_schema"].includes(name));
+export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context, delegateSubagentExecutor, readOnlyExplorer = false }) {
+  const explorerTools = ["search_tree", "list_files", "search_text", "read_file", "Read"];
+  const allowed = ownerRoleTools(role).filter((name) => (readOnlyExplorer ? explorerTools.includes(name) : true) && (!context?.planning_input_only || ["search_tree", "list_files", "search_text", "read_file", "read_file_binary", "Read", "git_status", "git_diff", "lookup_schema"].includes(name)));
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
     await scopedFiles.assertReadPath(path);
@@ -41,6 +43,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   if (["architecture_manager", "system_engineer", "reviewer"].includes(role) && typeof gitService?.status === "function" && typeof gitService?.diffWorkingTree === "function") Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
+  if (typeof delegateSubagentExecutor === "function") implementations.delegate_subagent = createDelegateSubagentTool({ executeTask: delegateSubagentExecutor });
   const baseDefinitions = engineeringToolDefinitions();
   const readIdx = baseDefinitions.findIndex(({ name }) => name === "read_file");
   const candidateDefinitions = ["architecture_manager", "system_engineer"].includes(role) && readIdx >= 0
@@ -67,13 +70,17 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
         const isMutating = ["write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name);
         const discoveryUpdate = recordDiscoveryCompactStep(currentState, { toolName: definition.name, input, result });
         const stepMeta = extractOwnerToolPathMeta(definition.name, input);
+        const delegatedChecksums = definition.name === "delegate_subagent" && Array.isArray(result?.observed_files)
+          ? result.observed_files.reduce((checksums, file) => updateActiveFileChecksums(checksums, { toolName: "read_file", step: { tool_name: "read_file", path: file.path }, result: { path: file.path, sha256: file.sha256, total_lines: file.total_lines } }), currentState.active_file_checksums)
+          : currentState.active_file_checksums;
         const activeFileChecksums = discoveryUpdate?.active_file_checksums
-          ?? (isMutating ? updateActiveFileChecksums(currentState.active_file_checksums, { toolName: definition.name, step: { tool_name: definition.name, ...stepMeta }, result }) : currentState.active_file_checksums);
+          ?? (isMutating ? updateActiveFileChecksums(currentState.active_file_checksums, { toolName: definition.name, step: { tool_name: definition.name, ...stepMeta }, result }) : delegatedChecksums);
         if (isMutating || discoveryUpdate) {
           const previous = currentState.owner_changed_paths ?? [];
           await conversationStateStore.update?.(conversationId, {
             ...(isMutating ? { owner_changed_paths: [...new Set([...previous, ...(toolContext.changed_paths ?? [])])], owner_last_commit_sha: null } : {}),
             ...(activeFileChecksums ? { active_file_checksums: activeFileChecksums } : {}),
+            ...(definition.name === "delegate_subagent" ? { subagent_usage: result?.subagent_usage ?? 0 } : {}),
             ...(discoveryUpdate?.discovery_receipts ? { discovery_receipts: discoveryUpdate.discovery_receipts } : {})
           });
         }

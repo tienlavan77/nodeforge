@@ -1,12 +1,14 @@
 // Provides module declarations and business logic for codex-sdk-gateway.js.
 
 import { Codex as DefaultCodex } from "@openai/codex-sdk";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prependNodeBin } from "./node-bin-path.js";
 import { codexShellEnvironment } from "./codex-shell-environment.js";
+import { buildCodexChildEnvironment } from "./codex-child-environment.js";
 import { ConfigurationError, ForgeError } from "../../shared/errors.js";
+import { safeSubagentId } from "./runtime-instance.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
 import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createCodexSdkLog } from "./codex-sdk-log.js";
@@ -43,13 +45,16 @@ export function createCodexSdkGateway({
   }
 
   // Defines execute function behavior for codex-sdk-gateway.js.
-  async function execute({ agentId, agent, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady, abortSignal } = {}) {
-    const profile = getEnabledConfig(agentId ?? agent?.agent_id);
+  async function execute({ agentId, agent, subagentId, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady, abortSignal } = {}) {
+    const parentAgentId = agentId ?? agent?.agent_id;
+    const profile = getEnabledConfig(parentAgentId);
+    const instanceKey = subagentId ? `${parentAgentId}:sub:${safeSubagentId(subagentId, "Codex SDK")}` : parentAgentId;
     assertString(prompt, "Codex SDK prompt");
     assertString(correlationId, "Codex SDK correlation_id");
     const credential = await resolveCredential(profile.credential_ref);
     const workingDirectory = cwd ?? options.workingDirectory ?? process.cwd();
-    const codexHome = join(codexHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/codex-homes"), profile.agent_id);
+    const safeChildId = subagentId ? safeSubagentId(subagentId, "Codex SDK") : null;
+    const codexHome = join(codexHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/codex-homes"), profile.agent_id, ...(safeChildId ? ["subagents", safeChildId] : []));
     mkdirSync(codexHome, { recursive: true, mode: 0o700 });
     assertCodexThreadAvailable(codexHome, resumeThreadId);
     const controller = new AbortController();
@@ -66,7 +71,7 @@ export function createCodexSdkGateway({
     let ended = false; let structuredFailure;
     let turnCompleted = false;
     const terminal = createCodexSdkLog({ profile: { ...profile, model: options.model ?? profile.model }, context: options.forgeTools?.context, correlationId, credential, output: terminalOutput });
-    active.set(controller, profile.agent_id);
+    active.set(controller, instanceKey);
     try {
       mcpSession = options.forgeTools ? await createCodexForgeMcpSession(options.forgeTools) : null;
       const bridgePath = fileURLToPath(new URL("../../../scripts/codex-forge-mcp-bridge.mjs", import.meta.url));
@@ -131,7 +136,7 @@ export function createCodexSdkGateway({
         ...(Array.isArray(options.configOverrides) ? { configOverrides: options.configOverrides } : {})
       });
       const threadOptions = {
-        model: options.model ?? profile.model ?? undefined,
+        model: subagentId ? profile.subagent_model ?? options.model ?? profile.model ?? undefined : options.model ?? profile.model ?? undefined,
         workingDirectory,
         ...(options.usePermissionProfile ? {} : { sandboxMode: options.sandboxMode ?? "workspace-write" }),
         // Codex treats MCP calls as approval-gated actions. `never` makes the
@@ -140,12 +145,12 @@ export function createCodexSdkGateway({
         // Codex to dispatch those MCP calls while keeping ordinary SDK turns
         // on the existing non-interactive policy.
         approvalPolicy: options.approvalPolicy ?? (mcpSession ? "on-request" : "never"),
-        ...(normalizeReasoningEffort(options.modelReasoningEffort ?? profile.reasoning?.effort) ? { modelReasoningEffort: normalizeReasoningEffort(options.modelReasoningEffort ?? profile.reasoning?.effort) } : {}),
+        ...(normalizeReasoningEffort(options.modelReasoningEffort ?? (subagentId ? "low" : profile.reasoning?.effort)) ? { modelReasoningEffort: normalizeReasoningEffort(options.modelReasoningEffort ?? (subagentId ? "low" : profile.reasoning?.effort)) } : {}),
         ...(options.usePermissionProfile ? {} : { networkAccessEnabled: options.networkAccessEnabled ?? false }),
         webSearchMode: options.webSearchMode ?? "disabled", skipGitRepoCheck: options.skipGitRepoCheck ?? false
       };
-      if (resumeThreadId && typeof codex.resumeThread !== "function") throw Object.assign(new ConfigurationError("Codex SDK cannot resume this thread; choose Restart instead."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
-      const thread = resumeThreadId ? codex.resumeThread(resumeThreadId, threadOptions) : codex.startThread(threadOptions);
+      if (!subagentId && resumeThreadId && typeof codex.resumeThread !== "function") throw Object.assign(new ConfigurationError("Codex SDK cannot resume this thread; choose Restart instead."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
+      const thread = !subagentId && resumeThreadId ? codex.resumeThread(resumeThreadId, threadOptions) : codex.startThread(threadOptions);
       onSessionReady?.(thread?.id ?? null, mcpSession?.tools?.map((tool) => tool.name) ?? []);
       const streamed = await thread.runStreamed(prompt, { signal: controller.signal, ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}) });
       const items = []; let finalResponse = ""; let usage = null; let incompleteDetails = null;
@@ -208,7 +213,11 @@ export function createCodexSdkGateway({
       terminal.close(abortSignal?.aborted ? { code: "TICKET_STOPPED", message: "SDK session stopped." } : controller.signal.aborted ? { code: "SDK_REQUEST_TIMEOUT", message: "SDK request timed out." } : terminalFailure);
       abortSignal?.removeEventListener("abort", stop);
       clearTimeout(timeout);
-      try { await mcpSession?.close?.(); } finally { active.delete(controller); }
+      try { await mcpSession?.close?.(); } finally { active.delete(controller); if (subagentId) {
+          try { rmSync(codexHome, { recursive: true, force: true }); }
+          // eslint-disable-next-line no-unused-vars -- Child cleanup is best-effort and cannot mask the original SDK result.
+          catch (cleanupError) { terminalOutput?.write?.(`[nodeforge] child Codex home cleanup failed for ${profile.agent_id}.\n`); }
+        } }
     }
   }
 
@@ -276,33 +285,5 @@ function sanitizeItems(value, credential) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeItems(item, credential)]));
 }
 
-// Defines buildCodexChildEnvironment function behavior for codex-sdk-gateway.js.
-function buildCodexChildEnvironment(baseEnvironment, overrides) {
-  const env = { ...(baseEnvironment && typeof baseEnvironment === "object" ? baseEnvironment : process.env) };
-  // A Control API can itself be launched from a Codex terminal.  Passing the
-  // parent's live session/thread and managed permission markers to the child
-  // makes the CLI treat the SDK invocation as a nested session and can disable
-  // MCP discovery before the first turn.  The SDK sets its own API key and
-  // originator; these values must be fresh for the agent process.
-  for (const name of [
-    "OPENAI_API_KEY",
-    "CODEX_API_KEY",
-    "CODEX_SESSION_ID",
-    "CODEX_THREAD_ID",
-    "CODEX_PERMISSION_PROFILE",
-    "CODEX_CI",
-    "CODEX_MANAGED_BY_NPM",
-    "CODEX_MANAGED_PACKAGE_ROOT",
-    "CODEX_INTERNAL_ORIGINATOR_OVERRIDE"
-  ]) delete env[name];
-  if (overrides && typeof overrides === "object") Object.assign(env, overrides);
-  // The SDK injects the selected profile credential as CODEX_API_KEY after this environment is built.
-  delete env.OPENAI_API_KEY;
-  delete env.CODEX_API_KEY;
-  // Keep the active Node executable's directory first on PATH so companion
-  // binaries (npm, npx, pnpm) launched by Codex shell commands resolve without
-  // relying on the host shell startup files. Applied after overrides so a
-  // request-supplied PATH cannot undo the normalization.
-  env.PATH = prependNodeBin(env.PATH);
-  return env;
-}
+
+

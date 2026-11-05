@@ -50,7 +50,7 @@ export function createRuntimeToolGovernance({ database, eventStore, clock = () =
       changed_paths: Array.isArray(input.changed_paths) ? [...input.changed_paths] : [],
       capabilities, allowed_resources: input.allowed_resources ?? { allowed_file_paths: input.allowed_file_paths ?? [], allowed_prefixes: [...(input.allowed_prefixes ?? []), ...(input.execution_context?.approved_baseline?.authorized_create_prefixes ?? input.authorized_create_prefixes ?? [])] },
       context_budget: budget, retrieval_budget: budget, lifecycle: input.lifecycle ?? "RUNNING",
-      exploration_state: explorationState, exploration_enabled: input.agent_identity?.role !== "coder", verify_result: input.verify_result ?? input.verifyResult ?? null,
+      exploration_state: explorationState, exploration_enabled: input.exploration_enabled === false ? false : input.agent_identity?.role !== "coder", verify_result: input.verify_result ?? input.verifyResult ?? null,
       audit_context: input.audit_context ?? {}
     };
     if (fileAccessPolicy && ["coder", "reviewer"].includes(context.agent_identity.role)) {
