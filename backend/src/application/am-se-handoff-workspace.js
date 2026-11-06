@@ -36,15 +36,18 @@ export async function handoffWorkspaceSnapshot({ gitService, fileService, projec
     }
   }
   const digest = createHash("sha256");
+  const files = {};
   digest.update(head); digest.update("\0"); digest.update(porcelain); digest.update("\0"); digest.update(index);
   for (const item of paths.sort((a, b) => a.path.localeCompare(b.path))) {
     digest.update("\0"); digest.update(item.path); digest.update("\0");
-    if (item.deleted) { digest.update("deleted"); continue; }
+    if (item.deleted) { digest.update("deleted"); files[item.path] = "deleted"; continue; }
     let bytes;
     try { bytes = await fileService.readFile({ path: item.path, encoding: null }); }
     catch (error) { void error; unsafe(); }
     if (!Buffer.isBuffer(bytes) && typeof bytes !== "string") unsafe();
-    digest.update(createHash("sha256").update(bytes).digest("hex"));
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    files[item.path] = hash;
+    digest.update(hash);
   }
-  return { project_id: projectId, head, fingerprint: digest.digest("hex") };
+  return { project_id: projectId, head, fingerprint: digest.digest("hex"), files, index_hash: createHash("sha256").update(index).digest("hex") };
 }

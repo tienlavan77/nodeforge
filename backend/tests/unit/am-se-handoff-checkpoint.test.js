@@ -13,7 +13,7 @@ function fixture() {
   let index = "";
   let receipt = null;
   let revision = 2;
-  let record = { handoff_id: "HANDOFF-TEST", project_id: "PROJECT-TEST", plan_id: planId, plan_revision: 2, plan_sha256: "plan-hash", plan_source_path: "source.json", phase: "implementation", status: "running", round: 1, max_rounds: 3, se_conversation_id: "CONV-SE", rv_conversation_id: "CONV-RV", am_conversation_id: "CONV-AM" };
+  let record = { handoff_id: "HANDOFF-TEST", project_id: "PROJECT-TEST", plan_id: planId, plan_revision: 2, plan_sha256: "plan-hash", plan_source_path: "source.json", phase: "implementation", delivery_target: "se", status: "running", round: 1, max_rounds: 3, se_conversation_id: "CONV-SE", rv_conversation_id: "CONV-RV", am_conversation_id: "CONV-AM" };
   const writes = [];
   const store = {
     get: async () => structuredClone(record),
@@ -180,6 +180,51 @@ test("staged blob changes under identical MM status and working bytes invalidate
   f.setIndex(`100644 ${"b".repeat(40)} 0\tchanged.js\0`);
   await assert.rejects(f.machine.resume("HANDOFF-TEST"), { code: "HANDOFF_WORKSPACE_MISMATCH" });
   assert.equal(f.writes.length, 1);
+});
+
+test("first SE checkpoint can adopt current workspace only with exact Owner identity and no tool receipts", async () => {
+  const f = fixture();
+  await f.machine.initialize("HANDOFF-TEST", "project-owner");
+  f.setStatus(" M changed.js\0");
+  const drift = await f.machine.workspaceStatus("HANDOFF-TEST");
+  assert.equal(drift.matches, false);
+  assert.deepEqual(drift.paths, ["changed.js"]);
+  assert.equal(drift.can_adopt, true);
+  await assert.rejects(f.machine.adoptWorkspace("HANDOFF-TEST", { approvedOwnerId: "wrong", expectedRevision: 2, expectedSha256: "plan-hash" }), { code: "HANDOFF_IDENTITY_INVALID" });
+  const args = { approvedOwnerId: "project-owner", expectedRevision: 2, expectedSha256: "plan-hash" };
+  assert.equal((await f.machine.adoptWorkspace("HANDOFF-TEST", args)).classification, "baseline_adopted");
+  assert.equal((await f.machine.workspaceStatus("HANDOFF-TEST")).matches, true);
+  assert.equal((await f.machine.workspaceStatus("HANDOFF-TEST")).can_adopt, false);
+  await assert.rejects(f.machine.adoptWorkspace("HANDOFF-TEST", args), { code: "HANDOFF_BASELINE_ADOPTION_UNSAFE" });
+  f.setBytes("different");
+  await assert.rejects(f.machine.resume("HANDOFF-TEST"), { code: "HANDOFF_WORKSPACE_MISMATCH" });
+  assert.deepEqual((await f.machine.workspaceStatus("HANDOFF-TEST")).paths, ["changed.js"]);
+});
+
+test("baseline adoption rejects unverified or tool-using prior SE attempts", async () => {
+  const f = fixture();
+  await f.machine.initialize("HANDOFF-TEST", "project-owner");
+  const args = { approvedOwnerId: "project-owner", expectedRevision: 2, expectedSha256: "plan-hash" };
+  await f.machine.resume("HANDOFF-TEST", { invoke: async () => { throw new Error("disconnected"); } });
+  f.setStatus(" M changed.js\0");
+  assert.equal((await f.machine.workspaceStatus("HANDOFF-TEST")).can_adopt, false);
+  await assert.rejects(f.machine.adoptWorkspace("HANDOFF-TEST", args), { code: "HANDOFF_BASELINE_ADOPTION_UNSAFE" });
+  const execution_id = f.record.checkpoint.execution_id;
+  f.setReceipt({ execution_id, runner_stopped_at: "2026-01-01T00:00:00Z", status: "interrupted", pending_tool_calls: [], completed_tool_calls: [{ tool_name: "edit_diff" }], last_completed_step: 1 });
+  assert.equal((await f.machine.reconcile("HANDOFF-TEST", { operatorApproved: true })).classification, "blocked");
+  await assert.rejects(f.machine.adoptWorkspace("HANDOFF-TEST", args), { code: "HANDOFF_BASELINE_ADOPTION_UNSAFE" });
+  assert.equal(f.record.checkpoint.results.length, 0);
+});
+
+test("legacy fingerprints report limited diagnostics and can adopt only before execution", async () => {
+  const f = fixture();
+  await f.machine.initialize("HANDOFF-TEST", "project-owner");
+  delete f.record.checkpoint.workspace.files;
+  f.setStatus(" M changed.js\0");
+  const drift = await f.machine.workspaceStatus("HANDOFF-TEST");
+  assert.equal(drift.reason, "legacy_baseline");
+  assert.deepEqual(drift.paths, []);
+  assert.equal((await f.machine.adoptWorkspace("HANDOFF-TEST", { approvedOwnerId: "project-owner", expectedRevision: 2, expectedSha256: "plan-hash" })).classification, "baseline_adopted");
 });
 
 test("content changes under identical Git status invalidate the workspace baseline", async () => {
