@@ -24,7 +24,7 @@ const notebookStylesSource = await readFile(new URL("../app/styles/notebook-pane
 
 test("INITIAL_PANELS defines backward-compatible geometry and state defaults for watcher, agent, and notebook", () => {
   assert.equal(MONITOR_LAYOUT_KEY, "nodeforge:workspace-monitor-layout");
-  assert.deepEqual(Object.keys(INITIAL_PANELS), ["watcher", "agent", "notebook"]);
+  assert.deepEqual(Object.keys(INITIAL_PANELS), ["handoff", "watcher", "agent", "notebook"]);
   assert.deepEqual(INITIAL_PANELS.watcher, { x: 24, y: 24, width: 360, height: 260, visible: true, minimized: false });
   assert.deepEqual(INITIAL_PANELS.agent, { x: 410, y: 24, width: 360, height: 260, visible: true, minimized: false });
   assert.deepEqual(INITIAL_PANELS.notebook, { x: 16, y: 64, width: 340, height: 360, visible: false, minimized: false });
@@ -95,7 +95,7 @@ test("serializeMonitorLayout persists only geometry and visibility/minimized sta
   const serializedHome = serializeMonitorLayout(dirtyPanels, "home");
   const jsonHome = JSON.stringify(serializedHome);
   assert.doesNotMatch(jsonHome, /SENTINEL|secret/);
-  assert.deepEqual(Object.keys(serializedHome), ["watcher", "agent", "notebook"]);
+  assert.deepEqual(Object.keys(serializedHome), ["watcher", "agent", "handoff", "notebook"]);
   assert.deepEqual(serializedHome.notebook, {
     x: 120,
     y: 89,

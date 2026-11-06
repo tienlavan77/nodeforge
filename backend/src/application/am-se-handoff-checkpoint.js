@@ -29,14 +29,14 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
 
   // Business purpose: creates the execution checkpoint only after critique and valid approval.
   // Technical description: pins plan and baseline workspace to the existing handoff record without changing its ID.
-  async function initialize(handoffId) {
+  async function initialize(handoffId, approvedOwnerId = "legacy-test-owner") {
     const record = await store.get(handoffId);
-    if (!record || record.project_id !== projectId || record.phase !== "implementation" || record.status !== "running" || record.round !== 1 || record.checkpoint && !record.checkpoint.approval_pending) fail("HANDOFF_INITIALIZATION_INVALID");
+    if (!record || record.project_id !== projectId || record.phase !== "implementation" || record.status !== "running" || record.round !== 1 || record.checkpoint && !record.checkpoint.approval_pending || typeof approvedOwnerId !== "string" || !approvedOwnerId) fail("HANDOFF_INITIALIZATION_INVALID");
     await verifyPlan(record);
     const baseline = await workspace();
     return store.transition(handoffId, record.checkpoint?.generation ?? 0, (current) => {
       if (current.checkpoint && !current.checkpoint.approval_pending || current.phase !== "implementation" || current.status !== "running" || current.round !== 1 || current.plan_revision !== record.plan_revision || current.plan_sha256 !== record.plan_sha256 || current.plan_source_path !== record.plan_source_path) fail("HANDOFF_STALE");
-      return { ...current, checkpoint: { generation: current.checkpoint?.generation ?? 0, plan_locked: true, workspace: baseline, round: 1, current_step: null, next_step: "se", execution_status: "pending", results: [], attempt: 0, updated_at: now() } };
+      return { ...current, checkpoint: { generation: current.checkpoint?.generation ?? 0, plan_locked: true, approved_owner_id: approvedOwnerId, workspace: baseline, round: 1, current_step: null, next_step: "se", execution_status: "pending", results: [], attempt: 0, updated_at: now() } };
     });
   }
 
@@ -79,7 +79,7 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     if (!safe || !operatorApproved) return { classification: safe ? "operator_decision" : "blocked", handoff_id: handoffId };
     const updated = await store.transition(handoffId, cp.generation, (current) => {
       if (current.checkpoint.execution_id !== cp.execution_id || current.checkpoint.execution_status !== cp.execution_status) fail("HANDOFF_STALE");
-      return { ...current, checkpoint: { ...current.checkpoint, current_step: null, next_step: cp.current_step, execution_status: "pending", updated_at: now() } };
+      return { ...current, checkpoint: { ...current.checkpoint, current_step: null, next_step: cp.current_step, execution_status: "pending", error_code: null, updated_at: now() } };
     });
     log(updated, "reconciled");
     return { classification: "safe_to_resume", handoff_id: handoffId };
@@ -87,12 +87,13 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
 
   // Business purpose: resumes precisely the next incomplete role without creating another handoff.
   // Technical description: persists intent before invoking the adapter, then fences its result and preserves unknown outcomes.
-  async function resume(handoffId, { invoke, recoverResult, expectedRevision, expectedSha256 } = {}) {
+  async function resume(handoffId, { invoke, recoverResult, expectedRevision, expectedSha256, expectedOwnerId } = {}) {
     const record = await store.get(handoffId);
     if (!record?.checkpoint) fail("HANDOFF_CHECKPOINT_REQUIRED");
     if (!Number.isInteger(record.checkpoint.generation) || record.checkpoint.generation < 1) fail("HANDOFF_CHECKPOINT_INVALID");
     if (record.status === "completed" || record.checkpoint.execution_status === "completed") fail("HANDOFF_ALREADY_COMPLETED");
     if (expectedRevision !== undefined && expectedRevision !== record.plan_revision || expectedSha256 !== undefined && expectedSha256 !== record.plan_sha256) fail("HANDOFF_PLAN_MISMATCH");
+    if (record.checkpoint.approved_owner_id && expectedOwnerId && record.checkpoint.approved_owner_id !== expectedOwnerId) fail("PLAN_APPROVAL_OWNER_MISMATCH");
     await verifyPlan(record);
     const cp = record.checkpoint;
     if (cp.execution_status === "running") {
@@ -121,7 +122,7 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     const executionId = `CORR-HANDOFF-${record.plan_id}-${step.toUpperCase()}-R${cp.round}-${randomUUID()}`;
     const intent = await store.transition(handoffId, cp.generation, (current) => {
       if (current.checkpoint.execution_status !== "pending" || current.checkpoint.next_step !== step) fail("HANDOFF_STALE");
-      return { ...current, checkpoint: { ...current.checkpoint, current_step: step, next_step: null, execution_status: "running", execution_id: executionId, attempt: current.checkpoint.attempt + 1, started_at: now(), updated_at: now() } };
+      return { ...current, checkpoint: { ...current.checkpoint, current_step: step, next_step: null, execution_status: "running", execution_id: executionId, attempt: current.checkpoint.attempt + 1, error_code: null, started_at: now(), updated_at: now() } };
     });
     log(intent, "intent");
     let result;

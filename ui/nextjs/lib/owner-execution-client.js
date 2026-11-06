@@ -30,6 +30,9 @@ export function createOwnerExecutionClient({ forgeV1, requestJson }) {
       return response;
     },
     // Requests guarded evidence reconciliation for a handoff that stopped with uncertain execution.
+    async resumeCritique(projectId, handoff) {
+      return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/resume`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Could not resume the AM-SE critique checkpoint." });
+    },
     async reconcileHandoff(projectId, handoff, ownerToken, operatorApproved = false) {
       return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/reconcile`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", ...(ownerToken ? { authorization: `Bearer ${ownerToken}` } : {}) }, body: JSON.stringify({ project_id: projectId, approval_revision: handoff.plan_revision, approval_sha256: handoff.plan_sha256, operator_approved: operatorApproved }), fallbackError: "Could not reconcile the AM-SE-RV handoff." });
     }

@@ -121,6 +121,8 @@ test("stopped SE runner after a lost result needs operator evidence before a new
   assert.deepEqual((await f.machine.reconcile("HANDOFF-TEST")).classification, "operator_decision");
   assert.equal(f.record.checkpoint.execution_status, "running");
   assert.deepEqual((await f.machine.reconcile("HANDOFF-TEST", { operatorApproved: true })).classification, "safe_to_resume");
+  assert.equal(f.record.checkpoint.execution_status, "pending");
+  assert.equal(f.record.checkpoint.error_code, null);
   assert.equal(f.record.checkpoint.next_step, "se");
   assert.equal(f.record.checkpoint.results.length, 0);
 });

@@ -19,6 +19,18 @@
 .workspace-monitor-indicator.is-error { color: #e27676; }
 .workspace-monitor-indicator.is-connecting { color: #d8b66a; }
 .workspace-monitor-content { min-height: 0; flex: 1; overflow: auto; padding: 10px 14px; font: 12px/1.5 'DM Mono', monospace; }
+.workspace-monitor-handoff { border-color: color-mix(in srgb, #38bdf8 45%, var(--app-border)); }
+.workspace-monitor-handoff .workspace-monitor-header { background: linear-gradient(90deg, color-mix(in srgb, var(--app-panel) 88%, #0ea5e9 12%), color-mix(in srgb, var(--app-panel) 92%, #8b5cf6 8%)); }
+.workspace-monitor-handoff .workspace-monitor-content { padding: 8px; }
+.workspace-monitor-handoff .am-se-handoff-controls { position: static; width: auto; max-height: none; min-height: 0; padding: 0; overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.workspace-monitor-handoff .am-se-handoff-header { margin-bottom: 10px; }
+.workspace-monitor-handoff .am-se-handoff-header h2 { display: none; }
+.workspace-monitor-handoff .am-se-handoff-header p { margin: 0; font-size: 10px; }
+.workspace-monitor-handoff .am-se-handoff-header input { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 10px; }
+.workspace-monitor-handoff .am-se-handoff-card { gap: 7px; margin-top: 7px; padding: 8px; border-radius: 8px; background: color-mix(in srgb, var(--app-panel) 84%, transparent); }
+.workspace-monitor-handoff .am-se-handoff-role { padding: 5px; border-radius: 6px; }
+.workspace-monitor-handoff .am-se-handoff-results { max-height: 150px; padding-left: 16px; }
+.workspace-monitor-handoff .am-se-handoff-actions button { padding: 5px 8px; font-size: 10px; }
 .workspace-monitor-content p { margin: 0; color: var(--app-muted); }
 .workspace-monitor-content article { display: flex; flex-direction: column; gap: 2px; padding: 7px 0; border-bottom: 1px solid var(--app-border); }
 .workspace-monitor-content article small { color: var(--app-accent); text-transform: capitalize; }

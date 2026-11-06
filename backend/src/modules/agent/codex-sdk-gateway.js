@@ -8,7 +8,7 @@ import { prependNodeBin } from "./node-bin-path.js";
 import { codexShellEnvironment } from "./codex-shell-environment.js";
 import { buildCodexChildEnvironment } from "./codex-child-environment.js";
 import { ConfigurationError, ForgeError } from "../../shared/errors.js";
-import { safeSubagentId } from "./runtime-instance.js";
+import { safeConversationId, safeSubagentId } from "./runtime-instance.js";
 import { createCodexForgeMcpSession } from "./codex-forge-mcp-session.js";
 import { statePath, resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { createCodexSdkLog } from "./codex-sdk-log.js";
@@ -45,7 +45,7 @@ export function createCodexSdkGateway({
   }
 
   // Defines execute function behavior for codex-sdk-gateway.js.
-  async function execute({ agentId, agent, subagentId, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady, abortSignal } = {}) {
+  async function execute({ agentId, agent, subagentId, conversationId, prompt, correlationId, cwd, options = {}, resumeThreadId, onEvent, onSessionReady, abortSignal } = {}) {
     const parentAgentId = agentId ?? agent?.agent_id;
     const profile = getEnabledConfig(parentAgentId);
     const instanceKey = subagentId ? `${parentAgentId}:sub:${safeSubagentId(subagentId, "Codex SDK")}` : parentAgentId;
@@ -54,7 +54,8 @@ export function createCodexSdkGateway({
     const credential = await resolveCredential(profile.credential_ref);
     const workingDirectory = cwd ?? options.workingDirectory ?? process.cwd();
     const safeChildId = subagentId ? safeSubagentId(subagentId, "Codex SDK") : null;
-    const codexHome = join(codexHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/codex-homes"), profile.agent_id, ...(safeChildId ? ["subagents", safeChildId] : []));
+    const conversationKey = conversationId ? safeConversationId(conversationId, "Codex SDK") : null;
+    const codexHome = join(codexHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/codex-homes"), profile.agent_id, ...(conversationKey ? ["conversations", conversationKey] : []), ...(safeChildId ? ["subagents", safeChildId] : []));
     mkdirSync(codexHome, { recursive: true, mode: 0o700 });
     assertCodexThreadAvailable(codexHome, resumeThreadId);
     const controller = new AbortController();

@@ -8,6 +8,7 @@
 export const MONITOR_LAYOUT_KEY = "nodeforge:workspace-monitor-layout";
 
 export const INITIAL_PANELS = {
+  handoff: { x: 24, y: 120, width: 380, height: 520, visible: false, minimized: false },
   watcher: { x: 24, y: 24, width: 360, height: 260, visible: true, minimized: false },
   agent: { x: 410, y: 24, width: 360, height: 260, visible: true, minimized: false },
   notebook: { x: 16, y: 64, width: 340, height: 360, visible: false, minimized: false },
@@ -110,7 +111,7 @@ export function getMonitorPanelZIndex(order = ["watcher", "agent", "notebook"], 
 }
 
 export function serializeMonitorLayout(panels, layoutScope = "home") {
-  const keys = layoutScope === "home" ? ["watcher", "agent", "notebook"] : ["watcher", "agent"];
+  const keys = layoutScope === "home" ? ["watcher", "agent", "handoff", "notebook"] : ["watcher", "agent"];
   const output = {};
   for (const name of keys) {
     const defaults = INITIAL_PANELS[name] ?? INITIAL_PANELS.watcher;

@@ -84,6 +84,7 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
       round: Number.isInteger(round) && round >= 0 ? round : 0,
       max_rounds: Number.isInteger(maxRounds) && maxRounds > 0 ? maxRounds : 5,
       history: [],
+      critique_checkpoint: null,
       created_at: now,
       updated_at: now
     };
@@ -140,11 +141,13 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
     try {
       const current = await get(handoffId);
       if (!current) throw storeError("HANDOFF_NOT_FOUND", "Handoff not found.", 404);
-      if ((current.checkpoint?.generation ?? 0) !== expectedGeneration) throw storeError("HANDOFF_STALE", "Handoff checkpoint changed.", 409);
+      const currentGeneration = current.checkpoint?.generation ?? current.critique_checkpoint?.generation ?? 0;
+      if (currentGeneration !== expectedGeneration) throw storeError("HANDOFF_STALE", "Handoff checkpoint changed.", 409);
       const next = await transform(current);
       if (!next || next.handoff_id !== current.handoff_id || next.project_id !== current.project_id || next.plan_id !== current.plan_id) throw storeError("HANDOFF_TRANSITION_INVALID", "Invalid handoff transition.", 409);
       if (current.checkpoint?.plan_locked && (!next.checkpoint?.plan_locked || next.plan_revision !== current.plan_revision || next.plan_sha256 !== current.plan_sha256 || next.plan_source_path !== current.plan_source_path)) throw storeError("HANDOFF_PLAN_LOCKED", "Execution plan identity cannot change.", 409);
-      next.checkpoint = { ...next.checkpoint, generation: expectedGeneration + 1 };
+      if (next.critique_checkpoint) next.critique_checkpoint = { ...next.critique_checkpoint, generation: expectedGeneration + 1 };
+      else next.checkpoint = { ...next.checkpoint, generation: expectedGeneration + 1 };
       next.updated_at = new Date().toISOString();
       await fileService.atomicWrite({ path: pathFor(handoffId), content: `${JSON.stringify(next, null, 2)}\n`, replace: true });
       return next;
