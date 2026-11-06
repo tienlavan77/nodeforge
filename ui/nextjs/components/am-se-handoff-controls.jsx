@@ -47,13 +47,28 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
   // Business purpose: invokes one owner-authorized handoff recovery action and refreshes the durable projection.
   // Technical description: sends no agent work from the browser; the backend validates approval, receipts and checkpoint generation.
   async function recover(handoff, action) {
+    if (action === "critique-resume") {
+      setBusyId(`${handoff.handoff_id}:${action}`);
+      setError("");
+      try { await client.resumeCritique(projectId, handoff); await refresh(); }
+      catch (reason) { setError(reason?.message ?? `Could not ${action} handoff.`); }
+      finally { setBusyId(""); }
+      return;
+    }
+    if (action === "pause") {
+      setBusyId(`${handoff.handoff_id}:${action}`);
+      setError("");
+      try { await client.pauseHandoff(projectId, handoff); await refresh(); }
+      catch (reason) { setError(reason?.message ?? `Could not ${action} handoff.`); }
+      finally { setBusyId(""); }
+      return;
+    }
     if (!ownerToken) { setError("Owner token is required for handoff recovery."); return; }
     setBusyId(`${handoff.handoff_id}:${action}`);
     setError("");
     try {
-      if (action === "critique-resume") await client.resumeCritique(projectId, handoff);
-      else if (action === "resume") await client.resumeHandoff(projectId, handoff, ownerToken);
-      else await client.reconcileHandoff(projectId, handoff, ownerToken, true);
+      if (action === "resume") await client.resumeHandoff(projectId, handoff, ownerToken);
+      else throw new Error(`Unsupported handoff action: ${action}`);
       await refresh();
     } catch (reason) {
       setError(reason?.message ?? `Could not ${action} handoff.`);
@@ -69,7 +84,7 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
     {handoffs.map((handoff) => {
       const checkpoint = handoff.checkpoint;
       const results = checkpoint?.results ?? [];
-      const recoveryAllowed = handoff.critique_can_resume === true || handoff.can_resume === true || handoff.can_reconcile === true;
+      const recoveryAllowed = handoff.critique_can_resume === true || handoff.can_resume === true || handoff.can_reconcile === true || handoff.can_pause === true;
       return <article className="am-se-handoff-card" key={handoff.handoff_id}>
         <header><strong>{handoff.plan_id} r{handoff.plan_revision}</strong><span>{handoff.status} · {handoff.phase}</span></header>
         <p className="am-se-handoff-identity">{handoff.handoff_id} · SHA {handoff.plan_sha256}</p>
@@ -78,7 +93,7 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
         {checkpoint && <div className="am-se-handoff-checkpoint"><span>step: {checkpoint.current_step ?? "none"}</span><span>next: {checkpoint.next_step ?? "none"}</span><span>execution: {checkpoint.execution_status}</span><span>attempt: {checkpoint.attempt ?? 0}</span>{checkpoint.error_code && <span>error: {checkpoint.error_code}</span>}</div>}
         <ol className="am-se-handoff-results">{results.map((result) => <li key={`${result.execution_id}:${result.attempt}`}><strong>{result.step?.toUpperCase()} R{result.round}</strong><span>{result.verdict ?? "completed"}</span><small>{result.text ?? "No text evidence"}</small>{result.result_evidence && <small>SDK: {result.result_evidence.sdk_status ?? "unknown"} · receipt: {result.execution_id}</small>}</li>)}</ol>
         {handoff.approval_required && <div className="am-se-handoff-actions"><button type="button" disabled={Boolean(busyId)} onClick={() => void approve(handoff)}>{busyId === `${handoff.handoff_id}:approve` ? "Approving…" : "Approve plan"}</button></div>}
-        {recoveryAllowed && <div className="am-se-handoff-actions">{handoff.critique_can_resume && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "critique-resume")}>{busyId === `${handoff.handoff_id}:critique-resume` ? "Resuming…" : "Resume critique"}</button>}{handoff.can_resume && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "resume")}>{busyId === `${handoff.handoff_id}:resume` ? "Resuming…" : "Resume checkpoint"}</button>}{handoff.can_reconcile && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "reconcile")}>{busyId === `${handoff.handoff_id}:reconcile` ? "Reconciling…" : "Reconcile evidence"}</button>}</div>}
+        {recoveryAllowed && <div className="am-se-handoff-actions">{handoff.critique_can_resume && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "critique-resume")}>{busyId === `${handoff.handoff_id}:critique-resume` ? "Resuming…" : "Resume critique"}</button>}{(handoff.can_resume || handoff.can_reconcile) && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "resume")}>{busyId === `${handoff.handoff_id}:resume` ? "Resuming…" : "Resume checkpoint"}</button>}{handoff.can_pause && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "pause")}>{busyId === `${handoff.handoff_id}:pause` ? "Pausing…" : "Pause"}</button>}</div>}
       </article>;
     })}
   </section>;

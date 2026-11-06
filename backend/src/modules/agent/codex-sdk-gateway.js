@@ -127,6 +127,8 @@ export function createCodexSdkGateway({
         env: { ...childEnvironment, ...shellEnvironment, CODEX_HOME: codexHome },
         config: { ...codexConfig, ...options.config,
           ...(Number.isSafeInteger(maxOutputTokens) && maxOutputTokens >= 1 ? { model_max_output_tokens: maxOutputTokens } : {}),
+          model_context_window: 250000,
+          model_auto_compact_token_limit: 230000,
           allow_login_shell: false,
           shell_environment_policy: { ...options.config?.shell_environment_policy, experimental_use_profile: false,
             set: { ...options.config?.shell_environment_policy?.set, ...shellEnvironment } },

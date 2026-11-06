@@ -12,7 +12,15 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
   async function routeConversation({ method, parts, url, body, projectId, headers }) {
     if (parts[0] === "projects" && parts[2] === "handoffs" && handoffService) {
       if (parts.length === 3 && method === "GET") return { status: 200, body: { items: await handoffService.listHandoffs() } };
+      if (parts.length === 5 && method === "POST" && parts[4] === "pause") {
+        if (typeof handoffService.pauseHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff pause is unavailable."), { code: "HANDOFF_PAUSE_UNAVAILABLE", statusCode: 503 });
+        return { status: 200, body: await handoffService.pauseHandoff({ handoffId: parts[3] }) };
+      }
       if (parts.length === 5 && method === "POST" && parts[4] === "resume") {
+        if (typeof handoffService.resumeHandoff !== "function") throw Object.assign(new ConfigurationError("Implementation resume is unavailable."), { code: "HANDOFF_RESUME_UNAVAILABLE", statusCode: 503 });
+        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[3], approvedOwnerId: "project-owner", expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+      }
+      if (parts.length === 5 && method === "POST" && parts[4] === "resume-critique") {
         if (typeof handoffService.resumeCritique !== "function") throw Object.assign(new ConfigurationError("Critique resume is unavailable."), { code: "HANDOFF_CRITIQUE_UNAVAILABLE", statusCode: 503 });
         return { status: 200, body: await handoffService.resumeCritique({ handoffId: parts[3] }) };
       }

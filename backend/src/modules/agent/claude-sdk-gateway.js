@@ -1,6 +1,7 @@
 // claude sdk gateway — handles claude sdk gateway logic for the agent subsystem.
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { readClaudeSessionContext } from "./claude-session-context.js";
 import { join } from "node:path";
 import process from "node:process";
 import { ConfigurationError } from "../../shared/errors.js";
@@ -39,7 +40,16 @@ export function createClaudeSdkGateway({
   if (claudeHomeRoot !== undefined && (typeof claudeHomeRoot !== "string" || !claudeHomeRoot)) throw new ConfigurationError("Claude SDK Gateway home root must be a non-empty string.");
 
   const active = new Set();
-  return Object.freeze({ execute, assertSessionStopped: ({ agentId, sessionId, endedAt }) => assertClaudeSessionStopped(agentId, active.has(agentId), "/proc", sessionId, endedAt), provider: "claude", conversationMode: "history" });
+  return Object.freeze({ execute, inspectContext, assertSessionStopped: ({ agentId, sessionId, endedAt }) => assertClaudeSessionStopped(agentId, active.has(agentId), "/proc", sessionId, endedAt), provider: "claude", conversationMode: "history" });
+
+  // Business purpose: lets Forge repair persisted context usage before deciding whether to resume.
+  // Technical description: resolves the same conversation home used by execute and measures only its exact session transcript.
+  function inspectContext({ agentId, conversationId, sessionId, cwd } = {}) {
+    const config = getEnabledConfig(agentId);
+    const segment = conversationId ? safeConversationId(conversationId, "Claude SDK conversation") : null;
+    const home = join(claudeHomeRoot ?? resolveRuntimePath(cwd ?? process.cwd(), ".forge/runtime/nf/claude-homes"), config.agent_id, ...(segment ? ["conversations", segment] : []));
+    return readClaudeSessionContext(home, sessionId, terminalOutput);
+  }
 
   // Defines execute function behavior for claude-sdk-gateway.js.
   async function execute({ agentId, subagentId, conversationId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, onEvent, abortSignal } = {}) {
@@ -53,6 +63,7 @@ export function createClaudeSdkGateway({
     const conversationKey = conversationId ? safeConversationId(conversationId, "Claude SDK") : null;
     const claudeHome = join(claudeHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/claude-homes"), config.agent_id, ...(conversationKey ? ["conversations", conversationKey] : []), ...(safeChildId ? ["subagents", safeChildId] : []));
     mkdirSync(claudeHome, { recursive: true, mode: 0o700 });
+    const canResumeSession = Boolean(resumeSessionId) && (!conversationId || hasProviderState(claudeHome));
     const controller = new AbortController();
     // Defines stop function behavior for claude-sdk-gateway.js.
     const stop = () => controller.abort(abortSignal.reason);
@@ -82,7 +93,7 @@ export function createClaudeSdkGateway({
       ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
       ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
       ...(options.tools === undefined ? {} : { tools: options.tools }),
-      ...(!subagentId && resumeSessionId ? { resume: resumeSessionId } : {})
+      ...(!subagentId && canResumeSession ? { resume: resumeSessionId } : {})
     };
 
     let session;
@@ -115,6 +126,8 @@ export function createClaudeSdkGateway({
       if (sessionId) notify(sessionId);
       const response = claudeSdkResult(messages, { structured: options.outputFormat?.type === "json_schema" });
       const usage = claudeCacheUsage(messages);
+      const persistedContextTokens = readClaudeSessionContext(claudeHome, sessionId, terminalOutput);
+      if (usage && persistedContextTokens > 0) usage.context_input_tokens = persistedContextTokens;
       return {
         usage,
         agent_id: config.agent_id,
@@ -125,7 +138,9 @@ export function createClaudeSdkGateway({
         turn_completed: messages.findLast((message) => message.type === "result")?.subtype === "success",
         session_id: sessionId,
         messages,
-        ...response
+        ...response,
+        // Keep normalized cache-aware usage authoritative over adapter response defaults.
+        usage
       };
     } catch (error) {
       terminalFailure = error;
@@ -155,6 +170,14 @@ export function createClaudeSdkGateway({
         catch (cleanupError) { terminalOutput?.write?.(`[nodeforge] child Claude home cleanup failed for ${config.agent_id}.\n`); }
       }
     }
+  }
+
+  // Business purpose: prevents stale provider sessions from blocking compacted conversation recovery.
+  // Technical description: checks whether the conversation-scoped Claude home contains persisted provider state before resume.
+  function hasProviderState(home) {
+    if (!existsSync(home)) return false;
+    try { return readdirSync(home, { withFileTypes: true }).some((entry) => entry.isFile() || entry.isDirectory()); }
+    catch (error) { terminalOutput?.write?.(`[nodeforge] Claude session-state probe failed: ${error.message}\\n`); return false; }
   }
 
   // Reports Claude native search starts and bounded completion metadata without source output.

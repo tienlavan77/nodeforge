@@ -117,13 +117,13 @@ function buildAmAcceptanceReviewPrompt({ planJson, planId, round, maxRounds, seR
 // Business purpose: creates the orchestration service that manages Phase 1 AM-SE plan critique and Phase 2 automatic handoffs to Sprint Leader or System Engineer (with independent Reviewer RV verification).
 // Technical description: wires fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, and requestReviewer into startHandoff.
 export function createAmSeHandoffService({
-  projectId, fileService, markdownPlanStore, handoffStore, gitService, executionCheckpoint, bus, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, requestReviewer, maxCritiqueRounds = 2, maxRounds = 5
+  projectId, fileService, markdownPlanStore, handoffStore, gitService, executionCheckpoint, pauseExecution, bus, agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, requestReviewer, maxCritiqueRounds = 2, maxRounds = 5
 } = {}) {
   if (!projectId || !fileService?.readFile || !markdownPlanStore?.decide) {
     throw Object.assign(new ConfigurationError("AM-SE handoff service requires projectId, FileService, and markdownPlanStore."), { code: "SE_HANDOFF_UNAVAILABLE", statusCode: 503 });
   }
   const store = handoffStore ?? createAmSeHandoffStore({ projectId, fileService });
-  const checkpoint = gitService ? createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileService, gitService, projectId, executionCheckpoint }) : null;
+  const checkpoint = gitService ? createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileService, gitService, projectId, executionCheckpoint, pauseExecution }) : null;
   const critique = createAmSeCritiqueCheckpoint({ store, fileService, executionCheckpoint, gitService, projectId });
 
   // Business purpose: publishes a communication message to both the Architecture conversation and the System Engineer conversation so human observers see the full dialogue in either workspace.
@@ -381,7 +381,8 @@ export function createAmSeHandoffService({
       can_resume: Boolean(record.checkpoint && record.checkpoint.execution_status === "pending") || Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)) || Boolean(!record.checkpoint && record.phase === "plan_critique" && record.status === "paused" && record.history?.at(-1)?.critique_status === "ALIGNED"),
       can_reconcile: Boolean(record.checkpoint && ["running", "reconciliation_required", "unknown"].includes(record.checkpoint.execution_status)),
       critique_can_resume: Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)),
-      critique_can_pause: Boolean(record.critique_checkpoint && record.critique_checkpoint.execution_status === "running"),
+      critique_can_pause: false,
+      can_pause: Boolean(record.checkpoint && record.checkpoint.execution_status === "running"),
       checkpoint: record.checkpoint ? {
         generation: record.checkpoint.generation, round: record.checkpoint.round, current_step: record.checkpoint.current_step,
         next_step: record.checkpoint.next_step, execution_status: record.checkpoint.execution_status, execution_id: record.checkpoint.execution_id,
@@ -393,6 +394,12 @@ export function createAmSeHandoffService({
 
   // Business purpose: expose guarded reconciliation only to the exact Owner and approved plan revision.
   // Technical description: verifies persisted handoff identity and approval before assessing runner stop evidence; it never retries an uncertain execution automatically.
+  async function pauseHandoff({ handoffId } = {}) {
+    if (!checkpoint?.pause) throw Object.assign(new ConfigurationError("Handoff pause is unavailable."), { code: "HANDOFF_PAUSE_UNAVAILABLE", statusCode: 409 });
+    const record = await store.get(handoffId);
+    return checkpoint.pause(handoffId, { record });
+  }
+
   async function reconcileHandoff({ handoffId, approvedOwnerId, expectedRevision, expectedSha256, operatorApproved = false } = {}) {
     if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
     const record = await store.get(handoffId);
@@ -402,5 +409,5 @@ export function createAmSeHandoffService({
     return checkpoint.reconcile(handoffId, { operatorApproved });
   }
 
-  return Object.freeze({ startHandoff, resumeHandoff, resumeCritique, reconcileHandoff, listHandoffs, store, critique, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
+  return Object.freeze({ startHandoff, resumeHandoff, resumeCritique, pauseHandoff, reconcileHandoff, listHandoffs, store, critique, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
 }
