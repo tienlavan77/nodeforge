@@ -101,7 +101,7 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
   // Authorizes planning handoff only from an intact, approved Markdown revision.
   async function assertApproved({ planId, revision, sha256 } = {}) {
     const plan = await getRevision({ planId, revision });
-    if (plan.sha256 !== sha256 || plan.status !== "approved" || plan.decision?.sha256 !== sha256) throw fail("PLAN_APPROVAL_REQUIRED", "Markdown plan requires exact owner approval before Sprint Leader handoff.");
+    if (plan.sha256 !== sha256 || plan.status !== "approved" || plan.decision?.sha256 !== sha256) throw fail("PLAN_APPROVAL_REQUIRED", "Plan requires exact Owner approval for this revision and checksum before handoff.");
     const canonicalBytes = await sources.read(plan);
     await verifyArchitectureDecisionSource({ parent: plan, canonicalBytes, fileService });
     return plan;

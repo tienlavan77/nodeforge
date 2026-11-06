@@ -31,6 +31,16 @@ async function fixture(t) {
   return { service, store, id, plan };
 }
 
+test("pending SE after safe reconciliation shows Resume without a stale unknown error", async (t) => {
+  const { service, store, id } = await fixture(t);
+  await store.update(id, { phase: "implementation", status: "running", checkpoint: { generation: 5, execution_status: "pending", current_step: null, next_step: "se", attempt: 1, error_code: "HANDOFF_EXECUTION_UNKNOWN", results: [] } });
+  const [handoff] = await service.listHandoffs();
+  assert.equal(handoff.can_resume, true);
+  assert.equal(handoff.can_reconcile, false);
+  assert.equal(handoff.checkpoint.error_code, null);
+  assert.equal((await store.get(id)).checkpoint.error_code, "HANDOFF_EXECUTION_UNKNOWN");
+});
+
 test("approval-paused handoff resumes SE then RV then AM with the same identity", async (t) => {
   const f = await fixture(t);
   const calls = [];
