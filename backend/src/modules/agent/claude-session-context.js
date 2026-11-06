@@ -1,23 +1,14 @@
 // Business purpose: restores trustworthy Claude context occupancy when SDK usage is incomplete.
 // Technical description: reads bounded tails from conversation-scoped and legacy Claude transcripts.
-import { existsSync, openSync, closeSync, fstatSync, readSync, readdirSync } from "node:fs";
+import { openSync, closeSync, fstatSync, readSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 export function readClaudeSessionContext(home, sessionId, output = process.stderr) {
   if (typeof sessionId !== "string" || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
   let projects = [];
   try {
-    const conversationRoot = join(home, "conversations");
-    if (!existsSync(conversationRoot)) {
-      projects = readdirSync(join(home, "projects"), { withFileTypes: true }).map((project) => ({ name: project.name, directory: project.isDirectory(), root: home }));
-    } else {
-      const roots = readdirSync(conversationRoot, { withFileTypes: true });
-      projects = roots.filter((entry) => entry.isDirectory()).flatMap((conversation) => {
-        const projectRoot = join(conversationRoot, conversation.name, "projects");
-        try { return readdirSync(projectRoot, { withFileTypes: true }).map((project) => ({ name: project.name, directory: project.isDirectory(), root: projectRoot })); }
-        catch (error) { if (error.code !== "ENOENT") output?.write?.(`[nodeforge] Claude project context probe failed: ${error.message}\n`); return []; }
-      });
-    }
+    const projectRoot = join(home, "projects");
+    projects = readdirSync(projectRoot, { withFileTypes: true }).map((project) => ({ name: project.name, directory: project.isDirectory(), root: projectRoot }));
   } catch (error) {
     if (error.code !== "ENOENT") output?.write?.(`[nodeforge] Claude context directory probe failed: ${error.message}\n`);
     return null;

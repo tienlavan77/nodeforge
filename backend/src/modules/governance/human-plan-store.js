@@ -28,7 +28,7 @@ function validateContent(content) {
 // Creates the plan registry used to bind human approval to exact source bytes.
 export function createHumanPlanStore({ projectId, database, fileService, markdownPlans, clock = () => new Date().toISOString() } = {}) {
   if (!projectId || !database?.all || !database?.run || !database?.transaction || !fileService?.readFile || !fileService?.atomicCreate || !fileService?.createLock) throw fail("PLAN_STORE_CONFIG", "Plan store requires project database and File Service.");
-  return Object.freeze({ createRevision, getRevision, list, decide, approveDerived, assertExecutable });
+  return Object.freeze({ createRevision, getRevision, list, decide, approveDerived, assertExecutable, deletePlan });
 
   // Writes a new immutable revision before indexing it; an orphan file never grants execution.
   async function createRevision({ planId, sprintId = null, content, proposalId = null, expectedRevision, sourcePath = null, sourceSha256 = null } = {}) {
@@ -142,6 +142,35 @@ export function createHumanPlanStore({ projectId, database, fileService, markdow
     }
     database.run("INSERT INTO derived_plan_approvals(plan_id,revision,sha256,markdown_plan_id,markdown_revision,markdown_sha256,markdown_decision_id,created_at) VALUES (?,?,?,?,?,?,?,?)", [planId, revision, sha256, markdownPlanId, markdownRevision, markdownSha256, markdown.decision.decision_id, clock()]);
     return getRevision({ planId, revision });
+  }
+
+  // Deletes an unbound plan aggregate and its immutable artifacts without leaving indexed children behind.
+  async function deletePlan({ planId, expectedRevision } = {}) {
+    if (!SAFE_ID.test(planId ?? "") || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw fail("PLAN_DELETE_INVALID", "Plan ID and expected revision are required.");
+    const lock = await acquireTicketFileLock(fileService, `${PLAN_ROOT}/${planId}/revision.lock`);
+    try {
+      const head = database.all("SELECT revision FROM plan_heads WHERE plan_id=? AND project_id=?", [planId, projectId])[0];
+      const revisions = database.all("SELECT revision,file_path FROM plan_revisions WHERE plan_id=? AND project_id=? ORDER BY revision", [planId, projectId]);
+      const currentRevision = head?.revision ?? revisions[revisions.length - 1]?.revision ?? 0;
+      if (currentRevision && currentRevision !== expectedRevision) throw fail("PLAN_REVISION_CONFLICT", "Plan revision changed; refresh before deleting.");
+      const referencedSprint = database.all("SELECT sprint_id FROM sprint_registry WHERE project_id=? AND plan_id=?", [projectId, planId])[0];
+      if (referencedSprint) throw fail("PLAN_DELETE_REFERENCED", "A plan bound to a Sprint cannot be deleted.");
+      for (const revision of revisions) {
+        for (const path of [revision.file_path, `${statePath()}/nf/se-handoffs/${projectId}/HANDOFF-${planId}-R${revision.revision}.json`]) {
+          try { await fileService.deleteFile({ path }); }
+          catch (error) { if (error.code !== "ENOENT" && error.code !== "FILE_NOT_FOUND") throw error; }
+        }
+      }
+      database.transaction(() => {
+        database.run("DELETE FROM plan_decision_selections WHERE decision_id IN (SELECT decision_id FROM plan_decisions WHERE plan_id=?)", [planId]);
+        database.run("DELETE FROM plan_decisions WHERE plan_id=?", [planId]);
+        database.run("DELETE FROM plan_handoffs WHERE plan_id=?", [planId]);
+        database.run("DELETE FROM derived_plan_approvals WHERE plan_id=?", [planId]);
+        database.run("DELETE FROM plan_revisions WHERE plan_id=? AND project_id=?", [planId, projectId]);
+        database.run("DELETE FROM plan_heads WHERE plan_id=? AND project_id=?", [planId, projectId]);
+      });
+      return { plan_id: planId, deleted: true, revisions_deleted: revisions.length };
+    } finally { await lock.release(); }
   }
 
   // Resolves the current approved revision before any sprint or ticket execution.

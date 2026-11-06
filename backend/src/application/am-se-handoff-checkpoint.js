@@ -126,7 +126,22 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
   async function reconcile(handoffId, { operatorApproved = false } = {}) {
     const record = await store.get(handoffId);
     const cp = record?.checkpoint;
-    if (!cp || record.project_id !== projectId || !["running", "reconciliation_required", "unknown"].includes(cp.execution_status) || !["se", "rv"].includes(cp.current_step)) fail("HANDOFF_RECONCILIATION_INVALID");
+    if (!cp || record.project_id !== projectId) fail("HANDOFF_RECONCILIATION_INVALID");
+    const firstSePending = record.phase === "implementation" && record.round === 1 && cp.round === 1
+      && cp.execution_status === "pending" && cp.next_step === "se" && !cp.current_step && !cp.execution_id
+      && cp.plan_locked && !cp.approval_pending && Array.isArray(cp.results) && cp.results.length === 0;
+    if (firstSePending) {
+      const observed = await workspace(Array.isArray(cp.workspace?.scope_paths) ? cp.workspace.scope_paths : undefined);
+      if (!operatorApproved) return { classification: same(cp.workspace, observed) ? "operator_decision" : "blocked", handoff_id: handoffId };
+      const updated = await store.transition(handoffId, cp.generation, (current) => {
+        const currentCp = current.checkpoint;
+        if (currentCp.execution_status !== "pending" || currentCp.next_step !== "se" || currentCp.current_step || currentCp.execution_id || currentCp.results?.length || currentCp.round !== 1) fail("HANDOFF_STALE");
+        return { ...current, checkpoint: { ...currentCp, workspace: observed, error_code: null, started_at: null, updated_at: now() } };
+      });
+      log(updated, "baseline_reconciled");
+      return { classification: "safe_to_resume", handoff_id: handoffId };
+    }
+    if (!["running", "reconciliation_required", "unknown"].includes(cp.execution_status) || !["se", "rv"].includes(cp.current_step)) fail("HANDOFF_RECONCILIATION_INVALID");
     const conversationId = cp.current_step === "rv" ? record.rv_conversation_id : record.se_conversation_id;
     const evidence = executionCheckpoint && cp.execution_id ? await executionCheckpoint.load(conversationId, cp.execution_id) : null;
     const observed = await workspace(Array.isArray(cp.workspace?.scope_paths) ? cp.workspace.scope_paths : undefined);
