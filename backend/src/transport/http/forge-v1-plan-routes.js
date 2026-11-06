@@ -10,7 +10,7 @@ function assertProject(projectId, expectedProjectId) {
 }
 
 // Routes exact plan revision, decision, and sprint registry operations.
-export async function routePlan({ method, parts, body, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, headers } = {}) {
+export async function routePlan({ method, parts, body, url, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, headers } = {}) {
   if (parts[0] === "sprint-registry") throw Object.assign(new ConfigurationError("The sprint registry route has moved to /forge/v1/sprints/registry."), { code: "ROUTE_RETIRED", statusCode: 410 });
   if (!["plans", "sprints"].includes(parts[0]) || parts[0] === "sprints" && parts[1] !== "registry") return null;
   assertProject(projectId, expectedProjectId);
@@ -22,6 +22,14 @@ export async function routePlan({ method, parts, body, projectId, expectedProjec
     }
     if (method === "GET" && parts.length === 1) return { status: 200, body: [...planStore.list(), ...(markdownPlanStore?.list?.() ?? [])] };
     if (method === "POST" && parts.length === 1) return { status: 201, body: await planStore.createRevision({ planId: body.plan_id, sprintId: body.sprint_id ?? null, content: body.content, proposalId: body.proposal_id ?? null, sourcePath: body.source_path ?? null, sourceSha256: body.source_sha256 ?? null, expectedRevision: 0 }) };
+    if ((method === "PUT" || method === "PATCH") && parts.length === 2) return { status: 200, body: await planStore.createRevision({ planId: parts[1], sprintId: body.sprint_id ?? null, content: body.content ?? body, proposalId: body.proposal_id ?? null, sourcePath: body.source_path ?? null, sourceSha256: body.source_sha256 ?? null, expectedRevision: body.expected_revision }) };
+    if (method === "DELETE" && parts.length === 2) {
+      const expectedRevision = body.expected_revision ?? Number(url?.searchParams?.get("expected_revision"));
+      const isMarkdown = markdownPlanStore?.list?.().some((item) => item.plan_id === parts[1]);
+      const store = isMarkdown ? markdownPlanStore : planStore;
+      if (!store?.deletePlan) throw unavailable(isMarkdown ? "Markdown Human Plan" : "Human Plan");
+      return { status: 200, body: await store.deletePlan({ planId: parts[1], expectedRevision }) };
+    }
     if (method === "POST" && parts.length === 3 && parts[2] === "revisions") return { status: 201, body: await planStore.createRevision({ planId: parts[1], sprintId: body.sprint_id ?? null, content: body.content, proposalId: body.proposal_id ?? null, sourcePath: body.source_path ?? null, sourceSha256: body.source_sha256 ?? null, expectedRevision: body.expected_revision }) };
     if (method === "GET" && parts.length === 3) return { status: 200, body: await (markdownPlanStore?.list?.().some((item) => item.plan_id === parts[1]) ? markdownPlanStore.getRevision({ planId: parts[1], revision: Number(parts[2]) }) : planStore.getRevision({ planId: parts[1], revision: Number(parts[2]) })) };
     if (method === "POST" && parts.length === 4 && parts[3] === "handoff") {

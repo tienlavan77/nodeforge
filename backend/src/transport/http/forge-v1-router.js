@@ -91,7 +91,7 @@ export function createForgeV1Router({ assertAdmission, dispatchTicket, dispatchS
       const selected = await selectProjectRouter({ projectId, resolveProjectRouter });
       return selected.route(method, url, request, services, body);
     }
-    const planResult = await routePlan({ method, parts, body, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, headers: request.headers });
+    const planResult = await routePlan({ method, parts, body, url, projectId, expectedProjectId, planStore, markdownPlanStore, sprintRegistry, planOwnerAuth, planRequests, handoffApprovedPlan, headers: request.headers });
     if (planResult) return planResult;
     const directCodeResult = await routeDirectCode({ method, parts, body, projectId, url, directCodeRequest, sprintRegistry });
     if (directCodeResult) return directCodeResult;

@@ -18,7 +18,7 @@ function fail(code, message) { return Object.assign(new ConfigurationError(messa
 export function createMarkdownPlanStore({ projectId, database, fileService, clock = () => new Date().toISOString() } = {}) {
   if (!projectId || !database?.all || !database?.run || !fileService?.readFile || !fileService?.atomicCreate || !fileService?.createLock) throw fail("MARKDOWN_PLAN_STORE_CONFIG", "Markdown plan store requires project database and File Service.");
   const sources = createMarkdownPlanSource({ fileService });
-  return Object.freeze({ createRevision, getRevision, list, decide, assertApproved, restoreSourceSnapshot });
+  return Object.freeze({ createRevision, getRevision, list, decide, assertApproved, deletePlan, restoreSourceSnapshot });
 
   // Indexes the exact Markdown bytes and source SUMMARY before they can be reviewed.
   async function createRevision({ planId, expectedRevision = 0, markdown, summaryPath, summarySha256, conversationId = null } = {}) {
@@ -79,6 +79,32 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
   // Lists current readable drafts without presenting them as executable JSON plans.
   function list() {
     return database.all("SELECT r.plan_id,r.revision,r.project_id,r.file_path,r.sha256,r.summary_path AS source_path,r.summary_sha256 AS source_sha256,r.conversation_id,r.created_at FROM markdown_plan_revisions r WHERE r.project_id=? AND r.revision=(SELECT MAX(revision) FROM markdown_plan_revisions WHERE plan_id=r.plan_id AND project_id=r.project_id) ORDER BY r.created_at", [projectId]).map((row) => ({ ...row, format: "markdown", sprint_id: null }));
+  }
+
+  // Deletes an unbound Markdown plan aggregate and every retained revision artifact.
+  async function deletePlan({ planId, expectedRevision } = {}) {
+    if (!SAFE_ID.test(planId ?? "") || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw fail("PLAN_DELETE_INVALID", "Plan ID and expected revision are required.");
+    const lock = await acquireTicketFileLock(fileService, `${statePath()}/nf/plans/${planId}/markdown.lock`);
+    try {
+      const revisions = database.all("SELECT revision,file_path,summary_path FROM markdown_plan_revisions WHERE plan_id=? AND project_id=? ORDER BY revision", [planId, projectId]);
+      const currentRevision = revisions[revisions.length - 1]?.revision ?? 0;
+      if (currentRevision && currentRevision !== expectedRevision) throw fail("PLAN_REVISION_CONFLICT", "Plan revision changed; refresh before deleting.");
+      const referencedSprint = database.all("SELECT sprint_id FROM sprint_registry WHERE project_id=? AND plan_id=?", [projectId, planId])[0];
+      if (referencedSprint) throw fail("PLAN_DELETE_REFERENCED", "A plan bound to a Sprint cannot be deleted.");
+      for (const revision of revisions) {
+        for (const path of [revision.file_path, `${statePath()}/nf/plans/${planId}/summary-r${revision.revision}.md`, `${statePath()}/nf/se-handoffs/${projectId}/HANDOFF-${planId}-R${revision.revision}.json`]) {
+          try { await fileService.deleteFile({ path }); }
+          catch (error) { if (error.code !== "ENOENT" && error.code !== "FILE_NOT_FOUND") throw error; }
+        }
+      }
+      database.transaction(() => {
+        database.run("DELETE FROM markdown_plan_decisions WHERE plan_id=?", [planId]);
+        database.run("DELETE FROM markdown_plan_handoffs WHERE plan_id=?", [planId]);
+        database.run("DELETE FROM derived_plan_approvals WHERE markdown_plan_id=?", [planId]);
+        database.run("DELETE FROM markdown_plan_revisions WHERE plan_id=? AND project_id=?", [planId, projectId]);
+      });
+      return { plan_id: planId, deleted: true, revisions_deleted: revisions.length };
+    } finally { await lock.release(); }
   }
 
   // Records the owner's decision for the exact bytes displayed in the UI.

@@ -70,7 +70,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
     return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture, conversationStateStore, communications: communications ?? bus?.store ?? null, maxSelfHealAttempts });
   }
-  return Object.freeze({ execute, isCommand, listHandoffs: () => ensureSeHandoff().listHandoffs(), resumeHandoff: (input) => ensureSeHandoff().resumeHandoff(input), pauseHandoff: (input) => ensureSeHandoff().pauseHandoff(input), reconcileHandoff: (input) => ensureSeHandoff().reconcileHandoff(input), planningSessions: planning.sessions });
+  return Object.freeze({ execute, isCommand, listHandoffs: () => ensureSeHandoff().listHandoffs(), resumeHandoff: (input) => ensureSeHandoff().resumeHandoff(input), pauseHandoff: (input) => ensureSeHandoff().pauseHandoff(input), handoffWorkspaceStatus: (input) => ensureSeHandoff().handoffWorkspaceStatus(input), adoptHandoffWorkspace: (input) => ensureSeHandoff().adoptHandoffWorkspace(input), reconcileHandoff: (input) => ensureSeHandoff().reconcileHandoff(input), planningSessions: planning.sessions });
 
   // Recognizes exact slash commands plus standalone conversation planning triggers.
   function isCommand(text) { const value = String(text ?? ""); return PLAN_RE.test(value) || APPROVE_RE.test(value) || CONTINUE_RE.test(value) || /^\/resume-se-handoff\s+HANDOFF-[A-Za-z0-9_-]+\s*$/i.test(value) || isConversationPlanMessage(value) || detectPlanHandoffRetryTrigger(value) !== null; }

@@ -127,6 +127,23 @@ test("stopped SE runner after a lost result needs operator evidence before a new
   assert.equal(f.record.checkpoint.results.length, 0);
 });
 
+// Business purpose: repairs a partially persisted first-SE reset without authorizing a duplicate execution.
+// Technical description: accepts only a pending, result-free SE checkpoint with no execution identity and re-pins the observed workspace through the generation-fenced transition.
+test("reconciles a partially reset first SE checkpoint", async () => {
+  const f = fixture();
+  await f.machine.initialize("HANDOFF-TEST", "project-owner");
+  const original = f.record.checkpoint.generation;
+  f.record.checkpoint = { ...f.record.checkpoint, generation: original + 1, execution_status: "pending", next_step: "se", current_step: null, execution_id: null, error_code: "HANDOFF_EXECUTION_UNKNOWN", started_at: "2026-01-01T00:00:00Z", attempt: 0, results: [] };
+  assert.deepEqual((await f.machine.reconcile("HANDOFF-TEST")).classification, "operator_decision");
+  assert.deepEqual((await f.machine.reconcile("HANDOFF-TEST", { operatorApproved: true })).classification, "safe_to_resume");
+  assert.equal(f.record.checkpoint.execution_status, "pending");
+  assert.equal(f.record.checkpoint.error_code, null);
+  assert.equal(f.record.checkpoint.next_step, "se");
+  assert.equal(f.record.checkpoint.execution_id, null);
+  assert.equal(f.record.checkpoint.started_at, null);
+  assert.equal(f.record.checkpoint.results.length, 0);
+});
+
 test("RV recovery refuses retry without verified read-only stop evidence", async () => {
   const f = fixture();
   await f.machine.initialize("HANDOFF-TEST");

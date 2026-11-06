@@ -83,7 +83,7 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
         const t = String(turn?.text ?? "").trim();
         return !t.startsWith("Architecture clarification discovery") && !t.startsWith("Architecture plan generation") && !t.startsWith("Architecture plan update") && !(turn.role === "Assistant" && t.startsWith("{") && t.endsWith("}"));
       });
-      const rollover = shouldRolloverOwnerSession(retainedState, { continueExecution: payload.continue_execution === true, resumeOf: payload.resume_of ?? null, planningInputOnly: payload.planning_input_only === true, threshold: payload.compaction_token_threshold ?? 230000, incomingText: payload.text, history: filteredHistory });
+      const rollover = shouldRolloverOwnerSession(retainedState, { continueExecution: payload.continue_execution === true, resumeOf: payload.resume_of ?? null, planningInputOnly: payload.planning_input_only === true, threshold: payload.compaction_token_threshold ?? 380000, incomingText: payload.text, history: filteredHistory });
       const architectureMemory = profile.role === "architecture_manager" ? buildArchitectureConversationMemory(state?.architecture_conversation_memory, filteredHistory) : null;
       const planningMemoryNote = formatArchitectureConversationMemory(architectureMemory);
       if (architectureMemory) await conversationStateStore?.update?.(conversationId, { architecture_conversation_memory: architectureMemory });
