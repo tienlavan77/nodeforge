@@ -332,7 +332,7 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
   assert.equal(commandService.isCommand("chạy giao lại cho SL giúp đi!"), true);
   assert.equal(commandService.isCommand("/handoff"), true);
   const retryRes = await commandService.execute({ text: "chạy giao lại cho SL giúp đi!", conversationId: "CONV-SL", project_id: "PROJECT-A", approvedOwnerId: "OWNER" });
-  assert.equal(retryRes.status, "handed_to_node");
+  assert.equal(retryRes.status, "handed_to_sprint_leader");
   assert.equal(retryRes.sprint_id, "SPRINT-A");
   assert.equal(retryRes.sprint_status, "ready");
 });

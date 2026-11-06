@@ -151,5 +151,21 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
     } finally { await claim.release(); }
   }
 
-  return Object.freeze({ create, get, update, transition, pathFor });
+  // Business purpose: lists persisted handoffs so the Owner UI can show durable AM-SE-RV recovery state after reload.
+  // Technical description: reads only project-scoped JSON records, ignores no malformed state, and returns newest records first without mutating them.
+  async function list() {
+    const paths = await fileService.listFiles({ glob: `${baseDir}/*.json` });
+    const records = [];
+    for (const path of paths) {
+      try {
+        const record = JSON.parse(await fileService.readFile({ path }));
+        if (record?.project_id === projectId) records.push(record);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    return records.sort((left, right) => String(right.updated_at ?? "").localeCompare(String(left.updated_at ?? "")));
+  }
+
+  return Object.freeze({ create, get, list, update, transition, pathFor });
 }
