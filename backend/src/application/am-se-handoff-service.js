@@ -395,9 +395,13 @@ export function createAmSeHandoffService({
 
   // Business purpose: expose guarded reconciliation only to the exact Owner and approved plan revision.
   // Technical description: verifies persisted handoff identity and approval before assessing runner stop evidence; it never retries an uncertain execution automatically.
-  async function pauseHandoff({ handoffId } = {}) {
+  async function pauseHandoff({ handoffId, approvedOwnerId, expectedRevision, expectedSha256 } = {}) {
     if (!checkpoint?.pause) throw Object.assign(new ConfigurationError("Handoff pause is unavailable."), { code: "HANDOFF_PAUSE_UNAVAILABLE", statusCode: 409 });
     const record = await store.get(handoffId);
+    if (!record || record.project_id !== projectId || record.delivery_target !== "se" || !approvedOwnerId || expectedRevision !== record.plan_revision || expectedSha256 !== record.plan_sha256) throw Object.assign(new ConfigurationError("Handoff identity is unavailable."), { code: "HANDOFF_IDENTITY_INVALID", statusCode: 409 });
+    const checkpointOwner = record.checkpoint?.approved_owner_id;
+    if (!checkpointOwner || checkpointOwner !== approvedOwnerId) throw Object.assign(new ConfigurationError("Owner approval does not match the checkpoint."), { code: "PLAN_APPROVAL_OWNER_MISMATCH", statusCode: 409 });
+    await checkpoint.verifyPlan(record);
     return checkpoint.pause(handoffId, { record });
   }
 

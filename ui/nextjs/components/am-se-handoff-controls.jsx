@@ -58,10 +58,11 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
   // Business purpose: invokes one owner-authorized handoff recovery action and refreshes the durable projection.
   // Technical description: sends no agent work from the browser; the backend validates approval, receipts and checkpoint generation.
   async function recover(handoff, action) {
+    if (["critique-resume", "pause"].includes(action) && !ownerToken) { setError("Owner token is required for this action."); return; }
     if (action === "critique-resume") {
       setBusyId(`${handoff.handoff_id}:${action}`);
       setError("");
-      try { await client.resumeCritique(projectId, handoff); await refresh(); }
+      try { await client.resumeCritique(projectId, handoff, ownerToken); await refresh(); }
       catch (reason) { setError(reason?.message ?? `Could not ${action} handoff.`); }
       finally { setBusyId(""); }
       return;
@@ -69,7 +70,7 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
     if (action === "pause") {
       setBusyId(`${handoff.handoff_id}:${action}`);
       setError("");
-      try { await client.pauseHandoff(projectId, handoff); await refresh(); }
+      try { await client.pauseHandoff(projectId, handoff, ownerToken); await refresh(); }
       catch (reason) { setError(reason?.message ?? `Could not ${action} handoff.`); }
       finally { setBusyId(""); }
       return;
@@ -116,8 +117,8 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
         {workspaceStatus[handoff.handoff_id]?.adoption_blocked && <p role="status">Cannot accept this baseline: {workspaceStatus[handoff.handoff_id].adoption_blocked === "baseline_already_adopted" ? "this checkpoint has already adopted a baseline once." : "the previous SE attempt lacks a verified stopped, tool-free receipt."} Do not reset your files; reconcile this attempt separately.</p>}
         {workspaceStatus[handoff.handoff_id] && <div className="am-se-handoff-checkpoint" role="status">{workspaceStatus[handoff.handoff_id].matches ? "Workspace matches checkpoint baseline." : <>Workspace differs: {workspaceStatus[handoff.handoff_id].reason}. Baseline HEAD {workspaceStatus[handoff.handoff_id].baseline_head}; current HEAD {workspaceStatus[handoff.handoff_id].current_head}. {(workspaceStatus[handoff.handoff_id].paths ?? []).length ? `Changed paths: ${workspaceStatus[handoff.handoff_id].paths.join(", ")}.` : workspaceStatus[handoff.handoff_id].reason === "legacy_baseline" ? "Older checkpoints store only a fingerprint; the original file contents cannot be recovered from it." : "The change is in Git HEAD, staging, or workspace metadata; inspect Git status before restoring anything."} Restore changes manually if known, or ask the approving Owner to adopt the current workspace where safe. Never run git reset --hard unless you have backed up all changes.</>}</div>}
         <ol className="am-se-handoff-results">{results.map((result) => <li key={`${result.execution_id}:${result.attempt}`}><strong>{result.step?.toUpperCase()} R{result.round}</strong><span>{result.verdict ?? "completed"}</span><small>{result.text ?? "No text evidence"}</small>{result.result_evidence && <small>SDK: {result.result_evidence.sdk_status ?? "unknown"} · receipt: {result.execution_id}</small>}</li>)}</ol>
-        {handoff.approval_required && <div className="am-se-handoff-actions"><button type="button" disabled={Boolean(busyId)} onClick={() => void approve(handoff)}>{busyId === `${handoff.handoff_id}:approve` ? "Approving…" : "Approve plan"}</button></div>}
-        {recoveryAllowed && <div className="am-se-handoff-actions">{handoff.critique_can_resume && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "critique-resume")}>{busyId === `${handoff.handoff_id}:critique-resume` ? "Resuming…" : "Resume critique"}</button>}{handoff.can_resume && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "resume")}>{busyId === `${handoff.handoff_id}:resume` ? "Resuming…" : "Resume checkpoint"}</button>}{handoff.can_reconcile && !handoff.can_resume && <span>Execution requires reconciliation; Resume cannot retry it yet.</span>}{handoff.can_resume && workspaceStatus[handoff.handoff_id]?.matches === false && workspaceStatus[handoff.handoff_id]?.can_adopt === true && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "adopt")}>Accept current workspace baseline</button>}{handoff.can_pause && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "pause")}>{busyId === `${handoff.handoff_id}:pause` ? "Pausing…" : "Pause"}</button>}</div>}
+        {handoff.approval_required && <div className="am-se-handoff-actions"><button type="button" disabled={Boolean(busyId)} onClick={() => void approve(handoff)}>{busyId === `${handoff.handoff_id}:approve` ? "Running…" : "Run"}</button></div>}
+        {recoveryAllowed && <div className="am-se-handoff-actions">{handoff.critique_can_resume && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "critique-resume")}>{busyId === `${handoff.handoff_id}:critique-resume` ? "Resuming…" : "Resume critique"}</button>}{handoff.can_resume && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "resume")}>{busyId === `${handoff.handoff_id}:resume` ? "Resuming…" : "Resume"}</button>}{handoff.can_reconcile && !handoff.can_resume && <span>Execution requires reconciliation; Resume cannot retry it yet.</span>}{handoff.can_resume && workspaceStatus[handoff.handoff_id]?.matches === false && workspaceStatus[handoff.handoff_id]?.can_adopt === true && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "adopt")}>Accept current workspace baseline</button>}{handoff.can_pause && <button type="button" disabled={Boolean(busyId)} onClick={() => void recover(handoff, "pause")}>{busyId === `${handoff.handoff_id}:pause` ? "Stopping…" : "Stop"}</button>}</div>}
       </article>;
     })}
   </section>;
