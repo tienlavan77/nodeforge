@@ -315,6 +315,26 @@ export function createAmSeHandoffService({
     return { handoff_id: record.handoff_id, phase: "implementation", status: "paused", reason: "HANDOFF_CHECKPOINT_UNAVAILABLE", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
   }
 
+  // Business purpose: projects every persisted handoff role and checkpoint result for Owner recovery controls.
+  // Technical description: returns redacted state-machine evidence for AM, SE and RV without exposing prompts, workspace bytes or credentials.
+  async function listHandoffs() {
+    const records = typeof store.list === "function" ? await store.list() : [];
+    return records.filter((record) => record.status !== "completed").map((record) => ({
+      handoff_id: record.handoff_id, plan_id: record.plan_id, plan_revision: record.plan_revision, plan_sha256: record.plan_sha256,
+      phase: record.phase, status: record.status, round: record.round, max_rounds: record.max_rounds,
+      critique_round: record.critique_round, delivery_target: record.delivery_target, updated_at: record.updated_at,
+      roles: { am: { agent_id: record.am_agent_id, conversation_id: record.am_conversation_id }, se: { agent_id: record.se_agent_id, conversation_id: record.se_conversation_id }, rv: { agent_id: record.rv_agent_id, conversation_id: record.rv_conversation_id } },
+      can_resume: Boolean(record.checkpoint && record.checkpoint.execution_status === "pending") || Boolean(!record.checkpoint && record.phase === "plan_critique" && record.status === "paused" && record.history?.at(-1)?.critique_status === "ALIGNED"),
+      can_reconcile: Boolean(record.checkpoint && ["running", "reconciliation_required", "unknown"].includes(record.checkpoint.execution_status)),
+      checkpoint: record.checkpoint ? {
+        generation: record.checkpoint.generation, round: record.checkpoint.round, current_step: record.checkpoint.current_step,
+        next_step: record.checkpoint.next_step, execution_status: record.checkpoint.execution_status, execution_id: record.checkpoint.execution_id,
+        attempt: record.checkpoint.attempt, error_code: record.checkpoint.error_code, updated_at: record.checkpoint.updated_at,
+        results: (record.checkpoint.results ?? []).map((result) => ({ round: result.round, step: result.step, execution_id: result.execution_id, attempt: result.attempt, verdict: result.verdict, completed_at: result.completed_at, text: result.text, result_evidence: result.result_evidence, read_only_enforced: result.read_only_enforced }))
+      } : null
+    }));
+  }
+
   // Business purpose: expose guarded reconciliation only to the exact Owner and approved plan revision.
   // Technical description: verifies persisted handoff identity and approval before assessing runner stop evidence; it never retries an uncertain execution automatically.
   async function reconcileHandoff({ handoffId, approvedOwnerId, expectedRevision, expectedSha256, operatorApproved = false } = {}) {
@@ -326,5 +346,5 @@ export function createAmSeHandoffService({
     return checkpoint.reconcile(handoffId, { operatorApproved });
   }
 
-  return Object.freeze({ startHandoff, resumeHandoff, reconcileHandoff, store, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
+  return Object.freeze({ startHandoff, resumeHandoff, reconcileHandoff, listHandoffs, store, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
 }

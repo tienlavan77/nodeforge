@@ -57,6 +57,12 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
   const planning = createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath: PLAN_FRAME_PATH });
   let clarificationSessions;
   let seHandoff = amSeHandoffService ?? null;
+  // Business purpose: lazily compose the persisted AM-SE-RV handoff service for projection and recovery requests.
+  // Technical description: reuses the project-scoped stores and approval guards without starting any agent execution.
+  function ensureSeHandoff() {
+    seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, gitService, executionCheckpoint, approvePlan, handoffApprovedPlan });
+    return seHandoff;
+  }
   // Builds the conversation planner over one message's Architecture request so Node alone holds revision authority.
   function conversationPlanner(requestArchitecture) {
     if (!clarificationSessions) clarificationSessions = createArchitectureClarificationStore({ projectId, fileService });
@@ -64,7 +70,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
     return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture, conversationStateStore, communications: communications ?? bus?.store ?? null, maxSelfHealAttempts });
   }
-  return Object.freeze({ execute, isCommand, planningSessions: planning.sessions });
+  return Object.freeze({ execute, isCommand, listHandoffs: () => ensureSeHandoff().listHandoffs(), resumeHandoff: (input) => ensureSeHandoff().resumeHandoff(input), reconcileHandoff: (input) => ensureSeHandoff().reconcileHandoff(input), planningSessions: planning.sessions });
 
   // Recognizes exact slash commands plus standalone conversation planning triggers.
   function isCommand(text) { const value = String(text ?? ""); return PLAN_RE.test(value) || APPROVE_RE.test(value) || CONTINUE_RE.test(value) || /^\/resume-se-handoff\s+HANDOFF-[A-Za-z0-9_-]+\s*$/i.test(value) || isConversationPlanMessage(value) || detectPlanHandoffRetryTrigger(value) !== null; }

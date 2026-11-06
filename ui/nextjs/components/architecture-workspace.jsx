@@ -14,6 +14,7 @@ import { ConversationResponseReveal } from "../components/conversation-response-
 import { HomeChatComposer } from "../components/home-chat-composer.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ArchitectureExecutionControls } from "../components/architecture-execution-controls.jsx";
+import { AmSeHandoffControls } from "../components/am-se-handoff-controls.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
 import { ConversationAgentMessageActions, ConversationMessageActions } from "../components/conversation-message-actions.jsx";
 // eslint-disable-next-line no-unused-vars -- Next resolves this component reference in JSX.
@@ -252,6 +253,7 @@ export default function ArchitectureWorkspace({ projectId: propProjectId } = {})
           <PendingConversationQueue pendingMessages={pendingMessages} onCancel={cancelPendingMessage} />
           <div className="conversation-statusbar">
             <ConversationProjectGit client={client} projectId={PROJECT_ID} />
+            <AmSeHandoffControls client={client} projectId={PROJECT_ID} refreshSignal={architectureInterruption} />
             <ArchitectureExecutionControls onDecision={(decision) => applyOwnerExecutionDecision({ ...decision, setAgentTyping, setMessages, setChatState, lastSentRef })} client={client} projectId={PROJECT_ID} conversationId={activeConversationId} executionId={lastSentRef.current?.conversationId === activeConversationId ? lastSentRef.current.correlationId : messages.findLast((message) => message.from === "owner" && message.correlation_id)?.correlation_id} agentTyping={agentTyping} interruptionSignal={architectureInterruption} />
           </div>
           <ArchitectureClarifications key={`${PROJECT_ID}:${streamConversationId ?? "no-conversation"}`} client={client} projectId={PROJECT_ID} conversationId={streamConversationId} agentId={selectedArchitectureManager?.id} planEvents={planEvents} onPlanCreated={(result) => loadConversationMessages(result.conversation_id, { preserve: true })} />

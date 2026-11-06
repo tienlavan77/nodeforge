@@ -156,7 +156,8 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices, no
       handoffApprovedPlan: planHandoff ? (input) => planHandoff.handoff(input) : null,
       expectedProjectId: projectId,
       listResumableCheckpoints: services.listResumableCheckpoints,
-      projectStream
+      projectStream,
+      handoffService: commandService
     })
   };
 }
