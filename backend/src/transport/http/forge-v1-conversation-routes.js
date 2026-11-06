@@ -16,6 +16,14 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
         if (typeof handoffService.pauseHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff pause is unavailable."), { code: "HANDOFF_PAUSE_UNAVAILABLE", statusCode: 503 });
         return { status: 200, body: await handoffService.pauseHandoff({ handoffId: parts[3] }) };
       }
+      if (parts.length === 5 && method === "GET" && parts[4] === "workspace") {
+        return { status: 200, body: await handoffService.handoffWorkspaceStatus({ handoffId: parts[3] }) };
+      }
+      if (parts.length === 5 && method === "POST" && parts[4] === "adopt-workspace") {
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for baseline adoption."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.adoptHandoffWorkspace({ handoffId: parts[3], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+      }
       if (parts.length === 5 && method === "POST" && parts[4] === "resume") {
         if (typeof handoffService.resumeHandoff !== "function") throw Object.assign(new ConfigurationError("Implementation resume is unavailable."), { code: "HANDOFF_RESUME_UNAVAILABLE", statusCode: 503 });
         return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[3], approvedOwnerId: "project-owner", expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };

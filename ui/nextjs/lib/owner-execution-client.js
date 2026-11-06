@@ -20,6 +20,16 @@ export function createOwnerExecutionClient({ forgeV1, requestJson }) {
     async listHandoffs(projectId) {
       return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs`, { project: projectId }), { fallbackError: "Could not load AM-SE-RV handoff checkpoints." });
     },
+    // Business purpose: shows the Owner whether a saved handoff workspace baseline still matches.
+    // Technical description: requests bounded path-level diagnostics from the project-scoped handoff endpoint.
+    async getHandoffWorkspace(projectId, handoff) {
+      return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/workspace`, { project: projectId }), { fallbackError: "Could not inspect handoff workspace." });
+    },
+    // Business purpose: accepts the current workspace for an untouched first SE checkpoint without discarding files.
+    // Technical description: sends exact plan identity and Owner authentication to the guarded baseline adoption endpoint.
+    async adoptHandoffWorkspace(projectId, handoff, ownerToken) {
+      return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/adopt-workspace`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${ownerToken}` }, body: JSON.stringify({ project_id: projectId, approval_revision: handoff.plan_revision, approval_sha256: handoff.plan_sha256 }), fallbackError: "Could not adopt current handoff workspace." });
+    },
     // Resumes only the saved handoff step after the backend verifies Owner approval and plan identity.
     async resumeHandoff(projectId, handoff, ownerToken) {
       return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/resume`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", ...(ownerToken ? { authorization: `Bearer ${ownerToken}` } : {}) }, body: JSON.stringify({ project_id: projectId, approval_revision: handoff.plan_revision, approval_sha256: handoff.plan_sha256 }), fallbackError: "Could not resume the AM-SE-RV implementation checkpoint." });

@@ -400,6 +400,20 @@ export function createAmSeHandoffService({
     return checkpoint.pause(handoffId, { record });
   }
 
+  // Business purpose: gives the Owner a safe explanation of workspace drift and a guarded baseline reset option.
+  // Technical description: delegates diagnostics and exact-approval adoption to the handoff checkpoint without editing project files.
+  async function handoffWorkspaceStatus({ handoffId } = {}) {
+    if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
+    return checkpoint.workspaceStatus(handoffId);
+  }
+
+  // Business purpose: lets the exact approving Owner re-pin a pristine first SE handoff to the present workspace.
+  // Technical description: requires a stopped, tool-free prior attempt and updates only the locked checkpoint baseline.
+  async function adoptHandoffWorkspace({ handoffId, approvedOwnerId, expectedRevision, expectedSha256 } = {}) {
+    if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
+    return checkpoint.adoptWorkspace(handoffId, { approvedOwnerId, expectedRevision, expectedSha256 });
+  }
+
   async function reconcileHandoff({ handoffId, approvedOwnerId, expectedRevision, expectedSha256, operatorApproved = false } = {}) {
     if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
     const record = await store.get(handoffId);
@@ -409,5 +423,5 @@ export function createAmSeHandoffService({
     return checkpoint.reconcile(handoffId, { operatorApproved });
   }
 
-  return Object.freeze({ startHandoff, resumeHandoff, resumeCritique, pauseHandoff, reconcileHandoff, listHandoffs, store, critique, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
+  return Object.freeze({ startHandoff, resumeHandoff, resumeCritique, pauseHandoff, reconcileHandoff, handoffWorkspaceStatus, adoptHandoffWorkspace, listHandoffs, store, critique, formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict });
 }
