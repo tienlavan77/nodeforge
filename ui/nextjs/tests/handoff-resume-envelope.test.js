@@ -24,6 +24,17 @@ test("handoff Resume calls the direct implementation checkpoint with exact ident
   assert.deepEqual(JSON.parse(f.requests[0].options.body), { project_id: projectId, approval_revision: handoff.plan_revision, approval_sha256: handoff.plan_sha256 });
 });
 
+test("workspace inspection and explicit adoption use project scope and exact plan identity", async () => {
+  const { client, requests } = fixture();
+  const handoff = { handoff_id: "HANDOFF-TEST", plan_revision: 2, plan_sha256: "approved-sha" };
+  await client.getHandoffWorkspace("PROJECT-TEST", handoff);
+  assert.match(requests[0].path, /\/projects\/PROJECT-TEST\/handoffs\/HANDOFF-TEST\/workspace\?/);
+  await client.adoptHandoffWorkspace("PROJECT-TEST", handoff, "owner-secret");
+  assert.match(requests[1].path, /\/projects\/PROJECT-TEST\/handoffs\/HANDOFF-TEST\/adopt-workspace\?/);
+  assert.equal(requests[1].options.headers.authorization, "Bearer owner-secret");
+  assert.deepEqual(JSON.parse(requests[1].options.body), { project_id: "PROJECT-TEST", approval_revision: 2, approval_sha256: "approved-sha" });
+});
+
 test("handoff Resume exposes a backend execution error", async () => {
   const f = fixture();
   f.requests.length = 0;

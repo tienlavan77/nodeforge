@@ -17,6 +17,15 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
   const same = (a, b) => Boolean(a?.fingerprint && a.project_id === b?.project_id && a.head === b?.head && a.fingerprint === b?.fingerprint);
   const log = (record, transition, code = null) => onEvent?.({ handoff_id: record.handoff_id, round: record.checkpoint?.round, step: record.checkpoint?.current_step, execution_id: record.checkpoint?.execution_id, attempt: record.checkpoint?.attempt, transition, error_code: code });
   const identity = (record) => ({ planId: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256 });
+  // Business purpose: provides bounded reasons for a workspace mismatch without exposing file contents.
+  // Technical description: compares project, HEAD, changed-path digests and index digest, including legacy snapshots.
+  const workspaceDifference = (baseline, observed) => {
+    if (baseline.project_id !== observed.project_id) return { reason: "project_changed", paths: [] };
+    if (baseline.head !== observed.head) return { reason: "head_changed", paths: [] };
+    if (!baseline.files) return { reason: "legacy_baseline", paths: [] };
+    const paths = [...new Set([...Object.keys(baseline.files), ...Object.keys(observed.files)])].filter((path) => baseline.files[path] !== observed.files[path]);
+    return { reason: paths.length ? "files_changed" : baseline.index_hash !== observed.index_hash ? "staged_changes" : "workspace_metadata_changed", paths: paths.slice(0, 30) };
+  };
 
   // Business purpose: verifies an approved, unchanged plan before executing another role.
   // Technical description: compares the persisted revision and SHA with the plan registry and immutable source bytes.
@@ -76,6 +85,42 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     return stopped;
   }
 
+  // Business purpose: explains why a pending handoff cannot resume without leaking workspace bytes.
+  // Technical description: compares the pinned baseline and a fresh snapshot, reporting only bounded paths and drift type.
+  async function workspaceStatus(handoffId) {
+    const record = await store.get(handoffId);
+    if (!record || record.project_id !== projectId || !record.checkpoint?.workspace) fail("HANDOFF_CHECKPOINT_REQUIRED");
+    const baseline = record.checkpoint.workspace;
+    const observed = await workspace();
+    const cp = record.checkpoint;
+    const firstSe = record.phase === "implementation" && record.round === 1 && cp.round === 1 && cp.execution_status === "pending" && cp.next_step === "se" && !cp.current_step && cp.plan_locked && !cp.approval_pending && Array.isArray(cp.results) && cp.results.length === 0;
+    const evidence = firstSe && cp.execution_id && executionCheckpoint ? await executionCheckpoint.load(record.se_conversation_id, cp.execution_id) : null;
+    const cleanStop = !cp.baseline_adopted_at && (!cp.execution_id || Boolean(evidence?.execution_id === cp.execution_id && evidence.runner_stopped_at && evidence.status !== "running" && !evidence.receipts_truncated && Array.isArray(evidence.pending_tool_calls) && !evidence.pending_tool_calls.length && Array.isArray(evidence.completed_tool_calls) && !evidence.completed_tool_calls.length && evidence.last_completed_step === 0 && !evidence.handoff_result));
+    return { handoff_id: handoffId, matches: same(baseline, observed), baseline_head: baseline.head, current_head: observed.head, can_adopt: Boolean(firstSe && cleanStop), ...(firstSe && !cleanStop ? { adoption_blocked: cp.baseline_adopted_at ? "baseline_already_adopted" : "prior_attempt_not_verified_tool_free" } : {}), ...(same(baseline, observed) ? {} : workspaceDifference(baseline, observed)) };
+  }
+
+  // Business purpose: lets the Owner accept a new baseline when the first SE attempt never mutated the workspace.
+  // Technical description: verifies exact approval, zero results and stopped tool-free receipt before a locked generation transition.
+  async function adoptWorkspace(handoffId, { approvedOwnerId, expectedRevision, expectedSha256 } = {}) {
+    const record = await store.get(handoffId);
+    const cp = record?.checkpoint;
+    if (!cp || record.project_id !== projectId || record.delivery_target !== "se" || !approvedOwnerId || cp.approved_owner_id !== approvedOwnerId || record.plan_revision !== expectedRevision || record.plan_sha256 !== expectedSha256) fail("HANDOFF_IDENTITY_INVALID");
+    await verifyPlan(record);
+    if (record.phase !== "implementation" || record.round !== 1 || cp.round !== 1 || cp.next_step !== "se" || cp.current_step || cp.execution_status !== "pending" || !Array.isArray(cp.results) || cp.results.length || cp.approval_pending || !cp.plan_locked) fail("HANDOFF_BASELINE_ADOPTION_UNSAFE");
+    if (cp.execution_id) {
+      const evidence = executionCheckpoint ? await executionCheckpoint.load(record.se_conversation_id, cp.execution_id) : null;
+      if (!evidence || evidence.execution_id !== cp.execution_id || !evidence.runner_stopped_at || evidence.status === "running" || evidence.receipts_truncated || !Array.isArray(evidence.pending_tool_calls) || evidence.pending_tool_calls.length || !Array.isArray(evidence.completed_tool_calls) || evidence.completed_tool_calls.length || evidence.last_completed_step !== 0 || evidence.handoff_result) fail("HANDOFF_BASELINE_ADOPTION_UNSAFE");
+    }
+    if (cp.baseline_adopted_at) fail("HANDOFF_BASELINE_ADOPTION_UNSAFE");
+    const baseline = await workspace();
+    const updated = await store.transition(handoffId, cp.generation, (current) => {
+      if (current.checkpoint.execution_status !== "pending" || current.checkpoint.next_step !== "se" || current.checkpoint.current_step || !Array.isArray(current.checkpoint.results) || current.checkpoint.results.length || current.checkpoint.execution_id !== cp.execution_id || current.plan_revision !== expectedRevision || current.plan_sha256 !== expectedSha256 || current.checkpoint.approved_owner_id !== approvedOwnerId) fail("HANDOFF_STALE");
+      return { ...current, checkpoint: { ...current.checkpoint, workspace: baseline, error_code: null, baseline_adopted_at: now(), baseline_adopted_by: approvedOwnerId, updated_at: now() } };
+    });
+    log(updated, "workspace_adopted");
+    return { handoff_id: handoffId, classification: "baseline_adopted", workspace: { head: baseline.head, fingerprint: baseline.fingerprint } };
+  }
+
   async function reconcile(handoffId, { operatorApproved = false } = {}) {
     const record = await store.get(handoffId);
     const cp = record?.checkpoint;
@@ -127,7 +172,11 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     if (cp.execution_status !== "pending" || !["se", "rv", "am"].includes(cp.next_step) || cp.round > record.max_rounds) fail("HANDOFF_TRANSITION_INVALID");
     if (cp.next_step === "rv" && !cp.results.some((r) => r.round === cp.round && r.step === "se") || cp.next_step === "am" && !cp.results.some((r) => r.round === cp.round && r.step === "rv" && r.verdict === "PASS")) fail("HANDOFF_PREDECESSOR_REQUIRED");
     const step = cp.next_step;
-    if (!same(cp.workspace, await workspace())) fail("HANDOFF_WORKSPACE_MISMATCH");
+    const observed = await workspace();
+    if (!same(cp.workspace, observed)) {
+      const drift = workspaceDifference(cp.workspace, observed);
+      throw Object.assign(new ConfigurationError(`Workspace changed (${drift.reason}${drift.paths.length ? `: ${drift.paths.join(", ")}` : ""}). Inspect workspace status; restore your changes or explicitly adopt the current baseline before resuming.`), { code: "HANDOFF_WORKSPACE_MISMATCH", statusCode: 409 });
+    }
     const executionId = `CORR-HANDOFF-${record.plan_id}-${step.toUpperCase()}-R${cp.round}-${randomUUID()}`;
     const intent = await store.transition(handoffId, cp.generation, (current) => {
       if (current.checkpoint.execution_status !== "pending" || current.checkpoint.next_step !== step) fail("HANDOFF_STALE");
@@ -149,5 +198,5 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     }
     return complete(handoffId, intent, result);
   }
-  return Object.freeze({ initialize, pause, resume, reconcile, verifyPlan });
+  return Object.freeze({ initialize, pause, resume, reconcile, verifyPlan, workspaceStatus, adoptWorkspace });
 }
