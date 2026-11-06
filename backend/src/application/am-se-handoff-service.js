@@ -264,6 +264,7 @@ export function createAmSeHandoffService({
     let record = await store.create({
       handoffId: `HANDOFF-${currentPlan.plan_id}-R${currentPlan.revision}`, planId: currentPlan.plan_id, planRevision: currentPlan.revision, planSha256: currentPlan.sha256,
       planSourcePath: currentPlan.source_path, deliveryTarget: target, sourceKind: intake.source_kind ?? "conversation", sourceFilePath: intake.source_file_path ?? null,
+      workspaceScopePaths: intake.workspace_scope_paths,
       amAgentId: amProfile.agent_id, seAgentId: seProfile.agent_id, rvAgentId: rvProfile.agent_id, amConversationId: conversationId, seConversationId, rvConversationId,
       phase: "plan_critique", status: "critiquing", maxCritiqueRounds, maxRounds
     });

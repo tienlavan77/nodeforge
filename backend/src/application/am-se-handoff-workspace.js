@@ -5,11 +5,12 @@ import { ConfigurationError } from "../shared/errors.js";
 
 // Business purpose: refuses to certify an incomplete or unreadable workspace snapshot.
 // Technical description: returns a bounded conflict code rather than accepting a partial fingerprint.
+
 function unsafe() { throw Object.assign(new ConfigurationError("Workspace snapshot unavailable."), { code: "HANDOFF_WORKSPACE_UNAVAILABLE", statusCode: 409 }); }
 
 // Business purpose: captures a content-bound workspace baseline for handoff transition guards.
 // Technical description: parses Git porcelain -z, hashes tracked changes and untracked files, and rejects unsupported states.
-export async function handoffWorkspaceSnapshot({ gitService, fileService, projectId }) {
+export async function handoffWorkspaceSnapshot({ gitService, fileService, projectId, scopePaths } = {}) {
   if (!projectId || !gitService?.getHead || !gitService?.status || !gitService?.indexEntries || !fileService?.readFile) unsafe();
   const head = await gitService.getHead();
   const porcelain = await gitService.status({ nulTerminated: true });
@@ -34,6 +35,26 @@ export async function handoffWorkspaceSnapshot({ gitService, fileService, projec
       if (!oldPath || oldPath.startsWith("/") || oldPath.split("/").includes("..")) unsafe();
       paths.push({ path: oldPath, deleted: true });
     }
+  }
+  if (Array.isArray(scopePaths)) {
+    const scope = [...new Set(scopePaths)].sort();
+    if (scope.some((path) => typeof path !== "string" || !path || path.startsWith("/") || path.split("/").includes("..") || path.includes("\\"))) unsafe();
+    const changed = new Map(paths.map((item) => [item.path, item]));
+    const files = {};
+    for (const path of scope) {
+      const change = changed.get(path);
+      if (change?.deleted) { files[path] = "deleted"; continue; }
+      try {
+        const bytes = await fileService.readFile({ path, encoding: null });
+        if (!Buffer.isBuffer(bytes) && typeof bytes !== "string") unsafe();
+        files[path] = createHash("sha256").update(bytes).digest("hex");
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+        files[path] = "missing";
+      }
+    }
+    const digest = createHash("sha256").update(JSON.stringify(files)).digest("hex");
+    return { project_id: projectId, head, fingerprint: digest, files, scope_paths: scope, index_hash: null };
   }
   const digest = createHash("sha256");
   const files = {};
