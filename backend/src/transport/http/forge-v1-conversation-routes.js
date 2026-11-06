@@ -5,11 +5,19 @@ import { unavailable } from "./forge-v1-router-utils.js";
 import { routeArchitectureClarifications } from "./forge-v1-clarification-routes.js";
 
 // Creates conversation endpoints and checkpoint projections for the Forge API.
-export function createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth }) {
+export function createForgeV1ConversationRoutes({ conversationCrudService, conversationAuditHistoryService, markdownResponseFileService, ownerChatService, ownerExecutionControl, listResumableCheckpoints, planOwnerAuth, handoffService }) {
   return Object.freeze({ routeConversation, withCheckpointSummary, withDashboardCheckpointSummary });
 
   // Routes conversation CRUD, history, and owner messages.
   async function routeConversation({ method, parts, url, body, projectId, headers }) {
+    if (parts[0] === "projects" && parts[2] === "handoffs" && handoffService) {
+      if (parts.length === 3 && method === "GET") return { status: 200, body: { items: await handoffService.listHandoffs() } };
+      if (parts.length === 5 && method === "POST" && parts[4] === "reconcile") {
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff reconciliation."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.reconcileHandoff({ handoffId: parts[3], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256, operatorApproved: body.operator_approved === true }) };
+      }
+    }
     if (parts[0] === "conversations" && parts[2] === "plan-clarifications") return routeArchitectureClarifications({ method, parts, body, projectId, headers, conversation: conversationCrudService?.get?.(parts[1]), ownerChatService, planOwnerAuth });
     if (parts[0] === "conversations" && parts[2] === "executions" && ownerExecutionControl) {
       const conversation = conversationCrudService?.get?.(parts[1]);
