@@ -4,7 +4,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { ConfigurationError } from "../../shared/errors.js";
-import { safeSubagentId } from "./runtime-instance.js";
+import { safeConversationId, safeSubagentId } from "./runtime-instance.js";
 import { resolveRuntimePath } from "../../infrastructure/filesystem/forge-paths.js";
 import { prependNodeBin } from "./node-bin-path.js";
 import { codexShellEnvironment } from "./codex-shell-environment.js";
@@ -42,7 +42,7 @@ export function createClaudeSdkGateway({
   return Object.freeze({ execute, assertSessionStopped: ({ agentId, sessionId, endedAt }) => assertClaudeSessionStopped(agentId, active.has(agentId), "/proc", sessionId, endedAt), provider: "claude", conversationMode: "history" });
 
   // Defines execute function behavior for claude-sdk-gateway.js.
-  async function execute({ agentId, subagentId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, onEvent, abortSignal } = {}) {
+  async function execute({ agentId, subagentId, conversationId, prompt, correlationId, cwd, additionalDirectories = [], options = {}, resumeSessionId, onSessionReady, onEvent, abortSignal } = {}) {
     const config = getEnabledConfig(agentId);
     const instanceKey = subagentId ? `${agentId}:sub:${safeSubagentId(subagentId, "Claude SDK")}` : agentId;
     assertString(prompt, "Claude SDK prompt");
@@ -50,7 +50,8 @@ export function createClaudeSdkGateway({
     const credential = await resolveCredential(config.credential_ref);
     const workingDirectory = cwd ?? options.cwd ?? process.cwd();
     const safeChildId = subagentId ? safeSubagentId(subagentId, "Claude SDK") : null;
-    const claudeHome = join(claudeHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/claude-homes"), config.agent_id, ...(safeChildId ? ["subagents", safeChildId] : []));
+    const conversationKey = conversationId ? safeConversationId(conversationId, "Claude SDK") : null;
+    const claudeHome = join(claudeHomeRoot ?? resolveRuntimePath(workingDirectory, ".forge/runtime/nf/claude-homes"), config.agent_id, ...(conversationKey ? ["conversations", conversationKey] : []), ...(safeChildId ? ["subagents", safeChildId] : []));
     mkdirSync(claudeHome, { recursive: true, mode: 0o700 });
     const controller = new AbortController();
     // Defines stop function behavior for claude-sdk-gateway.js.

@@ -12,6 +12,10 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
   async function routeConversation({ method, parts, url, body, projectId, headers }) {
     if (parts[0] === "projects" && parts[2] === "handoffs" && handoffService) {
       if (parts.length === 3 && method === "GET") return { status: 200, body: { items: await handoffService.listHandoffs() } };
+      if (parts.length === 5 && method === "POST" && parts[4] === "resume") {
+        if (typeof handoffService.resumeCritique !== "function") throw Object.assign(new ConfigurationError("Critique resume is unavailable."), { code: "HANDOFF_CRITIQUE_UNAVAILABLE", statusCode: 503 });
+        return { status: 200, body: await handoffService.resumeCritique({ handoffId: parts[3] }) };
+      }
       if (parts.length === 5 && method === "POST" && parts[4] === "reconcile") {
         if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff reconciliation."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
         const approvedOwnerId = planOwnerAuth.verify(headers);
