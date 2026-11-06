@@ -10,7 +10,7 @@ function fail(code) { throw Object.assign(new ConfigurationError(code), { code, 
 
 // Business purpose: runs and resumes one checkpointed handoff step at a time.
 // Technical description: uses the store's locked generation transition and a per-attempt fence to prevent duplicate or stale completions.
-export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileService, gitService, projectId, executionCheckpoint, onEvent } = {}) {
+export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileService, gitService, projectId, executionCheckpoint, onEvent, pauseExecution } = {}) {
   if (!store?.transition || !markdownPlanStore?.assertApproved || !fileService?.readFile || !gitService?.status || !gitService?.getHead) fail("HANDOFF_CHECKPOINT_UNAVAILABLE");
   const now = () => new Date().toISOString();
   const workspace = async () => handoffWorkspaceSnapshot({ projectId, gitService, fileService });
@@ -67,6 +67,15 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
 
   // Business purpose: refuses to reuse a possibly mutating interrupted execution without reconciliation.
   // Technical description: checks runner stop, pending tool receipts and baseline; uncertainty always requires an operator.
+  async function pause(handoffId) {
+    const record = await store.get(handoffId);
+    const cp = record?.checkpoint;
+    if (!cp || cp.execution_status !== "running" || !pauseExecution || !(await pauseExecution(record, cp))) fail("HANDOFF_PAUSE_UNAVAILABLE");
+    const stopped = await store.transition(handoffId, cp.generation, (current) => ({ ...current, status: "paused", checkpoint: { ...current.checkpoint, execution_status: "pending", next_step: current.checkpoint.current_step, current_step: null, error_code: "EXECUTION_PAUSED", updated_at: now() } }));
+    log(stopped, "paused", "EXECUTION_PAUSED");
+    return stopped;
+  }
+
   async function reconcile(handoffId, { operatorApproved = false } = {}) {
     const record = await store.get(handoffId);
     const cp = record?.checkpoint;
@@ -117,8 +126,8 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     if (["reconciliation_required", "unknown", "blocked"].includes(cp.execution_status)) fail("HANDOFF_RECONCILIATION_REQUIRED");
     if (cp.execution_status !== "pending" || !["se", "rv", "am"].includes(cp.next_step) || cp.round > record.max_rounds) fail("HANDOFF_TRANSITION_INVALID");
     if (cp.next_step === "rv" && !cp.results.some((r) => r.round === cp.round && r.step === "se") || cp.next_step === "am" && !cp.results.some((r) => r.round === cp.round && r.step === "rv" && r.verdict === "PASS")) fail("HANDOFF_PREDECESSOR_REQUIRED");
-    if (!same(cp.workspace, await workspace())) fail("HANDOFF_WORKSPACE_MISMATCH");
     const step = cp.next_step;
+    if (!same(cp.workspace, await workspace())) fail("HANDOFF_WORKSPACE_MISMATCH");
     const executionId = `CORR-HANDOFF-${record.plan_id}-${step.toUpperCase()}-R${cp.round}-${randomUUID()}`;
     const intent = await store.transition(handoffId, cp.generation, (current) => {
       if (current.checkpoint.execution_status !== "pending" || current.checkpoint.next_step !== step) fail("HANDOFF_STALE");
@@ -140,5 +149,5 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     }
     return complete(handoffId, intent, result);
   }
-  return Object.freeze({ initialize, resume, reconcile, verifyPlan });
+  return Object.freeze({ initialize, pause, resume, reconcile, verifyPlan });
 }

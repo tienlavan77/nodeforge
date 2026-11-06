@@ -144,14 +144,17 @@ export function formatDiscoveryCompactReceipt(state = {}) {
 
 // Business purpose: determines whether an active SE or AM SDK thread has exceeded the input token threshold and should roll over to a fresh session on the next turn.
 // Technical description: checks retainedState.sdk_thread_id and compares retainedState.last_turn_input_tokens against threshold (default 120,000).
-export function shouldRolloverOwnerSession(retainedState = {}, { continueExecution = false, resumeOf = null, planningInputOnly = false, threshold = DEFAULT_ROLLOVER_INPUT_TOKENS } = {}) {
-  if (continueExecution || resumeOf || planningInputOnly) return false;
+export function shouldRolloverOwnerSession(retainedState = {}, { continueExecution = false, resumeOf = null, planningInputOnly = false, threshold = DEFAULT_ROLLOVER_INPUT_TOKENS, incomingText = "", history = [] } = {}) {
+  if (resumeOf) return false;
   const hasThread = typeof retainedState?.sdk_thread_id === "string" && Boolean(retainedState.sdk_thread_id.trim());
   const hasHistory = Array.isArray(retainedState?.sdk_history) && retainedState.sdk_history.length > 0;
-  if (!hasThread && !hasHistory) return false;
+  if (!hasThread && !hasHistory && history.length === 0) return false;
   const effectiveThreshold = Number.isInteger(threshold) && threshold > 0 ? threshold : DEFAULT_ROLLOVER_INPUT_TOKENS;
   const lastTokens = Number(retainedState.last_turn_input_tokens ?? extractTurnInputTokens(retainedState) ?? 0);
-  return Number.isFinite(lastTokens) && lastTokens >= effectiveThreshold;
+  // UTF-8 bytes provide a conservative fallback when a provider has no recorded usage.
+  const historyTokens = history.reduce((total, turn) => total + Buffer.byteLength(String(turn?.text ?? ""), "utf8"), 0);
+  const incomingTokens = Buffer.byteLength(String(incomingText ?? ""), "utf8");
+  return Math.max(Number.isFinite(lastTokens) ? lastTokens : 0, historyTokens) + incomingTokens >= effectiveThreshold;
 }
 
 // Business purpose: formats conversation history for Owner SDK prompts while preserving complete turn boundaries and role prefixes so prompt truncation never cuts mid-sentence or strips User/Assistant labels.

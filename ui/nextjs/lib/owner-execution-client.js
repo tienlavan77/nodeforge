@@ -22,14 +22,12 @@ export function createOwnerExecutionClient({ forgeV1, requestJson }) {
     },
     // Resumes only the saved handoff step after the backend verifies Owner approval and plan identity.
     async resumeHandoff(projectId, handoff, ownerToken) {
-      const conversationId = handoff?.roles?.am?.conversation_id;
-      if (!conversationId || !handoff?.handoff_id) throw new Error("Handoff conversation is unavailable.");
-      const messageId = `ui-resume-${Date.now()}`;
-      const response = await requestJson(forgeV1(`/conversations/${encodeURIComponent(conversationId)}/messages`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", ...(ownerToken ? { authorization: `Bearer ${ownerToken}` } : {}) }, body: JSON.stringify({ project_id: projectId, conversation_id: conversationId, message_id: messageId, correlation_id: messageId, timestamp: new Date().toISOString(), payload: { text: `/resume-se-handoff ${handoff.handoff_id}`, approval_revision: handoff.plan_revision, approval_sha256: handoff.plan_sha256 } }), fallbackError: "Could not resume the AM-SE-RV handoff." });
-      if (response?.message_type === "owner.command.error") throw new Error(response.payload?.error?.message ?? "Handoff resume was rejected.");
-      return response;
+      return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/resume`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json", ...(ownerToken ? { authorization: `Bearer ${ownerToken}` } : {}) }, body: JSON.stringify({ project_id: projectId, approval_revision: handoff.plan_revision, approval_sha256: handoff.plan_sha256 }), fallbackError: "Could not resume the AM-SE-RV implementation checkpoint." });
     },
     // Requests guarded evidence reconciliation for a handoff that stopped with uncertain execution.
+    async pauseHandoff(projectId, handoff) {
+      return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/pause`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Could not pause the AM-SE-RV handoff." });
+    },
     async resumeCritique(projectId, handoff) {
       return requestJson(forgeV1(`/projects/${encodeURIComponent(projectId)}/handoffs/${encodeURIComponent(handoff.handoff_id)}/resume`, { project: projectId }), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project_id: projectId }), fallbackError: "Could not resume the AM-SE critique checkpoint." });
     },

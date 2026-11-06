@@ -56,12 +56,15 @@ test("OpenAI SDK gateway extracts normalized usage from rawResponses and direct 
 });
 
 test("shouldRolloverOwnerSession supports both thread-backed and history-backed conversation state", () => {
-  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 200000 }), true);
-  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: null, sdk_history: [{ role: "User", text: "hi" }], last_turn_input_tokens: 200000 }), true);
-  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: null, sdk_history: [], last_turn_input_tokens: 200000 }), false);
-  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 200000 }, { planningInputOnly: true }), false);
-  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 200000 }, { continueExecution: true }), false);
+  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 230000 }), true);
+  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: null, sdk_history: [{ role: "User", text: "hi" }], last_turn_input_tokens: 230000 }), true);
+  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: null, sdk_history: [], last_turn_input_tokens: 230000 }), false);
+  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 230000 }, { planningInputOnly: true, threshold: 230000 }), true);
+  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 230000 }, { continueExecution: true, threshold: 230000 }), true);
   assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 80000 }), false);
+  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 229999 }, { incomingText: "x" }), true);
+  assert.equal(shouldRolloverOwnerSession({}, { history: [{ role: "User", text: "x".repeat(230000) }] }), true);
+  assert.equal(shouldRolloverOwnerSession({ sdk_thread_id: "sess-1", last_turn_input_tokens: 229990 }, { incomingText: "short" }), false);
 });
 
 test("shouldRolloverSdkSession supports function-calling history runs when token threshold is reached", () => {
@@ -110,14 +113,14 @@ test("Owner SDK stream retains AM Anthropic session in normal chat and rolls ove
             calls.push(req);
             const nextSession = req.resumeSessionId ? req.resumeSessionId : `claude-am-session-${calls.length}`;
             req.onSessionReady?.(nextSession);
-            return { text: `AM reply ${calls.length}`, session_id: nextSession, usage: { input_tokens: 210000 } };
+            return { text: `AM reply ${calls.length}`, session_id: nextSession, usage: { input_tokens: 230000 } };
           }
         },
         openai: {
           conversationMode: "history",
           execute: async (req) => {
             calls.push(req);
-            return { text: `SE reply ${calls.length}`, usage: { input_tokens: 200000 } };
+            return { text: `SE reply ${calls.length}`, usage: { input_tokens: 230000 } };
           }
         }
       },
@@ -134,12 +137,12 @@ test("Owner SDK stream retains AM Anthropic session in normal chat and rolls ove
     for await (const _ of stream({ agentId: "AM-CLAUDE", conversationId: "CONV-AM-1", correlationId: "EXEC-AM-1", payload: { message_id: "M1", text: "Review architecture" } })) { /* consume */ }
     const amState1 = await stateStore.get("CONV-AM-1");
     assert.equal(amState1.sdk_thread_id, "claude-am-session-1");
-    assert.equal(amState1.last_turn_input_tokens, 210000);
+    assert.equal(amState1.last_turn_input_tokens, 230000);
 
     // Turn 2: AM exceeds token threshold (130k >= 120k), so it rolls over to a fresh session with Compact Receipt Digest.
     for await (const _ of stream({ agentId: "AM-CLAUDE", conversationId: "CONV-AM-1", correlationId: "EXEC-AM-2", payload: { message_id: "M2", text: "Continue architecture" } })) { /* consume */ }
     assert.equal(calls[1].resumeSessionId, undefined);
-    assert.match(calls[1].prompt, /Session rolled over at token threshold \(210000 tokens\)/);
+    assert.match(calls[1].prompt, /Session rolled over at token threshold \(230000 tokens\)/);
     const amState2 = await stateStore.get("CONV-AM-1");
     assert.equal(amState2.sdk_thread_id, "claude-am-session-2");
     assert.equal(amState2.compaction_rollover_count, 1);
@@ -147,7 +150,7 @@ test("Owner SDK stream retains AM Anthropic session in normal chat and rolls ove
     // Turn 3 & 4: SE on OpenAI (history mode without sdk_thread_id) tracks tokens and triggers history_rollover with Structured Work Handoff and no raw assistant prose from prior turns.
     for await (const _ of stream({ agentId: "SE-OPENAI", conversationId: "CONV-SE-1", correlationId: "EXEC-SE-1", payload: { message_id: "M3", text: "First OpenAI turn" } })) { /* consume */ }
     for await (const _ of stream({ agentId: "SE-OPENAI", conversationId: "CONV-SE-1", correlationId: "EXEC-SE-2", payload: { message_id: "M4", text: "Second OpenAI turn" } })) { /* consume */ }
-    assert.match(calls[3].prompt, /Session rolled over at token threshold \(200000 tokens\)\. Structured Work Handoff:/);
+    assert.match(calls[3].prompt, /Session rolled over at token threshold \(230000 tokens\)\. Structured Work Handoff:/);
     assert.doesNotMatch(calls[3].prompt, /Assistant: SE reply 3/);
     const rolloverLogs = logs.filter((entry) => entry.event_name === "owner.sdk_context_compacted");
     assert.equal(rolloverLogs.length, 2);
