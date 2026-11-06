@@ -72,20 +72,25 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
       if (state?.agent_id && state.agent_id !== agentId) throw new ConfigurationError("Owner SDK conversation belongs to a different agent.");
       const sameProvider = state?.sdk_provider === profile.provider;
       const retainedState = sameProvider && (state?.sdk_tool_mode ?? "forge") === toolMode ? state : {};
+      const measuredContextTokens = await sdk.inspectContext?.({ agentId, conversationId, sessionId: checkpoint?.provider_thread_id ?? retainedState.sdk_thread_id, cwd: projectRoot });
+      if (Number.isFinite(measuredContextTokens) && measuredContextTokens > 0) {
+        retainedState.last_turn_input_tokens = measuredContextTokens;
+        await conversationStateStore?.update?.(conversationId, { last_turn_input_tokens: measuredContextTokens });
+      }
       const storedMessages = (!sameProvider || profile.role === "architecture_manager") && conversationMessages?.getByConversationId?.(conversationId);
       const rawHistory = Array.isArray(storedMessages) ? storedMessages.filter((message) => message.correlation_id !== correlationId && typeof message.payload?.text === "string").flatMap((message) => message.message_type === "owner.message" ? [{ role: "User", text: message.payload.text }] : message.message_type?.endsWith(".message.received") || message.payload?.sdk_event?.type === "conversation_turn" ? [{ role: "Assistant", text: message.payload.text }] : []).slice(profile.role === "architecture_manager" ? 0 : -8) : (state?.sdk_history ?? []);
       const filteredHistory = payload.planning_input_only === true ? rawHistory : rawHistory.filter((turn) => {
         const t = String(turn?.text ?? "").trim();
         return !t.startsWith("Architecture clarification discovery") && !t.startsWith("Architecture plan generation") && !t.startsWith("Architecture plan update") && !(turn.role === "Assistant" && t.startsWith("{") && t.endsWith("}"));
       });
-      const rollover = shouldRolloverOwnerSession(retainedState, { continueExecution: payload.continue_execution === true, resumeOf: payload.resume_of ?? null, planningInputOnly: payload.planning_input_only === true, threshold: payload.compaction_token_threshold });
+      const rollover = shouldRolloverOwnerSession(retainedState, { continueExecution: payload.continue_execution === true, resumeOf: payload.resume_of ?? null, planningInputOnly: payload.planning_input_only === true, threshold: payload.compaction_token_threshold ?? 230000, incomingText: payload.text, history: filteredHistory });
       const architectureMemory = profile.role === "architecture_manager" ? buildArchitectureConversationMemory(state?.architecture_conversation_memory, filteredHistory) : null;
       const planningMemoryNote = formatArchitectureConversationMemory(architectureMemory);
       if (architectureMemory) await conversationStateStore?.update?.(conversationId, { architecture_conversation_memory: architectureMemory });
       const history = rollover ? [] : filteredHistory;
       const rolloverCount = (retainedState.compaction_rollover_count ?? 0) + (rollover ? 1 : 0);
       const resumeThreadId = payload.planning_input_only === true || payload.resume_of || rollover ? null : payload.continue_execution ? checkpoint?.provider_thread_id : checkpoint?.provider_thread_id ?? retainedState.sdk_thread_id;
-      if (payload.continue_execution && !resumeThreadId) throw Object.assign(new ConfigurationError("Provider session is unavailable; choose Restart instead of Continue."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
+      if (payload.continue_execution && !rollover && !resumeThreadId) throw Object.assign(new ConfigurationError("Provider session is unavailable; choose Restart instead of Continue."), { code: "EXECUTION_SESSION_UNAVAILABLE", statusCode: 409 });
       if (rollover) {
         const compactionMode = retainedState.sdk_thread_id ? "session_rollover" : "history_rollover";
         projectLogger?.({ event_name: "owner.sdk_context_compacted", level: "info", status: "success", message: "Rolled over Owner SDK session after token threshold with compacted receipt digest.", task_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, source: "owner-sdk-stream", payload: { agent_id: agentId, role: profile.role, provider: profile.provider, mode: compactionMode, previous_session_id: retainedState.sdk_thread_id ?? null, input_tokens: Number(retainedState.last_turn_input_tokens ?? 0), receipt_position: checkpoint?.last_completed_step ?? 0, compaction_rollover_count: rolloverCount } });
@@ -96,7 +101,7 @@ export function createOwnerSdkStream({ agentConfiguration, sdkGateways, fallback
       const compactDigest = (recovery && checkpoint) || rollover ? formatOwnerCompactReceiptDigest({ checkpoint, state: retainedState, selectedReceipts }) : "";
       const isPlanningFollowup = payload.planning_input_only === true && !String(payload.text ?? "").startsWith("Architecture clarification discovery");
       const discoveryReceiptNote = isPlanningFollowup ? formatDiscoveryCompactReceipt(state) : "";
-      const resumeNotes = recovery && checkpoint ? `\nExecution checkpoint (Compact Receipt Digest — reuse active_file_checksums as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged files): ${compactDigest}. Do not repeat completed file writes or Git operations. Inspect the workspace and continue from the next safe step.\n`
+      const resumeNotes = recovery && checkpoint && !rollover ? `\nExecution checkpoint (Compact Receipt Digest — reuse active_file_checksums as before_checksum for edit_diff/write_diff/delete_file/move_file without re-reading unchanged files): ${compactDigest}. Do not repeat completed file writes or Git operations. Inspect the workspace and continue from the next safe step.\n`
         : rollover ? formatOwnerStructuredWorkHandoff({ profile, history: filteredHistory, checkpoint, state: retainedState, selectedReceipts, compactDigest }) : "";
       const context = { task_id: correlationId, execution_id: correlationId, correlation_id: correlationId, conversation_id: conversationId, agent_identity: { agent_id: agentId, agent_name: profile.agent_name, role: profile.role, provider: profile.provider }, planning_input_only: payload.planning_input_only === true, ...(profile.role === "system_engineer" ? {} : { allowed_write_paths: ownerWritePaths(payload.task?.candidate_files ?? []), allowed_write_prefixes: ownerWritePrefixes(profile.role) }), changed_paths: [...new Set(state?.owner_changed_paths ?? [])], project_root: projectRoot, project_wide_access: profile.role === "system_engineer" };
       const childExecutor = delegateSubagentExecutor ?? (async (task, child) => {

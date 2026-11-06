@@ -52,7 +52,7 @@ const DISCOVERY_COMPLETE_RE = /(?:discovery complete|repository discovery comple
 const DISCOVERY_UNVERIFIED_RE = /(?:assumption|unverified|unknown|uncertain)/i;
 
 // Creates the command handler bound to one project and its immutable plan store.
-export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent, communications, bus, conversationCrudService, conversationStateStore, agentRoleResolver, gitService, executionCheckpoint, requestSystemEngineer, requestReviewer, amSeHandoffService, maxSelfHealAttempts } = {}) {
+export function createOwnerChatCommandService({ projectId, fileService, planStore, markdownPlanStore, handoffApprovedPlan, sprintRegistry, planRequests, publishPlanEvent, communications, bus, conversationCrudService, conversationStateStore, agentRoleResolver, gitService, executionCheckpoint, requestSystemEngineer, requestReviewer, amSeHandoffService, pauseExecution, maxSelfHealAttempts } = {}) {
   if (!projectId || !fileService?.readFile || !planStore?.createRevision || !planStore?.assertExecutable) throw new ConfigurationError("Owner command service is not configured.");
   const planning = createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath: PLAN_FRAME_PATH });
   let clarificationSessions;
@@ -70,7 +70,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (!markdownPlanStore?.createRevision) throw fail("MARKDOWN_PLAN_STORE_UNAVAILABLE", "Markdown plan registry is unavailable.");
     return createConversationPlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, sessions: clarificationSessions, requestArchitecture, conversationStateStore, communications: communications ?? bus?.store ?? null, maxSelfHealAttempts });
   }
-  return Object.freeze({ execute, isCommand, listHandoffs: () => ensureSeHandoff().listHandoffs(), resumeHandoff: (input) => ensureSeHandoff().resumeHandoff(input), reconcileHandoff: (input) => ensureSeHandoff().reconcileHandoff(input), planningSessions: planning.sessions });
+  return Object.freeze({ execute, isCommand, listHandoffs: () => ensureSeHandoff().listHandoffs(), resumeHandoff: (input) => ensureSeHandoff().resumeHandoff(input), pauseHandoff: (input) => ensureSeHandoff().pauseHandoff(input), reconcileHandoff: (input) => ensureSeHandoff().reconcileHandoff(input), planningSessions: planning.sessions });
 
   // Recognizes exact slash commands plus standalone conversation planning triggers.
   function isCommand(text) { const value = String(text ?? ""); return PLAN_RE.test(value) || APPROVE_RE.test(value) || CONTINUE_RE.test(value) || /^\/resume-se-handoff\s+HANDOFF-[A-Za-z0-9_-]+\s*$/i.test(value) || isConversationPlanMessage(value) || detectPlanHandoffRetryTrigger(value) !== null; }
@@ -98,7 +98,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
     if (!created?.revision_created || !created.delivery_target || created.delivery_target === "none") return created;
     const ownerId = approvedOwnerId || "project-owner";
     if (created.delivery_target !== "sl" && created.delivery_target !== "se") return created;
-    seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, gitService, executionCheckpoint, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer });
+    seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, gitService, executionCheckpoint, pauseExecution, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer });
     // Business purpose: runs the AM-SE critique and SL or SE handoff for one generated plan revision.
     // Technical description: invokes seHandoff.startHandoff with the plan identity and intake metadata and formats the resulting status payload.
     const handoffOne = async (planItem) => {
@@ -167,10 +167,15 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
       createPlan: () => createPlan({ summaryPath: planMatch[1], conversationId, requestArchitecture }) });
     const approveMatch = value.match(APPROVE_RE);
     if (approveMatch) return approvePlan({ planId: approveMatch[1], conversationId, approvedOwnerId, approvalRevision, approvalSha256, approvalComments });
+    const pauseMatch = /^\/pause-se-handoff\s+(HANDOFF-[A-Za-z0-9_-]+)\s*$/i.exec(value);
+    if (pauseMatch) {
+      seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, gitService, executionCheckpoint, pauseExecution, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer });
+      return seHandoff.pauseHandoff({ handoffId: pauseMatch[1] });
+    }
     const resumeMatch = /^\/resume-se-handoff\s+(HANDOFF-[A-Za-z0-9_-]+)\s*$/i.exec(value);
     if (resumeMatch) {
       if (!approvedOwnerId || !Number.isSafeInteger(approvalRevision) || approvalRevision < 1 || !/^[a-f0-9]{64}$/i.test(String(approvalSha256 ?? ""))) throw fail("HANDOFF_RESUME_IDENTITY_REQUIRED", "Owner identity and exact plan revision/SHA are required.");
-      seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, gitService, executionCheckpoint, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer });
+      seHandoff ??= createAmSeHandoffService({ projectId, fileService, markdownPlanStore, bus, conversationCrudService, agentRoleResolver, gitService, executionCheckpoint, pauseExecution, approvePlan, requestArchitecture, requestSystemEngineer: turnRequestSe ?? requestSystemEngineer, requestReviewer: turnRequestRv ?? requestReviewer });
       return seHandoff.resumeHandoff({ handoffId: resumeMatch[1], approvedOwnerId, expectedRevision: approvalRevision, expectedSha256: approvalSha256, requestArchitecture, requestSystemEngineer: turnRequestSe, requestReviewer: turnRequestRv });
     }
     if (detectPlanHandoffRetryTrigger(value)) return retryConversationPlanHandoff({ text: value, conversationId, approvedOwnerId });

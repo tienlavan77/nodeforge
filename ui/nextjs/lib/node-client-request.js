@@ -35,6 +35,12 @@ export async function requestJson(url, { fallbackError, ...init } = {}) {
       throw err;
     }
   }
+  if (body?.message_type === "owner.command.error" || body?.error?.code || body?.payload?.error?.code) {
+    const errorPayload = body.payload?.error ?? body.error ?? body;
+    const err = new Error(errorPayload.message ?? fallbackError ?? "Node rejected the request.");
+    Object.assign(err, { code: errorPayload.code ?? "NODE_REQUEST_ERROR", status: response.status, retryable: errorPayload.retryable === true, scope: errorPayload.scope, cause: body });
+    throw err;
+  }
   if (!response.ok) {
     const requestId = response.headers?.get?.("x-request-id") ?? null;
     const normalized = normalizeBackendError({ body, status: response.status, fallbackError, requestId });
