@@ -367,7 +367,8 @@ export function createAmSeHandoffService({
   // Technical description: returns redacted state-machine evidence for AM, SE and RV without exposing prompts, workspace bytes or credentials.
   async function listHandoffs() {
     const records = typeof store.list === "function" ? await store.list() : [];
-    return records.filter((record) => record.status !== "completed").map((record) => ({
+    const indexedPlanIds = new Set((markdownPlanStore?.list?.() ?? []).map((plan) => plan.plan_id));
+    return records.filter((record) => indexedPlanIds.has(record.plan_id)).map((record) => ({
       handoff_id: record.handoff_id, plan_id: record.plan_id, plan_revision: record.plan_revision, plan_sha256: record.plan_sha256,
       phase: record.phase, status: record.status, round: record.round, max_rounds: record.max_rounds,
       critique_checkpoint: record.critique_checkpoint ? {
