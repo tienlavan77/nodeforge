@@ -21,7 +21,7 @@ async function mount(client, handoff) {
   const find = (node, predicate) => { if (!node || typeof node !== "object") return null; if (Array.isArray(node)) return node.map((entry) => find(entry, predicate)).find(Boolean) ?? null; return predicate(node) ? node : find(node.props?.children, predicate); };
   const tokenInput = find(render(), (node) => node.type === "input");
   tokenInput.props.onChange({ target: { value: "owner-token" } });
-  const button = find(render(), (node) => node.type === "button" && node.props.children === "Approve plan");
+  const button = find(render(), (node) => node.type === "button" && node.props.children === "Run");
   return { click: async () => { button.props.onClick(); await new Promise((resolve) => setImmediate(resolve)); }, alert: () => find(render(), (node) => node.props?.role === "alert")?.props.children };
 }
 
