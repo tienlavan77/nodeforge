@@ -41,6 +41,7 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
     planSha256,
     planSourcePath,
     deliveryTarget = "se",
+    approvalMode = "manual_panel_approval",
     sourceKind = "conversation",
     sourceFilePath = null,
     workspaceScopePaths = null,
@@ -70,6 +71,7 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
       plan_sha256: planSha256,
       plan_source_path: planSourcePath,
       delivery_target: deliveryTarget === "sl" ? "sl" : "se",
+      approval_mode: ["explicit_owner_command", "existing_decision", "manual_panel_approval"].includes(approvalMode) ? approvalMode : "manual_panel_approval",
       source_kind: sourceKind,
       source_file_path: sourceFilePath ?? null,
       workspace_scope_paths: Array.isArray(workspaceScopePaths) ? [...new Set(workspaceScopePaths)].sort() : [],
@@ -148,8 +150,8 @@ export function createAmSeHandoffStore({ projectId, fileService } = {}) {
       const next = await transform(current);
       if (!next || next.handoff_id !== current.handoff_id || next.project_id !== current.project_id || next.plan_id !== current.plan_id) throw storeError("HANDOFF_TRANSITION_INVALID", "Invalid handoff transition.", 409);
       if (current.checkpoint?.plan_locked && (!next.checkpoint?.plan_locked || next.plan_revision !== current.plan_revision || next.plan_sha256 !== current.plan_sha256 || next.plan_source_path !== current.plan_source_path)) throw storeError("HANDOFF_PLAN_LOCKED", "Execution plan identity cannot change.", 409);
-      if (next.critique_checkpoint) next.critique_checkpoint = { ...next.critique_checkpoint, generation: expectedGeneration + 1 };
-      else next.checkpoint = { ...next.checkpoint, generation: expectedGeneration + 1 };
+      if (next.checkpoint) next.checkpoint = { ...next.checkpoint, generation: expectedGeneration + 1 };
+      else if (next.critique_checkpoint) next.critique_checkpoint = { ...next.critique_checkpoint, generation: expectedGeneration + 1 };
       next.updated_at = new Date().toISOString();
       await fileService.atomicWrite({ path: pathFor(handoffId), content: `${JSON.stringify(next, null, 2)}\n`, replace: true });
       return next;

@@ -61,9 +61,8 @@ test("owner search schemas and execution agree on nested directories and files",
         assert.match((await registry.search_text.execute({ pattern: "needle", paths: [path] })).stdout, /backend\/src\/tools\/example.js/);
       }
       for (const path of [".forge", ".forge/runtime", ".forge/runtime/example.txt"]) {
-        assert.equal(pattern.test(path), role === "system_engineer");
-        if (role === "system_engineer") assert.match((await registry.search_text.execute({ pattern: "needle", paths: [path] })).stdout, /\.forge\/runtime\/example.txt/);
-        else await assert.rejects(() => registry.search_text.execute({ pattern: "needle", paths: [path] }));
+        assert.ok(pattern.test(path));
+        assert.match((await registry.search_text.execute({ pattern: "needle", paths: [path] })).stdout, /\.forge\/runtime\/example\.txt/);
       }
     }
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -79,7 +78,7 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, Anth
     const sdk = { conversationMode: provider === "codex" ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ok" }; } };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: () => {} });
     for await (const chunk of stream({ agentId: "architect", payload: { text: "inspect project" }, correlationId: `CORR-${provider}`, conversationId: `CONV-${provider}` })) assert.equal(typeof chunk.text, "string");
-    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "delete_file", "lookup_schema"]);
+    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_file_binary", "Read", "delegate_subagent", "write_diff", "edit_diff", "delete_file", "lookup_schema"]);
     assert.deepEqual(request.options.forgeTools.context.allowed_write_prefixes, ["docs/", "Skills/", "workflows/"]);
     assert.match(request.prompt, /ARCHITECTURE\.md, docs\/, Skills\/, or workflows\//);
     assert.match(request.prompt, /workflows\/agents\/architecture\/README\.md/);
@@ -93,7 +92,9 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, Anth
     else {
       assert.equal(request.options.mcpServers.forge.type, "sdk");
       assert.ok(request.options.allowedTools.includes("mcp__forge__list_files"));
-      for (const name of ["Read", "Glob", "Grep"]) assert.equal(request.options.allowedTools.includes(`mcp__forge__${name}`), false);
+      assert.ok(request.options.allowedTools.includes("mcp__forge__Read"));
+      assert.ok(request.options.allowedTools.includes("mcp__forge__delegate_subagent"));
+      for (const name of ["Glob", "Grep"]) assert.equal(request.options.allowedTools.includes(`mcp__forge__${name}`), false);
       assert.deepEqual(request.options.tools, ["WebSearch"]);
     }
   }
@@ -178,7 +179,7 @@ test("Architecture Manager delete invalidates the shared code cache after File S
     codeCache: { invalidate: (input) => invalidations.push(input) }
   });
   const checksum = `sha256:${(await import("node:crypto")).createHash("sha256").update(content).digest("hex")}`;
-  assert.deepEqual(await tool.execute({ path: "workflows/old.md", before_checksum: checksum }), { deleted: true });
+  assert.deepEqual(await tool.execute({ path: "workflows/old.md", before_checksum: checksum }), { path: "workflows/old.md", deleted: true, before_sha256: checksum, sha256: null });
   assert.deepEqual(invalidations, [{ path: "workflows/old.md" }]);
   const failing = createOwnerDeleteFileTool({
     fileService: { readFile: async () => content, deleteFile: async () => { throw new Error("delete failed"); } },
@@ -194,7 +195,6 @@ test("read_file returns cached Markdown content for Architecture and Coder while
   const codeCache = { read: async ({ path }) => { reads.push(path); return { path, content: path.endsWith(".md") ? markdown : "const value = 1;\n", code_index: { path, symbols: [] } }; } };
   const read = createReadFileTool({ fileService: { readForIndex: async () => { throw new Error("Cache should serve this read."); } }, codeCache });
   for (const role of ["architecture_manager", "coder"]) {
-    if (role === "coder") await assert.rejects(() => read.execute({ path: "workflows/plan.md" }, { agent_identity: { role } }), { code: "PATH_FORBIDDEN" });
     const result = await read.execute({ path: "workflows/plan.md" }, { agent_identity: { role }, allowed_file_paths: ["workflows/plan.md"] });
     assert.equal(result.content, markdown);
     assert.equal(result.truncated, false);
@@ -205,24 +205,16 @@ test("read_file returns cached Markdown content for Architecture and Coder while
   assert.deepEqual(reads, ["workflows/plan.md", "workflows/plan.md", "backend/src/example.js"]);
 });
 
-test("read_file permits a 250-line Markdown window and keeps source windows at 250 lines", async () => {
+test("read_file permits a 250-line Markdown window and rejects offset/limit/symbol arguments", async () => {
   const markdown = Array.from({ length: 300 }, (_, index) => `line ${index + 1}`).join("\n");
   const read = createReadFileTool({ fileService: { readForIndex: async ({ path }) => ({ path, content: path.endsWith(".md") ? markdown : "const value = 1;\n" }) } });
   const context = { agent_identity: { role: "architecture_manager" } };
   const first = await read.execute({ path: "workflows/long.md" }, context);
   assert.equal(first.content.split("\n").length, 250);
   assert.equal(first.truncated, true);
-  const remainder = await read.execute({ path: "workflows/long.md", offset: 251, limit: 250 }, context);
-  assert.equal(remainder.content.split("\n").length, 50);
-  const sdkWindow = await read.execute({ path: "workflows/long.md", offset: 1, limit: 250, symbol: null }, context);
-  assert.equal(sdkWindow.content.split("\n").length, 250);
-  const emptySymbol = await read.execute({ path: "workflows/long.md", offset: 1, limit: 250, symbol: "" }, context);
-  assert.equal(emptySymbol.content, sdkWindow.content);
-  const unusedSymbol = await read.execute({ path: "workflows/long.md", offset: 1, limit: 250, symbol: "target" }, context);
-  assert.equal(unusedSymbol.content, sdkWindow.content);
+  await assert.rejects(() => read.execute({ path: "workflows/long.md", offset: 251, limit: 250 }, context), (error) => error.code === "INPUT_INVALID");
   await assert.rejects(() => read.execute({ path: "backend/code.js", offset: 1, limit: 10, symbol: "target" }, context), (error) => error.code === "INPUT_INVALID");
-  assert.equal((await read.execute({ path: "backend/code.js", offset: 1, limit: 250 }, context)).content, "const value = 1;\n");
-  await assert.rejects(() => read.execute({ path: "backend/code.js", offset: 1, limit: 251 }, context), (error) => error.code === "INPUT_INVALID");
+  assert.equal((await read.execute({ path: "backend/code.js" }, context)).content, undefined);
 });
 
 test("Architecture reads Markdown checksum through its Forge registry and edits that document", async () => {
@@ -232,7 +224,7 @@ test("Architecture reads Markdown checksum through its Forge registry and edits 
     await fileService.atomicWrite({ path: "workflows/plan.md", content: "# Plan\nOld decision\n", replace: true });
     const context = { task_id: "TASK-ARCH-MD", agent_identity: { role: "architecture_manager", agent_id: "architect" }, capabilities: ["read_file", "edit_diff"], allowed_write_prefixes: ["workflows/"] };
     const { registry } = createOwnerConversationTools({ role: "architecture_manager", projectRoot, fileService, context, projectLogger: () => {} });
-    const read = await registry.read_file.execute({ path: "workflows/plan.md", offset: 1, limit: 250, symbol: "unused" });
+    const read = await registry.read_file.execute({ path: "workflows/plan.md" });
     assert.equal(read.content, "# Plan\nOld decision\n");
     assert.match(read.sha256, /^sha256:[a-f0-9]{64}$/);
     await registry.edit_diff.execute({ path: "workflows/plan.md", before_checksum: read.sha256, anchor: "Old decision", replacement: "New decision" });

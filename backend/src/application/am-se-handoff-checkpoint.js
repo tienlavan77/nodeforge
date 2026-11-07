@@ -43,7 +43,7 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     if (!record || record.project_id !== projectId || record.phase !== "implementation" || record.status !== "running" || record.round !== 1 || record.checkpoint && !record.checkpoint.approval_pending || typeof approvedOwnerId !== "string" || !approvedOwnerId) fail("HANDOFF_INITIALIZATION_INVALID");
     await verifyPlan(record);
     const baseline = await workspace(Array.isArray(record.workspace_scope_paths) ? record.workspace_scope_paths : undefined);
-    return store.transition(handoffId, record.checkpoint?.generation ?? 0, (current) => {
+    return store.transition(handoffId, record.checkpoint?.generation ?? record.critique_checkpoint?.generation ?? 0, (current) => {
       if (current.checkpoint && !current.checkpoint.approval_pending || current.phase !== "implementation" || current.status !== "running" || current.round !== 1 || current.plan_revision !== record.plan_revision || current.plan_sha256 !== record.plan_sha256 || current.plan_source_path !== record.plan_source_path) fail("HANDOFF_STALE");
       return { ...current, checkpoint: { generation: current.checkpoint?.generation ?? 0, plan_locked: true, approved_owner_id: approvedOwnerId, workspace: baseline, round: 1, current_step: null, next_step: "se", execution_status: "pending", results: [], attempt: 0, updated_at: now() } };
     });

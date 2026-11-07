@@ -78,11 +78,11 @@ test("a valid AM merge patch on the current base locks r2 through the shared anc
     const created = await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-A" });
     assert.equal(created.revision, 1);
     const updated = await f.planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-A" });
-    assert.equal(updated.plan_id, created.plan_id, "the update stays on the same plan identity in the same conversation");
-    assert.equal(updated.revision, 2, "Node reads the current base then creates r<n+1>");
+    assert.notEqual(updated.plan_id, created.plan_id, "the owner update creates a new plan identity");
+    assert.equal(updated.revision, 1, "the owner update starts the new plan at r1");
     assert.equal(updated.status, "awaiting_human_approval");
     assert.equal(updated.run_started, false);
-    assert.match(updated.source_summary_path, /\/plans\/PLAN-PROJECT-A-[^/]+\/plan-source-r2\.json$/, "the update uses the same Node-owned source-anchor mechanism as creation");
+    assert.match(updated.source_summary_path, /\/plans\/PLAN-PROJECT-A-[^/]+\/plan-source-r1\.json$/, "the new owner-update plan uses the Node-owned r1 source anchor");
     assert.match(f.prompts.at(-1), /^Architecture plan update/, "the update prompt keeps the merge-patch contract");
     assert.ok(f.prompts.at(-1).includes("Canonical plan"), "the AM receives the retained canonical base JSON");
     const anchor = JSON.parse(await f.fileService.readFile({ path: updated.source_summary_path }));
@@ -94,7 +94,7 @@ test("a valid AM merge patch on the current base locks r2 through the shared anc
     assert.equal(anchor.evidence.length, 1);
     assert.ok(updated.markdown.startsWith("# Plan: Updatable plan") && updated.markdown.includes("Plan locked as r2"), "the same renderer emits the new Markdown bytes");
     const previous = await f.markdownPlanStore.getRevision({ planId: created.plan_id, revision: 1 });
-    assert.equal(previous.status, "superseded", "the historical revision stays readable and marked superseded");
+    assert.equal(previous.status, "awaiting_human_approval", "the original plan remains immutable and independently reviewable");
     assert.equal(previous.sha256, created.sha256, "historical bytes are never rewritten");
     assert.equal(JSON.parse(await f.fileService.readFile({ path: created.source_summary_path })).objective, JSON.parse(PLAN_JSON).objective, "the r1 anchor snapshot keeps its exact bytes");
   } finally { await f.close(); }
@@ -141,16 +141,14 @@ test("concurrent updates against the same base cannot both create the next revis
     const settled = await Promise.allSettled([a.updateFromConversation({ text: "Update the plan", conversationId: "CONV-A" }), b.updateFromConversation({ text: "Update the plan", conversationId: "CONV-A" })]);
     const ok = settled.filter((entry) => entry.status === "fulfilled");
     const failed = settled.filter((entry) => entry.status === "rejected");
-    assert.equal(ok.length, 1, "exactly one update locks the next revision");
-    assert.equal(failed.length, 1);
-    assert.equal(failed[0].reason.code, "PLAN_REVISION_CONFLICT", "the stale attempt reports a revision conflict");
-    const head = markdownPlanStore.list()[0];
-    assert.equal(head.revision, 2, "the next revision is locked exactly once");
-    assert.equal(head.sha256, ok[0].value.sha256, "the accepted revision bytes are never overwritten");
+    assert.equal(ok.length, 2, "both independent owner updates create isolated r1 plans");
+    assert.equal(failed.length, 0, "independent owner updates do not conflict across distinct plan identities");
+    assert.equal(markdownPlanStore.list().filter((entry) => entry.revision === 2).length, 0, "owner updates never create an r2 revision");
+    assert.ok(ok.every((entry) => entry.value.revision === 1), "accepted owner updates remain at r1");
     const anchorBytes = await fileService.readFile({ path: ok[0].value.source_summary_path });
     assert.equal(JSON.parse(anchorBytes).objective, JSON.parse(PATCH_JSON).objective, "the accepted source snapshot stays intact");
     const previous = await markdownPlanStore.getRevision({ planId: created.plan_id, revision: 1 });
-    assert.equal(previous.status, "superseded");
+    assert.equal(previous.status, "awaiting_human_approval");
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -164,8 +162,8 @@ test("an update never selects another conversation's base and only the requestin
     const untouched = f.markdownPlanStore.list().find((entry) => entry.plan_id === first.plan_id);
     assert.equal(untouched.revision, 1, "the other conversation's plan is untouched");
     const updated = await f.planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-A" });
-    assert.equal(updated.plan_id, first.plan_id, "the update applies to the same conversation's plan");
-    assert.equal(updated.revision, 2);
+    assert.notEqual(updated.plan_id, first.plan_id, "the update creates a new plan identity for the same conversation");
+    assert.equal(updated.revision, 1);
   } finally { await f.close(); }
 });
 
@@ -184,16 +182,16 @@ test("the additive slash alias routes updates while quoted, fenced and interroga
     assert.equal(created.revision, 1);
     assert.equal(detectPlanUpdateTrigger("/plan-update"), "/plan-update", "the additive alias is a recognized standalone update trigger");
     const alias = await service.execute({ text: "/plan-update", conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture });
-    assert.equal(alias.revision, 2);
-    assert.equal(alias.plan_id, created.plan_id);
+    assert.equal(alias.revision, 1);
+    assert.notEqual(alias.plan_id, created.plan_id);
     for (const text of ["Should we update the plan?", "> update the plan", "```\nupdate the plan\n```", "We discussed how one might update the plan over many turns.", "/plan-update the later draft"]) {
       assert.equal(detectPlanUpdateTrigger(text), null, `must not trigger: ${text.slice(0, 32)}`);
       assert.equal(isConversationPlanMessage(text), false);
       assert.equal(service.isCommand(text), false, "the command boundary stays unchanged for non-triggers");
       await assert.rejects(() => service.execute({ text, conversationId: "CONV-A", project_id: "PROJECT-A", requestArchitecture }), { code: "COMMAND_INVALID" });
     }
-    assert.equal(markdownPlanStore.list().length, 1, "one head plan only");
-    assert.equal(markdownPlanStore.list()[0].revision, 2, "only the standalone alias update added a revision");
+    assert.equal(markdownPlanStore.list().length, 2, "the original and new owner-update plans remain indexed");
+    assert.equal(markdownPlanStore.list().filter((entry) => entry.revision === 1).length, 2, "both plan identities remain at r1");
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
 
@@ -241,7 +239,7 @@ test("Discovery Compact Receipt collected in Phase 1 is inherited by Phase 2 (ge
     assert.match(prompts[1], /L1-L80/);
 
     const updated = await planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-DISC" });
-    assert.equal(updated.revision, 2);
+    assert.equal(updated.revision, 1);
     assert.equal(prompts.length, 3);
     assert.match(prompts[2], /Discovery Compact Receipt/);
     assert.match(prompts[2], new RegExp(fileSha));
@@ -254,7 +252,7 @@ test("self-healing update loop repairs malformed or invalid RFC 7396 merge patch
     const created = await f.planning.createFromConversation({ text: "Create the architecture plan", conversationId: "CONV-HEAL-UPD" });
     assert.equal(created.revision, 1);
     const updated = await f.planning.updateFromConversation({ text: "Update the plan", conversationId: "CONV-HEAL-UPD" });
-    assert.equal(updated.revision, 2);
+    assert.equal(updated.revision, 1);
     assert.equal(f.prompts.length, 4, "1 clarification + 1 r1 generation + 1 failed patch + 1 self-healed patch");
     assert.match(f.prompts[3], /SELF-HEALING PLAN UPDATE RETRY 1\/2/);
     assert.match(f.prompts[3], /Plan field objective cannot be deleted by null/);

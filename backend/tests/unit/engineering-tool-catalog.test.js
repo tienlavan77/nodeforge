@@ -13,6 +13,7 @@ import { createRuntimeToolGovernance } from "../../src/modules/governance/runtim
 function ownerServices(role) {
   return { role, projectRoot: process.cwd(), fileService: { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listFiles() {}, listDirectories() {} },
     gitService: { status() {}, diffWorkingTree() {}, commit() {}, pushCommit() {} }, testService: { runCheck() {} },
+    delegateSubagentExecutor: async () => ({ summary: "", observed_files: [] }),
     conversationStateStore: { get() {}, update() {} }, context: { task_id: "OWNER", capabilities: [...ENGINEERING_TOOL_NAMES, "read_file_binary"], agent_identity: { role } } };
 }
 
@@ -25,6 +26,7 @@ test("System Engineer uses the shared schemas without changing its owner ledger 
     "read_file",
     "read_file_binary",
     "Read",
+    "delegate_subagent",
     "write_diff",
     "edit_diff",
     "delete_file",
@@ -52,12 +54,12 @@ test("System Engineer uses the shared schemas without changing its owner ledger 
 
 test("shared descriptors do not grant owner Coder write, verification, commit or push permissions", () => {
   const { definitions } = createOwnerConversationTools(ownerServices("coder"));
-  assert.deepEqual(definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "lookup_schema"]);
+  assert.deepEqual(definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "Read", "delegate_subagent", "lookup_schema"]);
 });
 
 test("legacy discovery aliases have identical argument schemas", () => {
   const definitions = engineeringToolDefinitions();
-  for (const legacy of [rgFilesDefinition, rgSearchDefinition, sedLinesDefinition]) {
+  for (const legacy of [rgFilesDefinition, rgSearchDefinition]) {
     assert.deepEqual(definitions.find(({ name }) => name === ENGINEERING_ALIASES[legacy.name]).input_schema, legacy.input_schema);
   }
 });
@@ -71,7 +73,7 @@ test("readiness distinguishes missing grants from missing compatible services", 
 });
 
 test("canonical discovery names consume the same governed discovery budget categories", async () => {
-  for (const [name, kind] of [["search_tree", "search"], ["list_files", "search"], ["search_text", "search"], ["read_lines", "read"]]) assert.equal(discoveryKind(name), kind);
+  for (const [name, kind] of [["search_tree", "search"], ["list_files", "search"], ["search_text", "search"], ["Read", "read"]]) assert.equal(discoveryKind(name), kind);
   const governance = createRuntimeToolGovernance();
   const context = governance.createExecutionContext({ task_id: "BUDGET", execution_id: "BUDGET-EXEC", agent_identity: { agent_id: "REVIEWER", role: "reviewer" }, capabilities: ["search_tree"], allowed_prefixes: ["backend/"], context_budget: { max_calls: 5, max_bytes: 10000 }, discovery_search_calls: 1, discovery_budget: 1, allow_discovery_escalation: false, lifecycle: "RUNNING" });
   let calls = 0;

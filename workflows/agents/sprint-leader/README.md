@@ -151,3 +151,5 @@ Any older wording that says “SL dispatches Reviewer after every code ticket”
 ## Forge source reading
 
 Use `read_file({path})` to inspect metadata, `code_graph` and `symbol_map` before reading code. Code requires `Read({file_path,symbol})` from that metadata; arbitrary line windows are rejected. Only `.md` documents permit `Read({file_path,start_line,end_line})`. Markdown line windows are limited to 80 physical lines. Code reads return the entire selected symbol regardless of line count, without lines outside its bounds. Do not reconstruct whole code files by repeated reads or broad search patterns.
+
+When decomposing multi-module Architecture Outcomes into Sprint Tickets or investigating cross-module blockers, use `delegate_subagent({tasks:[{id,objective,paths}]})` (up to 3 parallel read-only tasks) to gather candidate paths, `symbol_map`, and `sha256` evidence across subsystems concurrently while the parent SL directly inspects the primary contract files. Reuse `observed_files` receipts from subagents without repeating `read_file` on unchanged files.

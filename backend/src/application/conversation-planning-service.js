@@ -248,12 +248,20 @@ export function createConversationPlanningService({ projectId, fileService, mark
     const target = markdownPlanStore.list().find((entry) => entry.conversation_id === conversationId && ANCHOR_PATH_RE.test(entry.source_path ?? ""));
     if (!target) throw decisionError("PLAN_UPDATE_TARGET_MISSING", "There is no conversation-created plan revision to update. Create a plan first.");
     const baseBytes = await readConversationPlanSource({ fileService, path: target.source_path, sha256: target.source_sha256 });
-    const revision = target.revision + 1;
-    const { merged, baseMarkdown } = await requestMergedPatch({ text, conversationId, baseBytes, planId: target.plan_id, revision });
-    const anchor = await retainFencedPlanSource({ planId: target.plan_id, baseRevision: target.revision, revision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
+    const planId = `PLAN-${projectId}-${randomUUID()}`;
+    const revision = 1;
+    const { merged, baseMarkdown } = await requestMergedPatch({ text, conversationId, baseBytes, planId, revision });
+    const anchor = await retainFencedPlanSource({ planId, baseRevision: 0, revision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
     const previous = await markdownPlanStore.getRevision({ planId: target.plan_id, revision: target.revision });
-    const decisionSession = carriedSession(previous.markdown) ?? { session_id: `${target.plan_id}-R${revision}`, source_path: anchor.path, source_sha256: anchor.sha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
-    const stored = await markdownPlanStore.createRevision({ planId: target.plan_id, expectedRevision: target.revision, markdown: appendArchitectureDecisions(baseMarkdown, decisionSession), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId });
+    const carried = carriedSession(previous.markdown);
+    if (carried && /\/conversation-intake\.json$/.test(carried.source_path ?? "")) {
+      const intakeBytes = await readConversationPlanSource({ fileService, path: carried.source_path, sha256: carried.source_sha256 });
+      const newIntakePath = anchor.path.replace(/plan-source-r1\.json$/, "conversation-intake.json");
+      await fileService.atomicCreate({ path: newIntakePath, content: intakeBytes });
+      carried.source_path = newIntakePath;
+    }
+    const decisionSession = carried ?? { session_id: `${planId}-R${revision}`, source_path: anchor.path, source_sha256: anchor.sha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
+    const stored = await markdownPlanStore.createRevision({ planId, expectedRevision: 0, markdown: appendArchitectureDecisions(baseMarkdown, decisionSession), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId });
     return createdResult(stored, decisionSession);
   }
 
@@ -300,7 +308,7 @@ export function createConversationPlanningService({ projectId, fileService, mark
   // because an existing anchor proves another update already locked that revision number.
   async function retainFencedPlanSource({ planId, baseRevision, revision, canonicalBytes }) {
     const head = markdownPlanStore.list().find((entry) => entry.plan_id === planId);
-    if (!head || head.revision !== baseRevision) throw decisionError("PLAN_REVISION_CONFLICT", `Plan ${planId} no longer has r${baseRevision} as its current revision; this update did not overwrite the accepted revision or its source snapshot.`);
+    if ((baseRevision === 0 && head) || (baseRevision !== 0 && (!head || head.revision !== baseRevision))) throw decisionError("PLAN_REVISION_CONFLICT", `Plan ${planId} no longer has r${baseRevision} as its current revision; this update did not overwrite the accepted revision or its source snapshot.`);
     try { return await retainConversationPlanSource({ fileService, planId, revision, canonicalBytes }); }
     catch (error) {
       if (error.code !== "PLAN_SOURCE_MISMATCH") throw error;

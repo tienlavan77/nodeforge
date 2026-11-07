@@ -73,7 +73,7 @@ function buildAmCritiqueReplyPrompt({ planJson, planId, seCritiqueText }) {
     `Architecture plan critique response (${planId}, round 1).`,
     "System Engineer reviewed your plan and raised points for discussion.",
     "Reply in clear, natural language addressing each point so the Project Owner and System Engineer can follow the discussion.",
-    "If you agree to adjust the plan, you may also include a single ```json ... ``` RFC 7396 merge patch block at the end of your reply to update the canonical plan to revision 2.",
+    "If you agree to adjust the plan, include at most one ```json ... ``` RFC 7396 merge patch block at the end of your reply; Node will update the current unapproved r1 in place, never create r2 during critique.",
     "", "Current canonical plan:", JSON.stringify(planJson), "",
     "System Engineer critique:", String(seCritiqueText ?? "")
   ].join("\n");
@@ -142,26 +142,29 @@ export function createAmSeHandoffService({
   async function maybeApplyCritiqueRevision({ rawAmReply, currentPlan, currentPlanJson, conversationId }) {
     const fenceMatch = /```json\s*([\s\S]*?)```/i.exec(rawAmReply);
     const cleanReply = rawAmReply.replace(/```json\s*[\s\S]*?```/gi, "").trim() || rawAmReply.trim();
-    if (!fenceMatch?.[1]?.trim() || !markdownPlanStore.createRevision) return { cleanReply, currentPlan, currentPlanJson };
+    if (!fenceMatch?.[1]?.trim()) return { cleanReply, currentPlan, currentPlanJson, error: null };
+    if (currentPlan.revision !== 1 || typeof markdownPlanStore.updateDraftRevision !== "function") throw Object.assign(new ConfigurationError("Unapproved r1 draft update is unavailable."), { code: "PLAN_REVISION_UNAVAILABLE", statusCode: 409 });
     try {
       const merged = mergeArchitecturePlanJSON(canonicalizeArchitecturePlanJSON(currentPlanJson), fenceMatch[1].trim());
-      const nextRevision = currentPlan.revision + 1;
-      const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId: currentPlan.plan_id, revision: nextRevision, sourceSha256: canonicalArchitecturePlanSha256(merged) });
-      const anchor = await retainConversationPlanSource({ fileService, planId: currentPlan.plan_id, revision: nextRevision, canonicalBytes: canonicalizeArchitecturePlanJSON(merged) });
-      const prev = await markdownPlanStore.getRevision({ planId: currentPlan.plan_id, revision: currentPlan.revision });
+      const canonicalBytes = canonicalizeArchitecturePlanJSON(merged);
+      const summaryPath = currentPlan.source_path;
+      const summarySha256 = canonicalArchitecturePlanSha256(merged);
+      const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId: currentPlan.plan_id, revision: 1, sourceSha256: summarySha256 });
+      const prev = await markdownPlanStore.getRevision({ planId: currentPlan.plan_id, revision: 1 });
       const record = readArchitectureDecisions(prev?.markdown ?? "");
-      const decisionSession = record?.decisions?.length ? architectureSessionFromRecord(record) : { session_id: `${currentPlan.plan_id}-R${nextRevision}`, source_path: anchor.path, source_sha256: anchor.sha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
-      const stored = await markdownPlanStore.createRevision({ planId: currentPlan.plan_id, expectedRevision: currentPlan.revision, markdown: appendArchitectureDecisions(baseMarkdown, decisionSession), summaryPath: anchor.path, summarySha256: anchor.sha256, conversationId });
-      return { cleanReply, currentPlan: { plan_id: stored.plan_id, revision: stored.revision, sha256: stored.sha256, source_path: anchor.path }, currentPlanJson: merged };
-    } catch (err) {
-      void err;
-      return { cleanReply, currentPlan, currentPlanJson };
+      const decisionSession = record?.decisions?.length ? architectureSessionFromRecord(record) : { session_id: `${currentPlan.plan_id}-R1`, source_path: summaryPath, source_sha256: summarySha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
+      const stored = await markdownPlanStore.updateDraftRevision({ planId: currentPlan.plan_id, revision: 1, markdown: appendArchitectureDecisions(baseMarkdown, decisionSession), summaryPath, summarySha256, summaryContent: canonicalBytes, conversationId });
+      await retainConversationPlanSource({ fileService, planId: currentPlan.plan_id, revision: 1, canonicalBytes, overwriteUnapproved: true });
+      return { cleanReply, currentPlan: { plan_id: stored.plan_id, revision: 1, sha256: stored.sha256, source_path: summaryPath }, currentPlanJson: merged, error: null };
+    } catch (error) {
+      const code = ["PLAN_REVISION_CONFLICT", "PLAN_DECISION_EXISTS", "PLAN_SOURCE_MISMATCH"].includes(error?.code) ? error.code : "PLAN_PATCH_INVALID";
+      throw Object.assign(error, { code, statusCode: error.statusCode ?? 409 });
     }
   }
 
   // Business purpose: resumes a saved handoff from the next durable SE, RV, or AM step.
   // Technical description: checks exact Owner approval, invokes only the role selected by the checkpoint, and retains each result before advancing.
-  async function resumeHandoff({ handoffId, approvedOwnerId, requestSystemEngineer: se = requestSystemEngineer, requestReviewer: rv = requestReviewer, requestArchitecture: am = requestArchitecture, expectedRevision, expectedSha256 } = {}) {
+  async function resumeHandoff({ handoffId, approvedOwnerId, requestSystemEngineer: se = requestSystemEngineer, requestReviewer: rv = requestReviewer, requestArchitecture: am = requestArchitecture, expectedRevision, expectedSha256, runToCompletion = false } = {}) {
     if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
     let record = await store.get(handoffId);
     if (!record || record.project_id !== projectId || record.delivery_target !== "se" || !approvedOwnerId || record.am_conversation_id == null) throw Object.assign(new ConfigurationError("Handoff identity is unavailable."), { code: "HANDOFF_IDENTITY_INVALID", statusCode: 409 });
@@ -183,7 +186,7 @@ export function createAmSeHandoffService({
     if (!record.checkpoint) {
       if (record.phase !== "plan_critique" || record.status !== "paused" || !record.history?.length || record.history.at(-1)?.critique_status !== "ALIGNED" || record.history.at(-1)?.critique_round !== record.critique_round) throw Object.assign(new ConfigurationError("Critique cannot resume safely."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
       try {
-        record = await store.transition(handoffId, 0, (current) => {
+        record = await store.transition(handoffId, record.critique_checkpoint?.generation ?? 0, (current) => {
           if (current.phase !== "plan_critique" || current.status !== "paused" || current.plan_revision !== record.plan_revision || current.plan_sha256 !== record.plan_sha256 || current.checkpoint) throw Object.assign(new ConfigurationError("Handoff changed."), { code: "HANDOFF_STALE", statusCode: 409 });
           return { ...current, phase: "implementation", status: "running", round: 1, checkpoint: { generation: 0, approval_pending: true } };
         });
@@ -220,13 +223,13 @@ export function createAmSeHandoffService({
       else if (step === "am" && typeof am === "function") raw = await am(prompt, active.am_conversation_id, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, withEvidence: true });
       else throw Object.assign(new ConfigurationError("Role stream unavailable."), { code: "HANDOFF_ADAPTER_UNAVAILABLE" });
       const parsed = step === "se" ? { cleanText: String(raw?.text ?? "").trim() } : parseAmReviewVerdict(raw?.text);
+      if (parsed.cleanText && raw?.execution_id === executionId && raw?.terminal_status === "completed") publishDualConversationMessage({ sender: step === "se" ? { id: active.se_agent_id, role: "system_engineer" } : step === "rv" ? { id: active.rv_agent_id, role: "reviewer" } : { id: active.am_agent_id, role: "architecture_manager" }, recipient: step === "am" ? { id: active.se_agent_id, role: "system_engineer" } : { id: active.am_agent_id, role: "architecture_manager" }, messageType: step === "se" ? "system_engineer.message.received" : step === "rv" ? "reviewer.message.received" : "architecture.message.received", amConversationId: active.am_conversation_id, seConversationId: active.se_conversation_id, correlationId: executionId, text: parsed.cleanText, extraPayload: { handoff_id: active.handoff_id, phase: "implementation", round, ...(step === "se" ? {} : { verdict: parsed.verdict }) } });
       return { execution_id: raw?.execution_id, terminal_status: raw?.terminal_status, result_evidence: raw?.result_evidence, read_only_enforced: raw?.read_only_enforced, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) };
     };
-    record = await checkpoint.resume(handoffId, { invoke, recoverResult: (step, receipt) => {
-      const parsed = step === "se" ? { cleanText: receipt.text } : parseAmReviewVerdict(receipt.text);
-      return { ...receipt, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) };
-    }, expectedRevision: record.plan_revision, expectedSha256: record.plan_sha256, expectedOwnerId: approvedOwnerId });
-    return { handoff_id: record.handoff_id, phase: record.phase, status: record.status, reason: record.checkpoint.error_code, delivery_target: record.delivery_target, plan_id: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, rounds_completed: record.checkpoint.round, history: record.history, checkpoint: record.checkpoint };
+    do {
+      record = await checkpoint.resume(handoffId, { invoke, recoverResult: (step, receipt) => { const parsed = step === "se" ? { cleanText: receipt.text } : parseAmReviewVerdict(receipt.text); return { ...receipt, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) }; }, expectedRevision: record.plan_revision, expectedSha256: record.plan_sha256, expectedOwnerId: approvedOwnerId });
+    } while (runToCompletion && record.status === "running" && record.checkpoint?.execution_status === "pending" && record.checkpoint?.next_step);
+    return { handoff_id: record.handoff_id, phase: record.phase, status: record.status, reason: record.checkpoint.error_code, delivery_target: record.delivery_target, plan_id: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, se_conversation_id: record.se_conversation_id, critique_rounds_completed: record.critique_round, rounds_completed: record.checkpoint.round, history: record.history, checkpoint: record.checkpoint };
   }
 
   // Business purpose: resumes only the next incomplete AM-SE critique turn from its durable checkpoint.
@@ -257,17 +260,23 @@ export function createAmSeHandoffService({
   // Business purpose: runs Phase 1 (1-2 rounds of AM-SE plan critique) and Phase 2 automatic handoff to SL or SE.
   // Technical description: publishes the human-readable brief, coordinates 1-2 rounds of AM-SE critique, auto-approves the unified revision, and dispatches either SL sprint generation or SE multi-round implementation and AM acceptance review.
   async function startHandoff({
-    plan, planJson: suppliedPlanJson, intake = {}, deliveryTarget = "se", conversationId, approvedOwnerId = "project-owner",
+    plan, planJson: suppliedPlanJson, intake = {}, deliveryTarget, conversationId, approvedOwnerId = "project-owner",
     approvePlan: turnApprovePlan = approvePlan, requestArchitecture: turnRequestArchitecture = requestArchitecture,
     requestSystemEngineer: turnRequestSystemEngineer = requestSystemEngineer, requestReviewer: turnRequestReviewer = requestReviewer
   } = {}) {
-    const target = (deliveryTarget || intake.delivery_target) === "sl" ? "sl" : "se";
+    const requestedTarget = deliveryTarget ?? intake.delivery_target;
+    const explicitOwnerCommand = requestedTarget === "se" || requestedTarget === "sl";
+    const target = requestedTarget === "sl" ? "sl" : "se";
+    if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
+    if (typeof turnRequestArchitecture !== "function" || typeof turnRequestSystemEngineer !== "function" || typeof turnRequestReviewer !== "function") throw Object.assign(new ConfigurationError("All AM, SE, and RV handoff adapters are required."), { code: "HANDOFF_ADAPTER_UNAVAILABLE", statusCode: 503 });
     const seProfile = agentRoleResolver ? agentRoleResolver.resolveProfile("system_engineer") : { agent_id: "system-engineer", role: "system_engineer" };
     if (!seProfile?.agent_id) throw Object.assign(new ConfigurationError("No enabled System Engineer agent is available for automatic handoff."), { code: "SYSTEM_ENGINEER_UNAVAILABLE", statusCode: 409 });
     const amProfile = agentRoleResolver?.resolveProfile?.("architecture_manager") ?? { agent_id: "architecture-manager", role: "architecture_manager" };
     const rvProfile = agentRoleResolver?.resolveProfile?.("reviewer") ?? { agent_id: "reviewer", role: "reviewer" };
 
     let currentPlan = { plan_id: plan.plan_id, revision: plan.revision, sha256: plan.sha256, source_path: plan.source_path };
+    const existingDecision = typeof markdownPlanStore.getRevision === "function" ? (await markdownPlanStore.getRevision({ planId: currentPlan.plan_id, revision: currentPlan.revision })).decision : null;
+    const approvalMode = explicitOwnerCommand ? "explicit_owner_command" : existingDecision?.decision === "approved" && existingDecision.sha256 === currentPlan.sha256 ? "existing_decision" : "manual_panel_approval";
     let currentPlanJson = suppliedPlanJson ?? parseArchitecturePlanJSON(await fileService.readFile({ path: currentPlan.source_path }));
     const seConversationId = `CONV-SE-${currentPlan.plan_id}`;
     const rvConversationId = `CONV-RV-${currentPlan.plan_id}`;
@@ -276,7 +285,7 @@ export function createAmSeHandoffService({
     let record = await store.create({
       handoffId: `HANDOFF-${currentPlan.plan_id}-R${currentPlan.revision}`, planId: currentPlan.plan_id, planRevision: currentPlan.revision, planSha256: currentPlan.sha256,
       planSourcePath: currentPlan.source_path, deliveryTarget: target, sourceKind: intake.source_kind ?? "conversation", sourceFilePath: intake.source_file_path ?? null,
-      workspaceScopePaths: intake.workspace_scope_paths,
+      workspaceScopePaths: intake.workspace_scope_paths, approvalMode,
       amAgentId: amProfile.agent_id, seAgentId: seProfile.agent_id, rvAgentId: rvProfile.agent_id, amConversationId: conversationId, seConversationId, rvConversationId,
       phase: "plan_critique", status: "critiquing", maxCritiqueRounds, maxRounds
     });
@@ -311,10 +320,15 @@ export function createAmSeHandoffService({
           text: seCritiqueText, extraPayload: { handoff_id: record.handoff_id, phase: "plan_critique", critique_round: critiqueRound, critique_status: critiqueStatus }
         });
 
-        if (critiqueStatus === "ALIGNED" || critiqueRound >= record.max_critique_rounds) {
+        if (critiqueStatus === "ALIGNED") {
           history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, critique_status: critiqueStatus, timestamp: new Date().toISOString() });
           record = await store.transition(record.handoff_id, record.critique_checkpoint.generation, (current) => ({ ...current, history, critique_round: critiqueRound, critique_checkpoint: { ...current.critique_checkpoint, next_step: null, execution_status: "completed" } }));
           break;
+        }
+        if (critiqueRound >= record.max_critique_rounds) {
+          history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, critique_status: critiqueStatus, timestamp: new Date().toISOString() });
+          record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", critique_round: critiqueRound, history, error_code: "CRITIQUE_CONSENSUS_REQUIRED" });
+          return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: "CRITIQUE_CONSENSUS_REQUIRED", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
         }
 
         const amTurn = await critique.run(record.handoff_id, { step: "am", round: critiqueRound, invoke: (executionId) => typeof turnRequestArchitecture === "function"
@@ -323,7 +337,7 @@ export function createAmSeHandoffService({
         record = amTurn.record;
         if (!amTurn.result) return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: record.critique_checkpoint.error_code };
         const rawAmReply = amTurn.result.text;
-        const applied = await maybeApplyCritiqueRevision({ rawAmReply, currentPlan, currentPlanJson, conversationId });
+        let applied; try { applied = await maybeApplyCritiqueRevision({ rawAmReply, currentPlan, currentPlanJson, conversationId }); } catch (error) { const errorCode = error?.code ?? "PLAN_PATCH_INVALID"; record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", critique_round: critiqueRound, history, error_code: errorCode }); return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: errorCode, plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history }; }
         currentPlan = applied.currentPlan;
         currentPlanJson = applied.currentPlanJson;
         history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, am_reply: applied.cleanReply, critique_status: critiqueStatus, plan_revision: currentPlan.revision, timestamp: new Date().toISOString() });
@@ -338,14 +352,9 @@ export function createAmSeHandoffService({
     }
 
     let approvedPlan;
-    try {
-      approvedPlan = await markdownPlanStore.assertApproved({ planId: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256 });
-      if (!approvedOwnerId || approvedPlan.decision?.approver_id !== approvedOwnerId) throw new ConfigurationError("Authenticated Owner approval is required.");
-    } catch (error) {
-      void error;
-      record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, critique_round: critiqueRound, history });
-      return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: "PLAN_APPROVAL_REQUIRED", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
-    }
+    if (explicitOwnerCommand) { const decision = await markdownPlanStore.decide({ planId: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, decision: "approved", approverId: approvedOwnerId }); approvedPlan = await markdownPlanStore.assertApproved({ planId: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256 }); if (decision.approver_id !== approvedOwnerId || approvedPlan.decision?.approver_id !== approvedOwnerId) throw Object.assign(new ConfigurationError("Owner approval does not match."), { code: "PLAN_APPROVAL_OWNER_MISMATCH", statusCode: 409 }); }
+    else try { approvedPlan = await markdownPlanStore.assertApproved({ planId: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256 }); if (!approvedOwnerId || approvedPlan.decision?.approver_id !== approvedOwnerId) throw new ConfigurationError("Authenticated Owner approval is required."); }
+    catch (error) { record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, critique_round: critiqueRound, history, error_code: "PLAN_APPROVAL_REQUIRED" }); return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: "PLAN_APPROVAL_REQUIRED", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history }; }
     const consensusText = `### Chốt thống nhất kế hoạch giữa AM & SE: ${currentPlan.plan_id} (r${currentPlan.revision})\nArchitecture Manager và System Engineer đã hoàn tất ${critiqueRound} vòng phản biện kỹ thuật. Kế hoạch **${currentPlan.plan_id} r${currentPlan.revision}** có approval hợp lệ trước khi chuyển sang giai đoạn thực thi (**${target.toUpperCase()}**).`;
     publishDualConversationMessage({
       sender: { id: amProfile.agent_id, role: "architecture_manager" }, recipient: { id: seProfile.agent_id, role: "system_engineer" },
@@ -363,26 +372,22 @@ export function createAmSeHandoffService({
         messageType: "architecture.message.received", amConversationId: conversationId, seConversationId, correlationId: `${correlationBase}-SL-DONE`,
         text: slDoneText, extraPayload: { handoff_id: record.handoff_id, phase: "sl_handoff", sprint_id: approved.sprint_id }
       });
-      return { ...approved, handoff_id: record.handoff_id, phase: "sl_handoff", delivery_target: "sl", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, critique_rounds_completed: critiqueRound, brief, history };
+      return { ...approved, handoff_id: record.handoff_id, phase: "sl_handoff", status: "completed", delivery_target: "sl", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, se_conversation_id: seConversationId, critique_rounds_completed: critiqueRound, brief, history };
     }
 
     record = await store.update(record.handoff_id, { phase: "implementation", status: "running", round: 1, plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, critique_round: critiqueRound, history });
-    if (checkpoint) {
-      record = await checkpoint.initialize(record.handoff_id, approvedOwnerId);
-      return resumeHandoff({ handoffId: record.handoff_id, approvedOwnerId, requestArchitecture: turnRequestArchitecture, requestSystemEngineer: turnRequestSystemEngineer, requestReviewer: turnRequestReviewer });
-    }
-    record = await store.update(record.handoff_id, { status: "paused" });
-    return { handoff_id: record.handoff_id, phase: "implementation", status: "paused", reason: "HANDOFF_CHECKPOINT_UNAVAILABLE", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
+    record = await checkpoint.initialize(record.handoff_id, approvedOwnerId);
+    return resumeHandoff({ handoffId: record.handoff_id, approvedOwnerId, requestArchitecture: turnRequestArchitecture, requestSystemEngineer: turnRequestSystemEngineer, requestReviewer: turnRequestReviewer, runToCompletion: true });
   }
 
   // Business purpose: projects every persisted handoff role and checkpoint result for Owner recovery controls.
   // Technical description: returns redacted state-machine evidence for AM, SE and RV without exposing prompts, workspace bytes or credentials.
   async function listHandoffs() {
     const records = typeof store.list === "function" ? await store.list() : [];
-    const indexedPlanIds = new Set((markdownPlanStore?.list?.() ?? []).map((plan) => plan.plan_id));
-    return records.filter((record) => indexedPlanIds.has(record.plan_id)).map((record) => ({
+    const indexedPlanIds = typeof markdownPlanStore?.list === "function" ? new Set(markdownPlanStore.list().map((plan) => plan.plan_id)) : null;
+    return records.filter((record) => !indexedPlanIds || indexedPlanIds.has(record.plan_id)).map((record) => ({
       handoff_id: record.handoff_id, plan_id: record.plan_id, plan_revision: record.plan_revision, plan_sha256: record.plan_sha256,
-      phase: record.phase, status: record.status, round: record.round, max_rounds: record.max_rounds,
+      phase: record.phase, status: record.status, approval_mode: record.approval_mode ?? "manual_panel_approval", round: record.round, max_rounds: record.max_rounds,
       critique_checkpoint: record.critique_checkpoint ? {
         round: record.critique_checkpoint.round, current_step: record.critique_checkpoint.current_step,
         next_step: record.critique_checkpoint.next_step, execution_status: record.critique_checkpoint.execution_status,
@@ -398,8 +403,8 @@ export function createAmSeHandoffService({
       critique_can_pause: false,
       can_pause: Boolean(record.checkpoint && record.checkpoint.execution_status === "running"),
       capabilities: {
-        run: Boolean(record.delivery_target === "se" && record.phase === "plan_critique" && record.status === "paused" && !record.checkpoint && record.history?.at(-1)?.critique_status === "ALIGNED"),
-        resume: Boolean(record.checkpoint && record.checkpoint.execution_status === "pending"),
+        run: Boolean(["se", "sl"].includes(record.delivery_target) && record.phase === "plan_critique" && record.status === "paused" && !record.checkpoint && record.history?.at(-1)?.critique_status === "ALIGNED"),
+        resume: Boolean(record.checkpoint && record.checkpoint.execution_status === "pending") || Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)),
         stop: Boolean(record.checkpoint && record.checkpoint.execution_status === "running"),
         reconcile: Boolean(record.checkpoint && ["running", "reconciliation_required", "unknown"].includes(record.checkpoint.execution_status))
       },
@@ -446,6 +451,7 @@ export function createAmSeHandoffService({
     return checkpoint.adoptWorkspace(handoffId, { approvedOwnerId, expectedRevision, expectedSha256 });
   }
 
+  // Business purpose: reconciles one stopped or uncertain SE handoff without replaying an execution whose terminal state is unknown. Technical description: verifies the project-scoped handoff identity and exact approved plan checksum, then delegates runner and workspace reconciliation to the durable checkpoint.
   async function reconcileHandoff({ handoffId, approvedOwnerId, expectedRevision, expectedSha256, operatorApproved = false } = {}) {
     if (!checkpoint) throw Object.assign(new ConfigurationError("Handoff checkpoint is unavailable."), { code: "HANDOFF_CHECKPOINT_UNAVAILABLE", statusCode: 503 });
     const record = await store.get(handoffId);
