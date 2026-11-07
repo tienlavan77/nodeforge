@@ -100,6 +100,6 @@ test("retained draft repair calls the governed reader and skips the SDK", async 
     return { registry: { read_file: { execute: async (input) => { reads.push(input); return { path: input.path, sha256: `sha256:${"c".repeat(64)}` }; } } } };
   } });
   const plan = await leader.repairContractEvidence({ plan: source, agentId: "SL", correlationId: "CORR-HASH" });
-  assert.deepEqual(reads, [{ path: "backend/src/example.js", offset: 1, limit: 1 }]);
+  assert.deepEqual(reads, [{ path: "backend/src/example.js" }]);
   assert.equal(plan.tickets[0].execution_policy.contract_evidence[0].sha256, "c".repeat(64));
 });

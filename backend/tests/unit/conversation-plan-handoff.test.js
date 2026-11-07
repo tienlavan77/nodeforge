@@ -189,14 +189,15 @@ test("canonical reconstruction rejects altered content and foreign decision prov
 test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), and Phase 2 SL / SE handoff", async (context) => {
   const f = await fixture(context);
   await f.fileService.atomicWrite({ path: "docs/spec.md", content: "# Feature Spec\nImplement unified planning.\n", replace: true });
+  const gitService = { getHead: async () => "a".repeat(40), status: async () => "", indexEntries: async () => "" };
   const busMessages = [];
   const conversations = createConversationCrudService({ database: f.database });
   const commandService = createOwnerChatCommandService({
     projectId: "PROJECT-A", fileService: f.fileService, planStore: f.plans, markdownPlanStore: f.markdownPlans,
-    sprintRegistry: f.registry, handoffApprovedPlan: ({ plan }) => f.service().handoff({ plan }),
+    gitService, sprintRegistry: f.registry, handoffApprovedPlan: ({ plan }) => f.service().handoff({ plan }),
     conversationCrudService: conversations,
     bus: { send: (msg) => { busMessages.push(msg); return msg; } },
-    agentRoleResolver: { resolveProfile: (role) => role === "system_engineer" ? { agent_id: "se-1", role: "system_engineer" } : { agent_id: "am-1", role: "architecture_manager" } }
+    agentRoleResolver: { resolveProfile: (role) => role === "system_engineer" ? { agent_id: "se-1", role: "system_engineer" } : role === "reviewer" ? { agent_id: "rv-1", role: "reviewer" } : { agent_id: "am-1", role: "architecture_manager" } }
   });
 
   // 1. Markdown file + automatic SL handoff -> creates r1, runs 1-round AM-SE critique ([CRITIQUE: ALIGNED]), auto-approves, and marks Sprint ready.
@@ -205,52 +206,58 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
   const slRes = await commandService.execute({
     text: "tạo kế hoạch từ docs/spec.md, giao việc cho SL", conversationId: "CONV-SL", project_id: "PROJECT-A", approvedOwnerId: "OWNER",
     requestArchitecture: async (prompt) => { slPrompts.push(prompt); return prompt.startsWith("Architecture clarification") ? '{"questions":[]}' : planJSON; },
-    requestSystemEngineer: async (req) => { slSeCalls.push(req); return "SE đã khảo sát code và đồng thuận với kế hoạch.\n[CRITIQUE: ALIGNED]"; }
+    requestSystemEngineer: async (req) => { slSeCalls.push(req); return "SE đã khảo sát code và đồng thuận với kế hoạch.\n[CRITIQUE: ALIGNED]"; },
+    requestReviewer: async ({ correlationId }) => ({ text: "RV ready.\n[VERDICT: PASS]", execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed", turn_completed: true }, read_only_enforced: true })
   });
   assert.match(slPrompts[0], /Feature Spec/);
   assert.equal(slSeCalls.length, 1);
   assert.equal(slSeCalls[0].phase, "plan_critique");
-  assert.equal(slRes.status, "paused");
-  assert.equal(slRes.reason, "PLAN_APPROVAL_REQUIRED");
+  assert.equal(slRes.status, "handed_to_node");
   assert.equal(slRes.delivery_target, "sl");
-  assert.equal(slSeCalls.length, 1);
-  assert.equal(slRes.sprint_id, undefined);
+  assert.equal(slRes.revision, 1);
+  assert.equal(slRes.sprint_id, "SPRINT-A");
+  assert.equal(slRes.sprint_status, "ready");
 
-  // 2. Markdown file + automatic SE handoff -> 2-round AM-SE critique ([CRITIQUE: DISCUSS] -> [CRITIQUE: ALIGNED]), then implementation REVISE -> PASS.
+  // 2. Markdown file + automatic SE handoff -> 2-round AM-SE critique ([CRITIQUE: DISCUSS] -> in-place r1 patch -> [CRITIQUE: ALIGNED]), then implementation REVISE -> PASS.
   let reviewRound = 0;
   const seCalls = [];
   const seRes = await commandService.execute({
     text: "tạo kế hoạch từ docs/spec.md, giao việc cho SE", conversationId: "CONV-ARCH", project_id: "PROJECT-A", approvedOwnerId: "OWNER",
-    requestArchitecture: async (prompt) => {
+    requestArchitecture: async (prompt, _conv, options = {}) => {
       if (prompt.startsWith("Architecture clarification")) return '{"questions":[]}';
       if (prompt.startsWith("Architecture plan generation")) return planJSON;
-      if (prompt.startsWith("Architecture plan critique response")) return "AM giải đáp điểm phản biện của SE và thống nhất giữ cấu trúc O1.";
+      if (prompt.startsWith("Architecture plan critique response")) {
+        return "AM giải đáp điểm phản biện của SE và thống nhất giữ cấu trúc O1.\n```json\n{\"objective\":\"Deliver API (critique-refined)\"}\n```";
+      }
       reviewRound += 1;
-      return reviewRound === 1 ? "Vòng 1: Cần bổ sung kiểm thử cho O1.\n[VERDICT: REVISE]" : "Nghiệm thu hoàn tất: O1 đạt đầy đủ.\n[VERDICT: PASS]";
+      const text = reviewRound === 1 ? "Vòng 1: Cần bổ sung kiểm thử cho O1.\n[VERDICT: REVISE]" : "Nghiệm thu hoàn tất: O1 đạt đầy đủ.\n[VERDICT: PASS]";
+      return { text, execution_id: options.correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed", turn_completed: true } };
     },
-    requestReviewer: async ({ round }) => `RV đã kiểm tra code và test vòng ${round}.\n[VERDICT: PASS]`,
+    requestReviewer: async ({ round, correlationId }) => ({ text: `RV đã kiểm tra code và test vòng ${round}.\n[VERDICT: PASS]`, execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed", turn_completed: true }, read_only_enforced: true }),
     requestSystemEngineer: async (req) => {
       seCalls.push(req);
       if (req.phase === "plan_critique") {
         return req.critiqueRound === 1 ? "Cần làm rõ ranh giới O1.\n[CRITIQUE: DISCUSS]" : "Đã rõ, SE đồng thuận.\n[CRITIQUE: ALIGNED]";
       }
-      return `Báo cáo SE vòng ${req.round}`;
+      return { text: `Báo cáo SE vòng ${req.round}`, execution_id: req.correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed", turn_completed: true } };
     }
   });
   assert.equal(seRes.delivery_target, "se");
-  assert.equal(seRes.phase, "plan_critique");
-  assert.equal(seRes.status, "paused");
-  assert.equal(seRes.reason, "PLAN_APPROVAL_REQUIRED");
-  assert.match(seRes.text, /chờ Owner approval; SE chưa được giao thực thi/);
+  assert.equal(seRes.phase, "implementation");
+  assert.equal(seRes.status, "completed");
+  assert.equal(seRes.rounds_completed, 2);
   assert.doesNotMatch(seRes.text, /undefined/);
   assert.equal(seRes.revision, 1);
-  assert.equal(seCalls.length, 2);
+  assert.equal(f.database.all("SELECT * FROM markdown_plan_revisions WHERE plan_id=?", [seRes.plan_id]).length, 1, "critique updates r1 in-place without creating r2");
+  assert.match(await f.fileService.readFile({ path: seRes.source_summary_path }), /critique-refined/, "r1 source snapshot is updated in-place");
+  assert.equal(seCalls.length, 4);
   assert.equal(seCalls[0].phase, "plan_critique");
   assert.equal(seCalls[1].phase, "plan_critique");
+  assert.equal(seCalls[2].phase, "implementation");
+  assert.equal(seCalls[3].phase, "implementation");
   assert.equal(seCalls[0].linkedConversationId, "CONV-ARCH");
   assert.match(seCalls[0].prompt, /## Trình bày & Phản biện kế hoạch kiến trúc/);
   assert.doesNotMatch(seCalls[0].prompt, /"acceptance_criteria":\s*\[/);
-  assert.ok(!seCalls.some((call) => call.phase === "implementation"), "SE cannot implement before Owner approval");
   assert.ok(busMessages.some((m) => m.conversation_id === "CONV-ARCH" && m.payload.linked_conversation_id === `CONV-SE-${seRes.plan_id}`));
   assert.ok(busMessages.every((m) => !m.conversation_id?.startsWith("CONV-SE-")), "handoff dialogue stays in its source conversation");
   const seConversations = conversations.list({ projectId: "PROJECT-A", agentId: "se-1" });
@@ -269,6 +276,7 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
     fileService: f.fileService,
     planStore: f.plans,
     markdownPlanStore: f.markdownPlans,
+    gitService,
     handoffApprovedPlan: (args) => f.service().handoff(args),
     sprintRegistry: f.registry,
     bus: { send: (msg) => { cycleBusMessages.push(msg); return msg; } },
@@ -288,36 +296,37 @@ test("markdown_file planning, Phase 1 AM-SE plan critique (ALIGNED & DISCUSS), a
     conversationId: "CONV-ARCH-RV",
     project_id: "PROJECT-A",
     approvedOwnerId: "OWNER",
-    requestArchitecture: async (prompt) => {
+    requestArchitecture: async (prompt, _conv, options = {}) => {
       if (prompt.startsWith("Architecture clarification discovery")) return '{"questions":[]}';
       if (prompt.startsWith("Architecture acceptance review")) {
         cycleAmCalls.push(prompt);
-        return cycleAmCalls.length === 1
+        const text = cycleAmCalls.length === 1
           ? "AM nhận thấy cần bổ sung thêm 1 kiểm thử biên cho O1.\n[VERDICT: REVISE]"
           : "AM nghiệm thu đạt toàn bộ O1 sau khi RV đã xác nhận.\n[VERDICT: PASS]";
+        return { text, execution_id: options.correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed", turn_completed: true } };
       }
       return planJSON;
     },
     requestSystemEngineer: async (req) => {
       cycleSeCalls.push(req);
       if (req.phase === "plan_critique") return "SE đồng thuận phương án.\n[CRITIQUE: ALIGNED]";
-      return `SE hoàn thành thực thi vòng ${req.round}.`;
+      return { text: `SE hoàn thành thực thi vòng ${req.round}.`, execution_id: req.correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed", turn_completed: true } };
     },
     requestReviewer: async (req) => {
       cycleRvCalls.push(req);
-      return req.round === 1
+      const text = req.round === 1
         ? "RV phát hiện thiếu test cho trường hợp lỗi ở vòng 1.\n[VERDICT: REVISE]"
         : `RV xác nhận code và test vòng ${req.round} đạt chuẩn.\n[VERDICT: PASS]`;
+      return { text, execution_id: req.correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed", turn_completed: true }, read_only_enforced: true };
     }
   });
 
-  assert.equal(cycleRes.status, "paused");
-  assert.equal(cycleRes.reason, "PLAN_APPROVAL_REQUIRED");
-  assert.equal(cycleRvCalls.length, 0, "RV cannot review before Owner approval");
-  assert.equal(cycleAmCalls.length, 0, "AM cannot accept before Owner approval");
-  assert.ok(cycleSeCalls.every((call) => call.phase === "plan_critique"), "SE cannot implement before Owner approval");
-  assert.equal(cycleRes.history.filter((entry) => entry.phase === "implementation").length, 0);
-  assert.ok(!cycleBusMessages.some((m) => m.message_type === "reviewer.message.received"), "no synthetic Reviewer result before Owner approval");
+  assert.equal(cycleRes.status, "completed");
+  assert.equal(cycleRes.rounds_completed, 3);
+  assert.equal(cycleRvCalls.length, 3, "RV reviews every implementation round");
+  assert.equal(cycleAmCalls.length, 2, "AM reviews only after RV PASS");
+  assert.equal(cycleSeCalls.filter((call) => call.phase === "implementation").length, 3, "SE runs 3 implementation rounds");
+  assert.ok(cycleBusMessages.some((m) => m.message_type === "reviewer.message.received"), "Reviewer message is published to conversation bus");
   assert.match(formatHumanReadableHandoffBrief(JSON.parse(planJSON), { planId: "PLAN-1", sourceKind: "markdown_file", sourceFilePath: "docs/spec.md" }), /docs\/spec\.md/);
   assert.equal(parseAmReviewVerdict("Cannot confirm PASS").verdict, null);
   assert.equal(parseAmReviewVerdict("Please REVISE the checks").verdict, null);

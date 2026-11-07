@@ -18,7 +18,7 @@ function fail(code, message) { return Object.assign(new ConfigurationError(messa
 export function createMarkdownPlanStore({ projectId, database, fileService, clock = () => new Date().toISOString() } = {}) {
   if (!projectId || !database?.all || !database?.run || !fileService?.readFile || !fileService?.atomicCreate || !fileService?.createLock) throw fail("MARKDOWN_PLAN_STORE_CONFIG", "Markdown plan store requires project database and File Service.");
   const sources = createMarkdownPlanSource({ fileService });
-  return Object.freeze({ createRevision, getRevision, list, decide, assertApproved, deletePlan, restoreSourceSnapshot });
+  return Object.freeze({ createRevision, updateDraftRevision, getRevision, list, decide, assertApproved, deletePlan, restoreSourceSnapshot });
 
   // Indexes the exact Markdown bytes and source SUMMARY before they can be reviewed.
   async function createRevision({ planId, expectedRevision = 0, markdown, summaryPath, summarySha256, conversationId = null } = {}) {
@@ -44,6 +44,28 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
       const createdAt = clock();
       database.run("INSERT INTO markdown_plan_revisions(plan_id,revision,project_id,file_path,sha256,summary_path,summary_sha256,created_at,conversation_id) VALUES (?,?,?,?,?,?,?,?,?)", [planId, revision, projectId, filePath, digest, summaryPath, summarySha256, createdAt, conversationId]);
       return { plan_id: planId, revision, project_id: projectId, file_path: filePath, sha256: digest, source_path: summaryPath, source_sha256: summarySha256, conversation_id: conversationId, created_at: createdAt, format: "markdown", markdown: bytes, status: "awaiting_human_approval" };
+    } finally { await lock.release(); }
+  }
+
+  // Business purpose: overwrites one unapproved r1 draft while preserving its plan identity and audit source snapshots. Technical description: serializes the update under the plan lock, rejects any existing decision, verifies the retained SUMMARY checksum, atomically writes Markdown, and updates the indexed digest in place.
+  async function updateDraftRevision({ planId, revision = 1, markdown, summaryPath, summarySha256, summaryContent, conversationId = null } = {}) {
+    if (revision !== 1 || !SAFE_ID.test(planId ?? "") || typeof markdown !== "string" || !markdown.trim() || !summaryPath || !/^[a-f0-9]{64}$/.test(summarySha256 ?? "") || (summaryContent !== undefined && typeof summaryContent !== "string")) throw fail("MARKDOWN_PLAN_INVALID", "Only a valid unapproved r1 draft can be updated.");
+    const lock = await acquireTicketFileLock(fileService, `${statePath()}/nf/plans/${planId}/markdown.lock`);
+    try {
+      const row = database.all("SELECT * FROM markdown_plan_revisions WHERE plan_id=? AND revision=1 AND project_id=?", [planId, projectId])[0];
+      if (!row) throw fail("PLAN_REVISION_NOT_FOUND", "Markdown plan r1 is not indexed for this project.");
+      const decision = database.all("SELECT * FROM markdown_plan_decisions WHERE plan_id=? AND revision=1 ORDER BY decided_at DESC, rowid DESC LIMIT 1", [planId])[0] ?? null;
+      if (decision) throw fail("PLAN_DECISION_EXISTS", "Approved or decided r1 cannot be overwritten.");
+      const summary = summaryContent ?? await fileService.readFile({ path: summaryPath });
+      if (sha(summary) !== summarySha256) throw fail("PLAN_SOURCE_MISMATCH", "SUMMARY changed before draft persistence.");
+      await sources.overwriteDraft({ plan_id: planId, revision: 1, source_path: summaryPath, source_sha256: summarySha256 }, summary);
+      const filePath = row.file_path;
+      const bytes = `${markdown.trim()}\n`;
+      await fileService.atomicWrite({ path: filePath, content: bytes, replace: true });
+      const digest = sha(bytes);
+      const createdAt = clock();
+      database.run("UPDATE markdown_plan_revisions SET sha256=?, summary_path=?, summary_sha256=?, created_at=?, conversation_id=? WHERE plan_id=? AND revision=1 AND project_id=?", [digest, summaryPath, summarySha256, createdAt, conversationId ?? row.conversation_id, planId, projectId]);
+      return { plan_id: planId, revision: 1, project_id: projectId, file_path: filePath, sha256: digest, source_path: summaryPath, source_sha256: summarySha256, conversation_id: conversationId ?? row.conversation_id, created_at: createdAt, format: "markdown", markdown: bytes, status: "awaiting_human_approval" };
     } finally { await lock.release(); }
   }
 
@@ -115,7 +137,7 @@ export function createMarkdownPlanStore({ projectId, database, fileService, cloc
       const plan = await getRevision({ planId, revision });
       if (plan.sha256 !== sha256 || plan.status === "superseded") throw fail("PLAN_DECISION_STALE", "Markdown plan identity changed.");
       if (plan.decision) {
-        if (plan.decision.decision_id === decisionId && plan.decision.sha256 === sha256 && plan.decision.decision === decision) return plan.decision;
+        if (plan.decision.sha256 === sha256 && plan.decision.decision === decision && plan.decision.approver_id === approverId) return plan.decision;
         throw fail("PLAN_DECISION_EXISTS", "Markdown revision already has an owner decision.");
       }
       const recorded = { decision_id: decisionId, plan_id: planId, revision, sha256, decision, approver_id: approverId, comments, decided_at: clock() };

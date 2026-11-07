@@ -37,6 +37,13 @@ export function bindEngineeringTools({ registry, context }) {
       await assertMutationOrRead(definition.name, input, bound);
     }
     const result = await scopedRegistry[definition.name].execute(input, bound);
+    if (definition.name === "delegate_subagent" && Array.isArray(result?.observed_files) && Array.isArray(context.observed_files)) {
+      for (const file of result.observed_files) {
+        if (file?.path && !context.observed_files.some((entry) => entry.path === file.path && entry.sha256 === file.sha256)) {
+          context.observed_files.push(file);
+        }
+      }
+    }
     assertExecutionFileAccess(bound);
     return result;
   } }]));

@@ -53,3 +53,5 @@ When Node supplies an exchange request, return only `{kind:"review_result",subje
 ## Forge source reading
 
 Use `read_file({path})` to inspect metadata, `code_graph` and `symbol_map` before reading code. Code requires `Read({file_path,symbol})` from that metadata; arbitrary line windows are rejected. Only `.md` documents permit `Read({file_path,start_line,end_line})`. Markdown line windows are limited to 80 physical lines. Code reads return the entire selected symbol regardless of line count, without lines outside its bounds. Do not reconstruct whole code files by repeated reads or broad search patterns.
+
+When a review covers multiple changed areas, callers, contracts, and test files, use `delegate_subagent({tasks:[{id,objective,paths}]})` (up to 3 parallel read-only tasks) to verify adjacent callers/tests concurrently while the parent Reviewer directly inspects the primary diff symbols. Files observed by subagents populate `read_file` metadata receipts and `sha256` checksums on the parent context so Reviewer can immediately call `Read({file_path,symbol})` without redundant metadata reads.
