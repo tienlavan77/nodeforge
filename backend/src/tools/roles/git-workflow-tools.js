@@ -66,9 +66,6 @@ export function createGitWorkflowTools({
     } catch (error) {
       scopeError = error;
     }
-    if (scopeError) {
-      throw opError ?? scopeError;
-    }
     const resolvedCandidates = typeof candidatePaths === "function" ? candidatePaths(result) : candidatePaths;
     const reconciled = await reconcileWorkingTreeMutation({
       projectRoot: effectiveRoot,
@@ -76,12 +73,19 @@ export function createGitWorkflowTools({
       afterSnapshot,
       candidatePaths: Array.isArray(resolvedCandidates) ? resolvedCandidates : [],
       context,
-      changeLedger,
+      changeLedger: scopeError ? null : changeLedger,
       conversationStateStore,
       conversationId: conversationId ?? context?.conversation_id,
       logger,
       toolName
     });
+    if (scopeError) {
+      scopeError.changed_paths = reconciled.changed_paths;
+      scopeError.active_file_checksums = reconciled.active_file_checksums;
+      scopeError.deleted_paths = reconciled.deleted_paths;
+      if (opError) scopeError.cause = opError;
+      throw scopeError;
+    }
     if (opError) {
       opError.changed_paths = reconciled.changed_paths;
       opError.active_file_checksums = reconciled.active_file_checksums;
@@ -175,6 +179,29 @@ export function createGitWorkflowTools({
       }
       for (const rawPath of input.paths) {
         validateMutatingGitPath(rawPath, context, "git_stash", "GIT_STASH_INVALID");
+      }
+    } else if (action === "push") {
+      const hasExplicitScope = Array.isArray(context?.allowed_file_paths ?? context?.allowedFilePaths) || Array.isArray(context?.allowed_prefixes ?? context?.allowedPrefixes);
+      if (hasExplicitScope || context?.agent_identity?.role === "coder") {
+        if (typeof gitService.status !== "function") {
+          throw workflowError("GIT_STASH_INVALID", "git_stash push requires explicit paths when executing in a scoped Coder context.");
+        }
+        const statusOut = await gitService.status({ paths: [] });
+        const dirtyPaths = String(statusOut ?? "")
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line) => {
+            const raw = line.slice(3).trim();
+            const arrowIdx = raw.indexOf(" -> ");
+            return (arrowIdx >= 0 ? raw.slice(arrowIdx + 4) : raw).replace(/^"|"$/g, "");
+          })
+          .filter(Boolean);
+        if (!dirtyPaths.length) {
+          throw workflowError("GIT_STASH_INVALID", "git_stash push requires explicit paths when executing in a scoped Coder context.");
+        }
+        for (const dirtyPath of dirtyPaths) {
+          validateMutatingGitPath(dirtyPath, context, "git_stash", "GIT_STASH_INVALID");
+        }
       }
     }
 

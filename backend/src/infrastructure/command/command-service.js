@@ -10,6 +10,7 @@ import {
   MAX_STREAM_BYTES,
   assertCommandArgSymlinkSafety,
   assertNoSymlinkEscape,
+  buildSandboxedInlineArgs,
   commandError,
   isProtectedInternalSegment,
   resolveProjectContainedPath,
@@ -108,7 +109,7 @@ export function createNodeCommandService({ projectRoot, spawnProcess = defaultSp
     const executable = validated.command === "node" ? process.execPath : validated.command;
     const finalArgs = validated.command === "npx" && !validated.args.includes("--no-install")
       ? ["--no-install", ...validated.args]
-      : validated.args;
+      : buildSandboxedInlineArgs(validated.command, validated.args, projectRoot);
 
     const rawResult = await spawnProcess(executable, finalArgs, {
       cwd: validated.cwdAbsolute,
