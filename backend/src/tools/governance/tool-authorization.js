@@ -5,6 +5,7 @@ import { assertExecutionFileAccess, executionFileAccessAllowed } from "../execut
 import { isCoderProjectPath } from "../../infrastructure/filesystem/coder-project-access.js";
 
 export function authorizeTool(toolName, context = {}) {
+  if (typeof context.assertToolAllowed === "function") context.assertToolAllowed(toolName);
   assertExecutionFileAccess(context);
   const capabilities = new Set(context.capabilities ?? []);
   if (!capabilities.has(toolName)) {

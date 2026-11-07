@@ -29,6 +29,9 @@ export const delegateSubagentDefinition = {
 export const READ_ONLY_EXPLORER_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "Read"]);
 export const MAX_PARALLEL_SUBAGENTS = 3;
 export const MAX_SUBAGENTS_PER_TURN = 4;
+const SHA256_PATTERN = /^sha256:[a-fA-F0-9]{64}$/;
+const SAFE_RELATIVE_PATH = /^(?!\.\.)(?!.*(?:^|\/)\.\.(?:\/|$))(?!\/)[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/;
+const FORBIDDEN_CHILD_TOOLS = Object.freeze(["edit_diff", "write_diff", "delete_file", "move_file", "run_check", "run_test", "check_test", "commit_changes", "push_commit", "delegate_subagent"]);
 
 // Business purpose: creates the parent-owned delegation handler while keeping child execution provider-neutral.
 export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000 } = {}) {
@@ -44,7 +47,7 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
     const signal = context.abortSignal;
     const results = await Promise.allSettled(tasks.map((task) => executeOne(task, context, signal)));
     const taskResults = results.map((result, index) => result.status === "fulfilled"
-      ? { id: tasks[index].id, status: "fulfilled", summary: bound(result.value?.summary, maxSummaryChars), observed_files: normalizeObserved(result.value?.observed_files), subagent_usage: result.value?.subagent_usage ?? null }
+      ? { id: tasks[index].id, status: "fulfilled", summary: bound(result.value?.summary, maxSummaryChars), observed_files: normalizeObserved(result.value?.observed_files, context), subagent_usage: result.value?.subagent_usage ?? null }
       : { id: tasks[index].id, status: "rejected", error: classifyError(result.reason), summary: "", observed_files: [] });
     const observed = mergeObserved(taskResults.flatMap((item) => item.observed_files));
     for (const file of observed) recordSourceMetadata(context, { path: file.path, sha256: file.sha256, symbol_map: file.symbol_map ?? [] });
@@ -57,7 +60,43 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
   // Business purpose: executes one isolated read-only child and forwards only the parent abort signal.
   async function executeOne(task, context, signal) {
     if (signal?.aborted) throw Object.assign(new Error("Parent execution was aborted."), { code: "SUBAGENT_ABORTED" });
-    return executeTask(task, { parentContext: context, tools: READ_ONLY_EXPLORER_TOOLS, exploration_enabled: false, abortSignal: signal, subagentId: task.id });
+    if (typeof context !== "object" || context === null) throw new ConfigurationError("delegate_subagent requires a parent execution context.");
+    const parentExecutionId = String(context.execution_id ?? context.task_id ?? "parent");
+    const childExecutionId = `${parentExecutionId}:sub:${task.id}`;
+    const parentIdentity = context.agent_identity ?? {};
+    const childContext = {
+      parentContext: context,
+      task_id: `${context.task_id ?? "subagent"}:${task.id}`,
+      execution_id: childExecutionId,
+      correlation_id: childExecutionId,
+      project_root: context.project_root,
+      agent_identity: { ...parentIdentity, agent_id: `${parentIdentity.agent_id ?? "agent"}:sub:${task.id}`, parent_agent_id: parentIdentity.agent_id ?? null },
+      capabilities: [...READ_ONLY_EXPLORER_TOOLS],
+      tools: [...READ_ONLY_EXPLORER_TOOLS],
+      allowed_file_paths: Array.isArray(context.allowed_file_paths) ? [...context.allowed_file_paths] : undefined,
+      allowed_prefixes: Array.isArray(context.allowed_prefixes) ? [...context.allowed_prefixes] : undefined,
+      exploration_enabled: false,
+      read_only_enforced: true,
+      subagent_depth: Number(context.subagent_depth ?? 0) + 1,
+      abortSignal: signal,
+      subagentId: task.id,
+      forbidden_tools: [...FORBIDDEN_CHILD_TOOLS],
+      assertToolAllowed: (toolName) => {
+        if (!READ_ONLY_EXPLORER_TOOLS.includes(toolName)) throw Object.assign(new ConfigurationError(`Subagent tool is not allowed: ${toolName}.`), { code: "SUBAGENT_TOOL_FORBIDDEN" });
+        return true;
+      }
+    };
+    if (childContext.subagent_depth > 1) throw Object.assign(new ConfigurationError("delegate_subagent nesting depth exceeded."), { code: "SUBAGENT_NESTING_FORBIDDEN" });
+    const result = await executeTask(task, childContext);
+    const observed = normalizeObserved(result?.observed_files ?? childContext.observed_files, childContext).map((file) => ({
+      ...file,
+      parent_execution_id: parentExecutionId,
+      child_execution_id: childExecutionId,
+      child_agent_id: childContext.agent_identity.agent_id,
+      observed_at: new Date().toISOString(),
+      source_tool: file.source_tool ?? "read_file"
+    }));
+    return { ...result, observed_files: observed };
   }
 }
 
@@ -68,13 +107,34 @@ function validateTasks(input) {
   return input.tasks.map((task) => {
     if (!task || typeof task.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(task.id) || ids.has(task.id)) throw new ConfigurationError("delegate_subagent task ids must be unique safe identifiers.");
     if (typeof task.objective !== "string" || !task.objective.trim()) throw new ConfigurationError("delegate_subagent task objective is required.");
+    if (task.paths !== undefined && (!Array.isArray(task.paths) || task.paths.some((path) => typeof path !== "string" || !SAFE_RELATIVE_PATH.test(path)))) throw new ConfigurationError("delegate_subagent task paths must be safe relative paths.");
     ids.add(task.id);
-    return { id: task.id, objective: task.objective.trim(), ...(Array.isArray(task.paths) ? { paths: [...task.paths] } : {}) };
+    return { id: task.id, objective: task.objective.trim(), ...(Array.isArray(task.paths) ? { paths: [...new Set(task.paths)] } : {}) };
   });
 }
 
 // Technical description: keeps only observed metadata with verified path and checksum fields for parent handoff.
-function normalizeObserved(files) { return Array.isArray(files) ? files.filter((file) => file && typeof file.path === "string" && typeof file.sha256 === "string").map((file) => ({ path: file.path, sha256: file.sha256, symbols_read: [...new Set(Array.isArray(file.symbols_read) ? file.symbols_read.filter((symbol) => typeof symbol === "string") : [])], ...(Array.isArray(file.symbol_map) ? { symbol_map: file.symbol_map } : {}) })) : []; }
+function normalizeObserved(files, context = {}) {
+  if (!Array.isArray(files)) return [];
+  const allowedPaths = Array.isArray(context.allowed_file_paths) ? context.allowed_file_paths : [];
+  const allowedPrefixes = Array.isArray(context.allowed_prefixes) ? context.allowed_prefixes : [];
+  const hasScope = allowedPaths.length > 0 || allowedPrefixes.length > 0;
+  return files.filter((file) => {
+    if (!file || typeof file.path !== "string" || !SAFE_RELATIVE_PATH.test(file.path) || !SHA256_PATTERN.test(file.sha256 ?? "")) return false;
+    if (!hasScope) return true;
+    return allowedPaths.includes(file.path) || allowedPrefixes.some((prefix) => file.path === prefix || file.path.startsWith(`${String(prefix).replace(/\/$/, "")}/`));
+  }).map((file) => ({
+    path: file.path,
+    sha256: file.sha256,
+    symbols_read: [...new Set(Array.isArray(file.symbols_read) ? file.symbols_read.filter((symbol) => typeof symbol === "string") : [])],
+    ...(Array.isArray(file.symbol_map) ? { symbol_map: file.symbol_map } : {}),
+    ...(typeof file.source_tool === "string" ? { source_tool: file.source_tool } : {}),
+    ...(typeof file.parent_execution_id === "string" ? { parent_execution_id: file.parent_execution_id } : {}),
+    ...(typeof file.child_execution_id === "string" ? { child_execution_id: file.child_execution_id } : {}),
+    ...(typeof file.child_agent_id === "string" ? { child_agent_id: file.child_agent_id } : {}),
+    ...(typeof file.observed_at === "string" ? { observed_at: file.observed_at } : {})
+  }));
+}
 
 // Technical description: merges duplicate observations without discarding symbols read by another child.
 function mergeObserved(files) { const merged = new Map(); for (const file of files) { const current = merged.get(file.path); if (!current) merged.set(file.path, { ...file }); else merged.set(file.path, { ...current, sha256: file.sha256, symbols_read: [...new Set([...(current.symbols_read ?? []), ...(file.symbols_read ?? [])])] }); } return [...merged.values()]; }

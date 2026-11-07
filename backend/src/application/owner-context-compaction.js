@@ -154,7 +154,8 @@ export function shouldRolloverOwnerSession(retainedState = {}, { continueExecuti
   // UTF-8 bytes provide a conservative fallback when a provider has no recorded usage.
   const historyTokens = history.reduce((total, turn) => total + Buffer.byteLength(String(turn?.text ?? ""), "utf8"), 0);
   const incomingTokens = Buffer.byteLength(String(incomingText ?? ""), "utf8");
-  return Math.max(Number.isFinite(lastTokens) ? lastTokens : 0, historyTokens) + incomingTokens >= effectiveThreshold;
+  const measuredTokens = Number.isFinite(lastTokens) && lastTokens > 0 ? lastTokens : historyTokens;
+  return measuredTokens + incomingTokens >= effectiveThreshold;
 }
 
 // Business purpose: formats conversation history for Owner SDK prompts while preserving complete turn boundaries and role prefixes so prompt truncation never cuts mid-sentence or strips User/Assistant labels.

@@ -9,6 +9,7 @@ import { createOwnerSdkStream } from "../src/application/owner-sdk-stream.js";
 import { createOwnerExecutionCheckpoint } from "../src/application/owner-execution-checkpoint.js";
 import { createOwnerExecutionControl } from "../src/application/owner-execution-control.js";
 import { createOwnerChatCommandService } from "../src/application/owner-chat-command-service.js";
+import { createAmSeHandoffService } from "../src/application/am-se-handoff-service.js";
 import { createPlanHandoffService } from "../src/application/plan-handoff-service.js";
 import { createPlanRequestState } from "../src/application/plan-request-state.js";
 import { createWatcherCacheEvents } from "../src/modules/context/watcher-cache-events.js";
@@ -45,8 +46,18 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices, no
   const architectureCheckpoint = createOwnerExecutionCheckpoint({ fileService, role: "architecture_manager" });
   const sdkStream = createOwnerSdkStream({ executionCheckpoint, architectureCheckpoint, agentConfiguration, sdkGateways, fallbackStream: (input) => agentGateway.stream(input), conversationStateStore, conversationMessages: communications, fileService, codeCache, codeSearch: services.codeSearch, gitService, testService: services.testService, projectRoot, projectLogger: agentLoopLogger.emit });
   const planHandoff = services.planStore && services.database ? createPlanHandoffService({ projectId, database: services.database, planStore: services.planStore, markdownPlanStore: services.markdownPlanStore, sprintPlanLeader, sprintOrchestration, sprintRegistry: services.sprintRegistry, agentRoleResolver: services.agentRoleResolver }) : null;
+  const handoffAdapter = ({ agentId, prompt, conversationId, linkedConversationId, correlationId, withEvidence }) => sdkStream({ agentId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null, ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId, eventSink: publishUnifiedStreamEvent });
+  const amSeHandoffService = fileService && services.markdownPlanStore ? createAmSeHandoffService({
+    projectId, fileService, markdownPlanStore: services.markdownPlanStore, bus, gitService, executionCheckpoint,
+    pauseExecution: (conversationId) => sdkStream.pause(conversationId), agentRoleResolver: services.agentRoleResolver,
+    approvePlan: planHandoff ? ({ planId, conversationId, approvedOwnerId, approvalRevision, approvalSha256 }) => planHandoff.handoff({ plan: { plan_id: planId, revision: approvalRevision, sha256: approvalSha256 }, conversationId, approvedOwnerId }) : undefined,
+    handoffApprovedPlan: planHandoff ? (input) => planHandoff.handoff(input) : undefined,
+    requestArchitecture: (prompt, conversationId, options = {}) => handoffAdapter({ agentId: services.agentRoleResolver?.resolveProfile?.("architecture_manager")?.agent_id ?? "architecture-manager", prompt, conversationId, correlationId: options.correlationId, withEvidence: options.withEvidence }),
+    requestSystemEngineer: handoffAdapter,
+    requestReviewer: handoffAdapter
+  }) : null;
   const planRequests = projectId && fileService?.createLock && fileService?.atomicWrite ? createPlanRequestState({ projectId, fileService }) : null;
-  const commandService = services.planStore && (planFileService || services.fileService) ? createOwnerChatCommandService({ projectId, planRequests, publishPlanEvent: (event) => projectStream.ingest(event), fileService: planFileService || services.fileService, communications, bus, conversationCrudService: conversations, agentRoleResolver: services.agentRoleResolver, planStore: services.planStore, markdownPlanStore: services.markdownPlanStore, gitService, executionCheckpoint, pauseExecution: (record) => sdkStream.pause(record.se_conversation_id), sprintRegistry: services.sprintRegistry, handoffApprovedPlan: ({ plan, conversationId }) => planHandoff.handoff({ plan, conversationId }) }) : null;
+  const commandService = services.planStore && (planFileService || services.fileService) ? createOwnerChatCommandService({ projectId, planRequests, publishPlanEvent: (event) => projectStream.ingest(event), fileService: planFileService || services.fileService, communications, bus, conversationCrudService: conversations, agentRoleResolver: services.agentRoleResolver, planStore: services.planStore, markdownPlanStore: services.markdownPlanStore, gitService, executionCheckpoint, pauseExecution: (record) => sdkStream.pause(record.se_conversation_id), sprintRegistry: services.sprintRegistry, amSeHandoffService, handoffApprovedPlan: ({ plan, conversationId }) => planHandoff.handoff({ plan, conversationId }) }) : null;
   const ownerChatService = createOwnerChatService({ bus, communications, agentRoleResolver: services.agentRoleResolver, projectLogger: logEvent, internalBus, buildAgentContext: buildBuilderContext, protocolStorage, conversationCrudService: conversations, commandService, debug: (detail) => agentLoopLogger.emit({ event_name: detail?.event ?? "agent.loop", level: detail?.event === "project-log.error" ? "error" : "debug", status: "info", message: detail?.event ?? "Agent loop debug event.", task_id: detail?.task_id, correlation_id: detail?.correlation_id, payload: detail }), agentStream: ({ agentId, payload, correlationId, conversationId }) => sdkStream({ agentId, payload, correlationId, conversationId, eventSink: publishUnifiedStreamEvent }), onAgentCompleted: sprintOrchestration.ingestAgentCompletion });
   const ownerExecutionControl = createOwnerExecutionControl({ checkpoint: executionCheckpoint, architectureCheckpoint, sdkStream, ownerChatService, communications, agentConfiguration });
   /**
@@ -157,7 +168,7 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices, no
       expectedProjectId: projectId,
       listResumableCheckpoints: services.listResumableCheckpoints,
       projectStream,
-      handoffService: commandService
+      handoffService: amSeHandoffService
     })
   };
 }
