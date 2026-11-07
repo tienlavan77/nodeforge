@@ -1,8 +1,46 @@
 {
-  "$comment": "Reads the project Git Service unstaged working-tree diff without agent-supplied flags.",
+  "$comment": "Business purpose: Reads the project Git Service diff with optional path, revision, staged, stat_only, and unified context filters. Technical description: Validates structured git_diff arguments for all roles and explorer subagents.",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://forge.local/schemas/agent/tools/git-diff.schema.json",
   "title": "Forge Git diff tool input",
   "type": "object",
-  "additionalProperties": false
+  "additionalProperties": false,
+  "properties": {
+    "paths": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$)).+$"
+      },
+      "description": "Optional project-relative file or directory paths to scope git_diff."
+    },
+    "base": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Optional base revision or branch to diff from."
+    },
+    "head": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Optional head revision or branch to diff against base."
+    },
+    "staged": {
+      "type": "boolean",
+      "description": "When true, inspects staged index changes (--cached)."
+    },
+    "stat_only": {
+      "type": "boolean",
+      "description": "When true, returns only --stat summary to avoid large diff payloads."
+    },
+    "unified": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20,
+      "description": "Number of unified diff context lines (0..20)."
+    }
+  }
 }

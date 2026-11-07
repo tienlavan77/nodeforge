@@ -72,10 +72,19 @@ export function agentSchemaDocument(entry, { action, subject } = {}) {
   } else if (entry.contract === "architecture_plan") {
     schema = structuredClone(ARCHITECTURE_PLAN_JSON_SCHEMA); format = "forge_field_contract";
   } else schema = { type: "string", minLength: 1, description: "Use the owner's requested text format; no structured completion envelope is required." };
+  let branchExample = null;
+  if (action && !entry.request) {
+    if (!Array.isArray(schema?.oneOf)) throw Object.assign(new Error("This contract has no decision action."), { code: "SCHEMA_ACTION_FORBIDDEN" });
+    const matched = schema.oneOf.find((branch) => branch.title === action || branch.properties?.command?.const === action || branch.properties?.tool?.const === action);
+    if (!matched) throw Object.assign(new Error("Action is not allowed for this schema and role."), { code: "SCHEMA_ACTION_FORBIDDEN" });
+    schema.oneOf = [matched];
+    if (schema.properties?.command?.enum) schema.properties.command.enum = [action];
+    if (schema.properties?.tool?.enum) schema.properties.tool.enum = [action];
+    if (Array.isArray(matched.examples) && matched.examples.length) branchExample = structuredClone(matched.examples[0]);
+  }
   if (entry.envelope) schema = { type: "object", additionalProperties: false, required: ["kind", "subject", "payload", "evidence"], properties: {
     kind: { const: entry.payload }, subject: { type: "string", minLength: 1, maxLength: 500 }, payload: schema,
     evidence: { type: "array", maxItems: 0 } } };
-  if (action && !entry.request) throw Object.assign(new Error("This contract has no decision action."), { code: "SCHEMA_ACTION_FORBIDDEN" });
   if (entry.draft) {
     const ticket = entry.draft === "sprint" ? schema.properties.tickets.items : schema;
     for (const key of ["project_id", "roadmap_id", "sprint_id", "status", "last_error", "provenance",
@@ -87,7 +96,7 @@ export function agentSchemaDocument(entry, { action, subject } = {}) {
     ticket.required.push("verification_plan", "file_budget");
     if (entry.draft === "sprint") schema.required.push("human_plan");
   }
-  const sample = entry.example ? structuredClone(entry.example) : format === "json_schema" ? example(schema) : null;
+  const sample = branchExample ?? (entry.example ? structuredClone(entry.example) : format === "json_schema" ? example(schema) : null);
   if (entry.task === "candidate_result") sample.payload.candidate = example(schema.properties.payload.properties.candidate);
   const sampleTicket = entry.draft === "sprint" ? sample.tickets[0] : entry.draft === "ticket" ? sample : null;
   if (sampleTicket) sampleTicket.verification_plan[0].test_path = "backend/tests/unit/example.test.js";

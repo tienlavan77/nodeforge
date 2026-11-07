@@ -2,6 +2,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
+import { createExtendedGitOperations } from "./git-service-extended.js";
 
 const execFile = promisify(execFileCallback);
 const SAFE_BRANCH = /^(?!\.)(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$/;
@@ -17,7 +18,11 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   if (mutationLock !== undefined && typeof mutationLock !== "function") throw new ConfigurationError("Git mutation lock must be a function.");
   // Keeps every Forge mutation under the same project lock as root ticket commits.
   const guard = (action) => (...args) => mutationLock ? mutationLock(() => action(...args)) : action(...args);
-  return Object.freeze({ status, statusSummary, indexEntries, diffWorkingTree, diffPatchFrom, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), pushCommit: guard(pushCommit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
+  const extended = createExtendedGitOperations({
+    projectRoot, timeoutMs, execute, runGit, guard, emit, status, currentBranch, branchExists,
+    validateRevision, validateBranch, validatePaths, gitError, protectedBranches: PROTECTED_BRANCHES
+  });
+  return Object.freeze({ status, statusSummary, inspectStatus: extended.inspectStatus, indexEntries, diffWorkingTree, diff: extended.diff, diffPatchFrom, log: extended.log, show: extended.show, blame: extended.blame, branch: extended.branch, restore: extended.restore, stash: extended.stash, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), pushCommit: guard(pushCommit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
 
   // Summarizes Git for the workspace indicator without exposing paths or remote URLs.
   async function statusSummary() {

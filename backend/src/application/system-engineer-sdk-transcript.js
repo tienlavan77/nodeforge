@@ -130,7 +130,8 @@ export function formatForgeToolCommand(rawName, rawInput, complete = true) {
   if (name === "edit_diff") return input.path ? `${name} ${input.path}${input.occurrence === "all" ? " (occurrence=all)" : ""}` : complete ? name : "";
   if (["write_diff", "delete_file", "review_diff"].includes(name)) return input.path ? `${name} ${input.path}` : complete ? name : "";
   if (name === "move_file") return (input.from_path ?? input.fromPath) && (input.to_path ?? input.toPath) ? `${name} ${input.from_path ?? input.fromPath} -> ${input.to_path ?? input.toPath}` : complete ? name : "";
-  if (["git_status", "git_diff"].includes(name)) return complete ? name : "";
+  if (["git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "git_restore", "git_stash"].includes(name)) return complete ? name : "";
+  if (name === "run_command") return input.command ? `${name} ${input.command}${Array.isArray(input.args) && input.args.length ? ` ${input.args.slice(0, 6).join(" ")}` : ""}` : complete ? name : "";
   if (name === "commit_changes") return typeof input.message === "string" ? `${name} ${JSON.stringify(input.message)}` : complete ? name : "";
   if (name === "push_commit") return typeof input.commit_sha === "string" ? `${name} ${input.commit_sha.slice(0, 12)}` : complete ? name : "";
   if (name === "lookup_schema") return [name, input.schema_id ?? input.task ?? input.intent ?? "catalog"].filter(Boolean).join(" ");
@@ -166,5 +167,5 @@ export function formatForgeToolActivitySummary(rawName, rawInput, status, result
   if (errorCode) details.push(errorCode);
   if (status !== "started" && Number.isFinite(durationMs)) details.push(`${durationMs}ms`);
   const suffix = details.length ? ` (${details.join(", ")})` : "";
-  return `Forge tool ${name} ${status}: ${commandText}${suffix}`;
+  return `${name} ${commandText}${suffix}`;
 }

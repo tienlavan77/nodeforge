@@ -25,7 +25,8 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
     `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code across the current project; choose the files yourself. No file is a mandatory target merely because it was found first.`,
-    "Use the canonical Forge tools search_tree, list_files, search_text, read_file, Read and delegate_subagent to discover files and inspect current source; add focused tests for changed behavior.",
+    "Before disk discovery, call read_subagent_evidence({conversation_id, delegation_id}) and consult the shared subagent evidence store. Reuse valid path, checksum, symbol, code graph and source_worker evidence; search disk only when evidence is missing or stale, and do not reread valid evidence.",
+    "Use the canonical Forge tools search_tree, list_files, search_text, read_file, Read, delegate_subagent, run_command, and the Forge Git tools to discover files, inspect current source, and verify changes; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
   if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text within the Node-issued read scope; use read_file/Read for source. Coder may read, write, delete and move files throughout this project. Ticket paths ${allowedJson} are discovery hints, not a file allowlist.`);
@@ -126,7 +127,8 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
     `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code across the current project; choose the files yourself. No file is a mandatory target merely because it was found first.`,
-    "Use the canonical Forge tools search_tree, list_files, search_text, read_file, Read and delegate_subagent to discover files and inspect current source; add focused tests for changed behavior.",
+    "Before disk discovery, call read_subagent_evidence({conversation_id, delegation_id}) and consult the shared subagent evidence store. Reuse valid path, checksum, symbol, code graph and source_worker evidence; search disk only when evidence is missing or stale, and do not reread valid evidence.",
+    "Use the canonical Forge tools search_tree, list_files, search_text, read_file, Read, delegate_subagent, run_command, and the Forge Git tools to discover files, inspect current source, and verify changes; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
   if (directCode) instructions.splice(0, 2, `This is a direct coding request. Do not use graph candidate retrieval. Discover with search_tree, list_files or search_text within the Node-issued read scope; use read_file/Read for source. Coder may read, write, delete and move files throughout this project. Ticket paths ${allowedJson} are discovery hints, not a file allowlist.`);

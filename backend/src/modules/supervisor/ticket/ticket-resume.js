@@ -122,6 +122,17 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
             recordMutationChecksum(state.readCache, { tool: name, input, result });
             state.emptyCommitSeen = false;
           }
+          if (["run_command", "git_branch", "git_restore", "git_stash"].includes(name) && result?.active_file_checksums && typeof result.active_file_checksums === "object") {
+            if (Array.isArray(result.deleted_paths)) {
+              for (const delPath of result.deleted_paths) recordMutationChecksum(state.readCache, { tool: "delete_file", input: { path: delPath }, result: {} });
+            }
+            for (const [mutPath, sha256] of Object.entries(result.active_file_checksums)) {
+              recordMutationChecksum(state.readCache, { tool: name, input: { path: mutPath }, result: { path: mutPath, sha256 } });
+            }
+            if (Object.keys(result.active_file_checksums).length > 0 || (Array.isArray(result.deleted_paths) && result.deleted_paths.length > 0)) {
+              state.emptyCommitSeen = false;
+            }
+          }
         } catch (error) {
           if (name === "commit_changes" && error?.code === "GIT_EMPTY_COMMIT") state.emptyCommitSeen = true;
           throw error;

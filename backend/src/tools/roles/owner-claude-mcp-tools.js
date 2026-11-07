@@ -25,10 +25,15 @@ export function claudeToolInputSchema(schema) {
   const input = structuredClone(schema);
   // Conditional selectors remain enforced by Forge; MCP requires an object field shape.
   delete input.oneOf;
-  const path = input?.properties?.path;
-  if (typeof path?.pattern === "string" && path.pattern.includes("(?!")) {
-    delete path.pattern;
-    path.description = `${path.description ? `${path.description} ` : ""}Use a project-relative path without parent-directory segments.`;
+  for (const prop of Object.values(input?.properties ?? {})) {
+    if (typeof prop?.pattern === "string" && prop.pattern.includes("(?!")) {
+      delete prop.pattern;
+      prop.description = `${prop.description ? `${prop.description} ` : ""}Use a project-relative path without parent-directory segments.`;
+    }
+    if (typeof prop?.items?.pattern === "string" && prop.items.pattern.includes("(?!")) {
+      delete prop.items.pattern;
+      prop.items.description = `${prop.items.description ? `${prop.items.description} ` : ""}Use a project-relative path without parent-directory segments.`;
+    }
   }
   return input;
 }
