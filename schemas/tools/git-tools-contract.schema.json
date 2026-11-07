@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/tools/git-tools-contract.schema.json",
+  "$comment": "Business purpose: Defines the Node-mediated Forge Git Toolset contract (forge.git_tools.v1) and role permissions across read-only and mutating Git operations so agents never invoke raw git via shell. Technical description: Declares role permissions per tool and action, provides action-filtered oneOf branches for all 10 Git tools, and documents mutationLock, protected-branch guards, and working-tree sha256 reconciliation.",
+  "title": "Forge Node-Mediated Git Tools Contract (forge.git_tools.v1)",
+  "description": "Structured contract for Forge Git Tools executed through Node Git Service. Read-only tools (git_status, git_diff, git_log, git_show, git_blame) are available to all roles and subagents; git_branch list/current are available to all primary roles; mutating operations (git_branch create/switch/delete_merged, git_restore, git_stash, commit_changes, push_commit) are restricted to system_engineer and coder.",
+  "x-role-permissions": {
+    "read_only_tools": {
+      "tools": ["git_status", "git_diff", "git_log", "git_show", "git_blame"],
+      "allowed_roles": ["architecture_manager", "system_engineer", "sprint_leader", "coder", "reviewer", "subagent"]
+    },
+    "branch_inspection": {
+      "tools": ["git_branch"],
+      "actions": ["list", "current"],
+      "allowed_roles": ["architecture_manager", "system_engineer", "sprint_leader", "coder", "reviewer"]
+    },
+    "mutating_tools": {
+      "tools": ["git_branch", "git_restore", "git_stash", "commit_changes", "push_commit"],
+      "actions": ["create", "switch", "delete_merged", "restore_worktree", "unstage", "push", "pop", "apply"],
+      "allowed_roles": ["system_engineer", "coder"],
+      "forbidden_roles": ["architecture_manager", "sprint_leader", "reviewer", "subagent"]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "input"],
+  "properties": {
+    "tool": {
+      "type": "string",
+      "enum": ["git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "git_restore", "git_stash", "commit_changes", "push_commit"],
+      "description": "Canonical Forge Git tool name."
+    },
+    "input": { "type": "object", "description": "Arguments passed directly to the selected Forge Git tool." }
+  },
+  "$defs": {
+    "path_item": { "type": "string", "minLength": 1, "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.(?:\\/|$)).+$" },
+    "path_list": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/path_item" } },
+    "revision": { "type": "string", "minLength": 1, "maxLength": 120 }
+  },
+  "oneOf": [
+    {
+      "title": "git_status",
+      "description": "Read-only working-tree and branch status (allowed: AM, SE, SL, Coder, Reviewer, Subagent). Accepts {} or optional project-relative paths filter.",
+      "properties": {
+        "tool": { "const": "git_status" },
+        "input": { "type": "object", "additionalProperties": false, "properties": { "paths": { "$ref": "#/$defs/path_list" } } }
+      },
+      "examples": [{ "tool": "git_status", "input": { "paths": ["backend/src/tools"] } }]
+    },
+    {
+      "title": "git_diff",
+      "description": "Read-only diff inspection (allowed: AM, SE, SL, Coder, Reviewer, Subagent). Supports paths, base/head revisions, staged index, stat_only summary, and unified context lines.",
+      "properties": {
+        "tool": { "const": "git_diff" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": { "$ref": "#/$defs/path_list" },
+            "base": { "$ref": "#/$defs/revision" },
+            "head": { "$ref": "#/$defs/revision" },
+            "staged": { "type": "boolean" },
+            "stat_only": { "type": "boolean" },
+            "unified": { "type": "integer", "minimum": 0, "maximum": 20 }
+          }
+        }
+      },
+      "examples": [{ "tool": "git_diff", "input": { "paths": ["backend/src/tools/index.js"], "stat_only": false, "unified": 3 } }]
+    },
+    {
+      "title": "git_log",
+      "description": "Read-only commit history lookup (allowed: AM, SE, SL, Coder, Reviewer, Subagent).",
+      "properties": {
+        "tool": { "const": "git_log" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+            "path": { "$ref": "#/$defs/path_item" },
+            "revision": { "$ref": "#/$defs/revision" },
+            "grep": { "type": "string", "minLength": 1, "maxLength": 200 }
+          }
+        }
+      },
+      "examples": [{ "tool": "git_log", "input": { "limit": 10, "path": "backend/src/infrastructure/git/git-service.js" } }]
+    },
+    {
+      "title": "git_show",
+      "description": "Read-only commit metadata/patch or historical file content + sha256 at a revision without altering the working tree (allowed: AM, SE, SL, Coder, Reviewer, Subagent).",
+      "properties": {
+        "tool": { "const": "git_show" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["revision"],
+          "properties": {
+            "revision": { "$ref": "#/$defs/revision" },
+            "path": { "$ref": "#/$defs/path_item" },
+            "paths": { "$ref": "#/$defs/path_list" },
+            "stat_only": { "type": "boolean" }
+          }
+        }
+      },
+      "examples": [{ "tool": "git_show", "input": { "revision": "HEAD", "path": "backend/src/tools/index.js" } }]
+    },
+    {
+      "title": "git_blame",
+      "description": "Read-only line-by-line blame attribution for a project file, bounded to at most 200 lines per call (allowed: AM, SE, SL, Coder, Reviewer, Subagent).",
+      "properties": {
+        "tool": { "const": "git_blame" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": { "$ref": "#/$defs/path_item" },
+            "start_line": { "type": "integer", "minimum": 1 },
+            "end_line": { "type": "integer", "minimum": 1 }
+          }
+        }
+      },
+      "examples": [{ "tool": "git_blame", "input": { "path": "backend/src/infrastructure/git/git-service.js", "start_line": 1, "end_line": 50 } }]
+    },
+    {
+      "title": "git_branch",
+      "description": "Branch inspection (list, current for all primary roles) and governed branch management (create, switch, delete_merged for SE and Coder under mutationLock with protected-branch guards and checksum sync).",
+      "properties": {
+        "tool": { "const": "git_branch" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": {
+            "action": { "type": "string", "enum": ["list", "current", "create", "switch", "delete_merged"] },
+            "name": { "$ref": "#/$defs/revision" },
+            "start_point": { "$ref": "#/$defs/revision" }
+          }
+        }
+      },
+      "examples": [{ "tool": "git_branch", "input": { "action": "current" } }]
+    },
+    {
+      "title": "git_restore",
+      "description": "Path-scoped working-tree restore or index unstage for SE and Coder under mutationLock. Explicit paths are mandatory; global reset --hard and .git/.forge paths are forbidden. Automatically syncs changed_paths and active_file_checksums.",
+      "properties": {
+        "tool": { "const": "git_restore" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "paths"],
+          "properties": {
+            "action": { "type": "string", "enum": ["restore_worktree", "unstage"] },
+            "paths": { "$ref": "#/$defs/path_list" },
+            "source": { "$ref": "#/$defs/revision" }
+          }
+        }
+      },
+      "examples": [{ "tool": "git_restore", "input": { "action": "restore_worktree", "paths": ["backend/src/tools/index.js"] } }]
+    },
+    {
+      "title": "git_stash",
+      "description": "Governed stash operations (list, push, pop, apply) for SE and Coder under mutationLock. Automatically syncs changed_paths and active_file_checksums.",
+      "properties": {
+        "tool": { "const": "git_stash" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action"],
+          "properties": {
+            "action": { "type": "string", "enum": ["list", "push", "pop", "apply"] },
+            "message": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "paths": { "$ref": "#/$defs/path_list" },
+            "index": { "type": "integer", "minimum": 0, "maximum": 50 }
+          }
+        }
+      },
+      "examples": [{ "tool": "git_stash", "input": { "action": "list" } }]
+    },
+    {
+      "title": "commit_changes",
+      "description": "Commit only authorized files recorded in the execution-scoped Forge change ledger (allowed: SE, Coder).",
+      "properties": {
+        "tool": { "const": "commit_changes" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message"],
+          "properties": { "message": { "type": "string", "minLength": 1, "maxLength": 200 } }
+        }
+      },
+      "examples": [{ "tool": "commit_changes", "input": { "message": "Implement governed command and Git toolset" } }]
+    },
+    {
+      "title": "push_commit",
+      "description": "Push the exact execution-recorded commit SHA on an unprotected branch when authorized (allowed: SE, Coder).",
+      "properties": {
+        "tool": { "const": "push_commit" },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commit_sha"],
+          "properties": { "commit_sha": { "type": "string", "pattern": "^[a-fA-F0-9]{40,64}$" } }
+        }
+      },
+      "examples": [{ "tool": "push_commit", "input": { "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } }]
+    }
+  ]
+}

@@ -59,12 +59,13 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
     const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
+    const explorerToolNames = ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame"];
     const childExecutor = delegateSubagentExecutor ?? (async (task, child) => {
-      const childContext = { ...toolContext, ...child, execution_id: child.execution_id ?? `${executionId}:sub:${task.id}`, correlation_id: child.correlation_id ?? `${request.correlation_id}:sub:${task.id}`, capabilities: child.capabilities ?? child.tools ?? ["search_tree", "list_files", "search_text", "read_file", "Read"], exploration_enabled: false, subagent_depth: child.subagent_depth ?? 1, observed_files: child.observed_files ?? [] };
+      const childContext = { ...toolContext, ...child, execution_id: child.execution_id ?? `${executionId}:sub:${task.id}`, correlation_id: child.correlation_id ?? `${request.correlation_id}:sub:${task.id}`, capabilities: child.capabilities ?? child.tools ?? explorerToolNames, exploration_enabled: false, subagent_depth: child.subagent_depth ?? 1, observed_files: child.observed_files ?? [] };
       const childBinding = bindEngineeringTools({ registry: toolRegistry, context: childContext });
-      const childRegistry = Object.fromEntries(["search_tree", "list_files", "search_text", "read_file", "Read"].filter((name) => childBinding.registry[name]).map((name) => [name, childBinding.registry[name]]));
+      const childRegistry = Object.fromEntries(explorerToolNames.filter((name) => childBinding.registry[name]).map((name) => [name, childBinding.registry[name]]));
       const childMcpServers = { forge: createForgeSdkMcpServer({ registry: childRegistry, context: childBinding.context, includeEngineeringTools: true }) };
-      const childAllowedTools = ["search_tree", "list_files", "search_text", "read_file", "Read"].map((name) => `mcp__forge__${name}`);
+      const childAllowedTools = explorerToolNames.map((name) => `mcp__forge__${name}`);
       const childRes = await claudeSdkGateway.execute({ agentId: selected.agent_id, agent: selected, subagentId: child.subagentId, correlationId: child.correlation_id ?? childContext.correlation_id, cwd: projectRoot, abortSignal: child.abortSignal ?? request.abortSignal, options: createClaudeForgeOptions({ mcpServers: childMcpServers, allowedTools: childAllowedTools }, { effort: "low" }), prompt: `Read-Only Explorer objective: ${task.objective}${Array.isArray(task.paths) && task.paths.length ? `\nPrioritize paths: ${task.paths.join(", ")}` : ""}` });
       return { summary: extractFinalAgentReport(childRes?.messages) || childRes?.text || "", observed_files: childContext.observed_files ?? [], subagent_usage: childRes?.usage ?? null };
     });

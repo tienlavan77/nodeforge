@@ -25,13 +25,17 @@ export const AGENT_SCHEMA_CATALOG = Object.freeze([
     verification: "<Plan-level verification strategy that Sprint Leader tickets must cover>" } },
   { schema_id: "architecture_manager.owner_consultation.v1", role: "architecture_manager", task: "owner_consultation", delivery: "consultation_response.payload.consultation", payload: "consultation_request", purpose: "Ask Owner about a specific evidenced approved-scope or project-structure boundary.", keywords: "owner human boundary chu du an", example: null },
   { schema_id: "system_engineer.handoff.v1", role: "system_engineer", task: "handoff", delivery: "text_response", purpose: "Report engineering results, executed checks, evidence paths and remaining work to the requester. SE is outside the ticket role pipeline.", keywords: "handoff report infrastructure ban giao bao cao", example: "Prepared the requested environment. Focused checks: 3 passed. Evidence: docs/environment-receipt.md. Remaining work: none." },
+  { schema_id: "forge.run_command.v1", role: "system_engineer", roles: ["system_engineer", "coder"], task: "run_command", delivery: "tool:run_command", source: "tools/run-command-contract.schema.json", actions: ["node", "pnpm", "npm", "npx", "php", "zip", "unzip"], purpose: "Execute governed project commands (node, pnpm, npm, npx, php, zip, unzip) through Node Command & Archive Service with shell: false and post-mutation checksum sync.", keywords: "run_command command node pnpm npm npx php zip unzip archive script", example: { command: "pnpm", args: ["--dir", "backend", "run", "validate:schemas"], cwd: ".", timeout_ms: 60000 } },
+  { schema_id: "forge.git_tools.v1", role: "system_engineer", roles: ["system_engineer", "coder", "architecture_manager", "sprint_leader", "reviewer"], task: "git_tools", delivery: "tool:git_*", source: "tools/git-tools-contract.schema.json", actions: ["git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "git_restore", "git_stash", "commit_changes", "push_commit"], purpose: "Inspect and manage repository Git state through Node Git Service (git_status, git_diff, git_log, git_show, git_blame, git_branch, git_restore, git_stash, commit_changes, push_commit).", keywords: "git_tools git status diff log show blame branch restore stash commit push", example: { tool: "git_status", input: { paths: ["backend/src/tools"] } } },
   { schema_id: "linguist.response.v1", role: "linguist", task: "response", delivery: "text_response", purpose: "Answer the owner's language request in the requested format.", keywords: "language translation ngon ngu dich", example: "Completed the requested wording review." }
 ]);
 
 /** Returns only descriptors owned by the authenticated role, without exposing
  * model-supplied role overrides or obsolete protocol aliases. */
 export function agentSchemaEntries(role) {
-  return AGENT_SCHEMA_CATALOG.filter((entry) => entry.role === role);
+  return AGENT_SCHEMA_CATALOG
+    .filter((entry) => entry.role === role || (Array.isArray(entry.roles) && entry.roles.includes(role)))
+    .map((entry) => (entry.role === role ? entry : { ...entry, role }));
 }
 
 /** Names the request-bound contract in prompts and validation feedback without

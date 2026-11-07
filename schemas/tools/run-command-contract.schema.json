@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.local/schemas/tools/run-command-contract.schema.json",
+  "$comment": "Business purpose: Defines the Node-mediated run_command tool contract (forge.run_command.v1) and role permissions so System Engineer and Coder execute project toolchains and archives safely without shell access or direct git calls. Technical description: Validates structured command, args, cwd, and timeout_ms parameters, declares allowed_roles (system_engineer, coder) and forbidden_roles (architecture_manager, sprint_leader, reviewer, subagent), and provides action-filtered branches for node, pnpm, npm, npx, php, zip, and unzip.",
+  "title": "Forge Node-Mediated run_command Contract (forge.run_command.v1)",
+  "description": "Structured contract for Node Command & Archive Service execution. Permitted only for system_engineer (project-wide) and coder (ticket scope); forbidden for architecture_manager, sprint_leader, reviewer, and explorer subagents.",
+  "x-role-permissions": {
+    "allowed_roles": ["system_engineer", "coder"],
+    "forbidden_roles": ["architecture_manager", "sprint_leader", "reviewer", "subagent"],
+    "scope_policy": {
+      "system_engineer": "project_root_contained",
+      "coder": "ticket_authorized_scope"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command", "args"],
+  "properties": {
+    "command": {
+      "type": "string",
+      "enum": ["node", "pnpm", "npm", "npx", "php", "zip", "unzip"],
+      "description": "Fixed Node-mediated capability identifier. Direct binary paths, shell interpreters (sh, bash), and direct/indirect git are forbidden."
+    },
+    "args": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 },
+      "description": "Structured argument array passed with shell: false. Path traversal (..), inline child_process execution, and .git/ or .forge/ mutation are rejected."
+    },
+    "cwd": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "default": ".",
+      "description": "Project-relative working directory inside projectRoot."
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 180000,
+      "default": 60000,
+      "description": "Execution timeout in milliseconds (default 60000, max 180000)."
+    }
+  },
+  "oneOf": [
+    {
+      "title": "node",
+      "description": "Execute Node scripts, syntax checks (--check), node:test suites (--test), or pure inline expressions (-e) using process.execPath with shell: false. Allowed roles: system_engineer, coder. Forbidden: child_process/spawn/exec/git, paths outside projectRoot, or mutating .git/ or .forge/.",
+      "properties": {
+        "command": { "const": "node" },
+        "args": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 1 } },
+        "cwd": { "type": "string" },
+        "timeout_ms": { "type": "integer" }
+      },
+      "examples": [{ "command": "node", "args": ["--check", "backend/src/tools/index.js"], "cwd": ".", "timeout_ms": 60000 }]
+    },
+    {
+      "title": "pnpm",
+      "description": "Execute pnpm project scripts and package operations (run, test, lint, typecheck, build, validate:schemas, install, add, remove, list, outdated, why, exec) with shell: false. Allowed roles: system_engineer, coder. Forbidden: git, publish, login, logout, --global, dlx, or --dir outside projectRoot.",
+      "properties": {
+        "command": { "const": "pnpm" },
+        "args": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 1 } },
+        "cwd": { "type": "string" },
+        "timeout_ms": { "type": "integer" }
+      },
+      "examples": [{ "command": "pnpm", "args": ["--dir", "backend", "run", "validate:schemas"], "cwd": ".", "timeout_ms": 60000 }]
+    },
+    {
+      "title": "npm",
+      "description": "Execute npm project scripts and dependency checks (run, test, install, ci, ls, outdated, pkg get, exec) with shell: false. Allowed roles: system_engineer, coder. Forbidden: git, publish, login, adduser, owner, token, -g, --global, or --prefix outside projectRoot.",
+      "properties": {
+        "command": { "const": "npm" },
+        "args": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 1 } },
+        "cwd": { "type": "string" },
+        "timeout_ms": { "type": "integer" }
+      },
+      "examples": [{ "command": "npm", "args": ["run", "validate:schemas"], "cwd": "backend", "timeout_ms": 60000 }]
+    },
+    {
+      "title": "npx",
+      "description": "Execute local project CLI binaries from node_modules/.bin (enforced with --no-install and shell: false). Allowed roles: system_engineer, coder. Forbidden: git, remote URLs/packages, or -c shell execution.",
+      "properties": {
+        "command": { "const": "npx" },
+        "args": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 1 } },
+        "cwd": { "type": "string" },
+        "timeout_ms": { "type": "integer" }
+      },
+      "examples": [{ "command": "npx", "args": ["eslint", "backend/src/tools/index.js"], "cwd": ".", "timeout_ms": 60000 }]
+    },
+    {
+      "title": "php",
+      "description": "Execute PHP syntax checks (-l), project scripts, or pure inline evaluation (-r) with shell: false. Allowed roles: system_engineer, coder. Forbidden: shell_exec/exec/system/passthru/proc_open/git, -S built-in web server, or -c outside projectRoot.",
+      "properties": {
+        "command": { "const": "php" },
+        "args": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 1 } },
+        "cwd": { "type": "string" },
+        "timeout_ms": { "type": "integer" }
+      },
+      "examples": [{ "command": "php", "args": ["-l", "index.php"], "cwd": ".", "timeout_ms": 30000 }]
+    },
+    {
+      "title": "zip",
+      "description": "Create a .zip archive inside projectRoot from project-relative files or directories through Node Archive Service. Allowed roles: system_engineer, coder. Forbidden: paths outside projectRoot or archiving .git/ or .forge/.",
+      "properties": {
+        "command": { "const": "zip" },
+        "args": { "type": "array", "minItems": 2, "maxItems": 64, "items": { "type": "string", "minLength": 1 } },
+        "cwd": { "type": "string" },
+        "timeout_ms": { "type": "integer" }
+      },
+      "examples": [{ "command": "zip", "args": ["-r", "dist/bundle.zip", "docs"], "cwd": ".", "timeout_ms": 60000 }]
+    },
+    {
+      "title": "unzip",
+      "description": "List (-l) or extract (-o ... -d <target_dir>) a .zip archive inside projectRoot through Node Archive Service with pre-extraction Zip Slip, symlink, and deadline/AbortSignal propagation. Allowed roles: system_engineer, coder.",
+      "properties": {
+        "command": { "const": "unzip" },
+        "args": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "minLength": 1 } },
+        "cwd": { "type": "string" },
+        "timeout_ms": { "type": "integer" }
+      },
+      "examples": [{ "command": "unzip", "args": ["-o", "dist/bundle.zip", "-d", "dist/unpacked"], "cwd": ".", "timeout_ms": 60000 }]
+    }
+  ]
+}

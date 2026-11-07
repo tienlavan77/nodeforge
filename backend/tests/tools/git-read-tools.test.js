@@ -53,7 +53,7 @@ test("coder Git reads exclude docs and include schema changes", async () => {
     await writeFile(join(root, "docs", "guide.md"), "secret change\n");
     await writeFile(join(root, "schemas", "contract.json"), "schema change\n");
     const tools = createGitReadTools({ gitService: createGitService({ projectRoot: root }), logger: captureLogger([]) });
-    const scoped = { ...context, agent_identity: { role: "coder" }, allowed_prefixes: ["docs/", "schemas/"] };
+    const scoped = { ...context, agent_identity: { role: "coder" }, allowed_prefixes: ["schemas/"] };
     const status = await tools.git_status.execute({}, scoped);
     const diff = await tools.git_diff.execute({}, scoped);
     assert.match(status.stdout, /schemas\/contract\.json/);
@@ -70,7 +70,7 @@ test("Git read tools log authorization, input, and repository failures", async (
     const events = [];
     const tools = createGitReadTools({ gitService: createGitService({ projectRoot: root }), logger: captureLogger(events) });
     await assert.rejects(() => tools.git_status.execute({}, { task_id: "GIT-READ-1", capabilities: [] }), (error) => error.code === "TOOL_FORBIDDEN");
-    await assert.rejects(() => tools.git_diff.execute({ staged: true }, context), (error) => error.code === "GIT_READ_INPUT_INVALID");
+    await assert.rejects(() => tools.git_diff.execute({ unknown_option: true }, context), (error) => error.code === "GIT_READ_INPUT_INVALID");
     await assert.rejects(() => tools.git_status.execute({}, context), (error) => error.code === "GIT_STATUS_FAILED");
     await assert.rejects(() => tools.git_diff.execute({}, context), (error) => error.code === "GIT_DIFF_FAILED");
     assert.deepEqual(events.map((event) => event.event_name), ["forge.git_status_rejected", "forge.git_diff_rejected", "forge.git_status_started", "forge.git_status_failed", "forge.git_diff_started", "forge.git_diff_failed"]);

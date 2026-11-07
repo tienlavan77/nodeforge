@@ -1,13 +1,25 @@
 // Provides direct System Engineer verification and Git operations through Node-owned project services.
 import { ConfigurationError } from "../../shared/errors.js";
+import { createRunCommandTool, runCommandDefinition } from "./run-command-tool.js";
+import { createGitWorkflowTools, gitBranchDefinition, gitRestoreDefinition, gitStashDefinition } from "./git-workflow-tools.js";
 
 const CHECK_TYPES = new Set(["test", "lint", "typecheck", "build"]);
 const INTERNAL_WORKFLOW_PATH = /^workflows(?:\/|$)/;
 
 // Creates project-service tools that let System Engineer verify, commit, and push project work.
-export function createOwnerEngineerTools({ testService, gitService, conversationStateStore } = {}) {
+export function createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId } = {}) {
   const implementations = {};
   const definitions = [];
+  if (projectRoot || commandService) {
+    implementations.run_command = createRunCommandTool({ projectRoot, commandService, conversationStateStore, conversationId });
+    definitions.push(runCommandDefinition);
+  }
+  if (gitService) {
+    const workflowTools = createGitWorkflowTools({ gitService, projectRoot, conversationStateStore, conversationId });
+    if (workflowTools.git_branch) { implementations.git_branch = workflowTools.git_branch; definitions.push(gitBranchDefinition); }
+    if (workflowTools.git_restore) { implementations.git_restore = workflowTools.git_restore; definitions.push(gitRestoreDefinition); }
+    if (workflowTools.git_stash) { implementations.git_stash = workflowTools.git_stash; definitions.push(gitStashDefinition); }
+  }
   if (typeof testService?.runCheck === "function") {
     implementations.run_check = { execute: runCheck };
     definitions.push(runCheckDefinition);

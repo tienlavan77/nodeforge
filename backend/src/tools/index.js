@@ -11,7 +11,9 @@ import { createCheckTestTool, createReadFileTool, createWriteDiffTool, createEdi
 import { createReportDoneTool } from "./reporting/agent-report-tool.js";
 import { createTicketReportCommit } from "./reporting/ticket-report-commit.js";
 import { createRespondToReviewTool, respondToReviewInputSchema } from "./reporting/respond-to-review-tool.js";
-import { createGitReadTools } from "./discovery/git-read-tools.js";
+import { createGitReadTools, gitLogDefinition, gitShowDefinition, gitBlameDefinition } from "./discovery/git-read-tools.js";
+import { createGitWorkflowTools, gitBranchDefinition, gitRestoreDefinition, gitStashDefinition } from "./roles/git-workflow-tools.js";
+import { createRunCommandTool, runCommandDefinition } from "./roles/run-command-tool.js";
 import { createAgentCommandTools } from "./governance/agent-command-tools.js";
 import { createTicketPushTool } from "./reporting/ticket-push-tool.js";
 import { engineeringToolImplementations } from "./engineering-tool-implementations.js";
@@ -20,6 +22,9 @@ import { createRoleFileService } from "../infrastructure/filesystem/file-service
 import { formatToolLogEvent } from "./reporting/tool-log-event.js";
 import { terminalAuditLogger } from "../core/terminal-log-format.js";
 export { rgFilesDefinition, rgSearchDefinition, sedLinesDefinition } from "./governance/agent-command-tools.js";
+export { gitLogDefinition, gitShowDefinition, gitBlameDefinition } from "./discovery/git-read-tools.js";
+export { gitBranchDefinition, gitRestoreDefinition, gitStashDefinition } from "./roles/git-workflow-tools.js";
+export { runCommandDefinition } from "./roles/run-command-tool.js";
 
 const require = createRequire(import.meta.url);
 const readTranscriptInputSchema = require("../../../schemas/agent/tools/read-transcript-blocks.schema.json");
@@ -88,10 +93,16 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
   }, "run_check");
   if (gitService?.commit) lifecycle.commit_changes = wrap(createCommitChangesTool({ gitService, changeLedger, logger: { emit: terminalAuditLogger(projectLogger) } }), "commit_changes", false);
   if (gitService?.pushCommit && changeLedger?.snapshot && executionContexts?.load) lifecycle.push_commit = wrap(createTicketPushTool({ gitService, changeLedger, executionContexts }), "push_commit");
+  if (projectRoot) {
+    lifecycle.run_command = wrap(createRunCommandTool({ projectRoot, changeLedger, logger: { emit: terminalAuditLogger(projectLogger) } }), "run_command", false);
+  }
   if (gitService?.status && gitService?.diffWorkingTree) {
     const gitReadTools = createGitReadTools({ gitService, logger: { emit: terminalAuditLogger(projectLogger) } });
-    lifecycle.git_status = wrap(gitReadTools.git_status, "git_status", false);
-    lifecycle.git_diff = wrap(gitReadTools.git_diff, "git_diff", false);
+    for (const [name, tool] of Object.entries(gitReadTools)) lifecycle[name] = wrap(tool, name, false);
+  }
+  if (gitService) {
+    const gitWorkflowTools = createGitWorkflowTools({ gitService, projectRoot, changeLedger, logger: { emit: terminalAuditLogger(projectLogger) } });
+    for (const [name, tool] of Object.entries(gitWorkflowTools)) lifecycle[name] = wrap(tool, name, false);
   }
   if (reportService?.buildFinalReport) lifecycle.report_done = wrap(createReportDoneTool({ reportService, verificationService: testService?.assertPassedArtifact ? testService : null, reviewFindings, onEvalCase }), "report_done");
   if (lifecycle.report_done && gitService?.reconcileRestoredCommit && changeLedger?.load && changeLedger?.snapshot && executionContexts)
@@ -126,7 +137,7 @@ export function createForgeToolRegistry({ protocolStorage, fileService, projectR
     return (async () => {
       try {
         const result = await execute();
-        if (executionContexts && changeLedger && ["write_diff", "edit_diff", "delete_file", "move_file", "commit_changes"].includes(name)) {
+        if (executionContexts && changeLedger && ["write_diff", "edit_diff", "delete_file", "move_file", "run_command", "git_branch", "git_restore", "git_stash", "commit_changes"].includes(name)) {
           const taskId = context.task_id ?? context.taskId;
           const manifest = await changeLedger.snapshot(taskId);
           let current = await executionContexts.syncManifest(taskId, manifest);
