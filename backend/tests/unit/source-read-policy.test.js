@@ -4,7 +4,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { createSourceReadTool } from "../../src/tools/discovery/source-read.js";
+import { authorizeTool } from "../../src/tools/governance/tool-authorization.js";
 import { createReadFileTool } from "../../src/tools/governance/agent-lifecycle-tools.js";
+
+test("authorizeTool invokes the child read-only enforcement gate", () => {
+  let calledWith;
+  const context = { task_id: "child-task", capabilities: ["read_file"], assertToolAllowed: (toolName) => { calledWith = toolName; if (toolName !== "read_file") throw Object.assign(new Error("forbidden"), { code: "SUBAGENT_TOOL_FORBIDDEN" }); } };
+  assert.equal(authorizeTool("read_file", context), true);
+  assert.equal(calledWith, "read_file");
+  assert.throws(() => authorizeTool("edit_diff", { ...context, capabilities: ["edit_diff"] }), { code: "SUBAGENT_TOOL_FORBIDDEN" });
+});
 
 // Checks runtime enforcement, receipt freshness and isolation with the real shared tools.
 test("code requires prior metadata and symbols; Markdown permits line windows", async () => {
