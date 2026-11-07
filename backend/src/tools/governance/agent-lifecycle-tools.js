@@ -25,7 +25,8 @@ function recordObservedFile(context, file) {
     current.sha256 = file.sha256;
     current.symbols_read = [...new Set([...(current.symbols_read ?? []), ...(file.symbols_read ?? [])])];
     if (file.symbol_map) current.symbol_map = file.symbol_map;
-  } else context.observed_files = [...observed, { path: file.path, sha256: file.sha256, symbols_read: [...new Set(file.symbols_read ?? [])], ...(file.symbol_map ? { symbol_map: file.symbol_map } : {}) }];
+    if (typeof file.source_tool === "string") current.source_tool = file.source_tool;
+  } else context.observed_files = [...observed, { path: file.path, sha256: file.sha256, symbols_read: [...new Set(file.symbols_read ?? [])], ...(file.symbol_map ? { symbol_map: file.symbol_map } : {}), ...(typeof file.source_tool === "string" ? { source_tool: file.source_tool } : {}) }];
 }
 
 const safePath = (value, operation = "read", role) => {
@@ -78,12 +79,13 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
     if (markdown) {
       const content = lines.slice(0, DOCUMENT_LINE_LIMIT).join("\n");
       recordRead(context, { path, window: `document-1-${Math.min(lines.length, DOCUMENT_LINE_LIMIT)}` });
+      recordObservedFile(context, { path, sha256, symbols_read: symbols.map((symbol) => symbol.name).filter(Boolean), symbol_map: symbols, source_tool: "read_file" });
       return { ...metadata, content, offset: 1, limit: Math.min(lines.length, DOCUMENT_LINE_LIMIT), truncated: lines.length > DOCUMENT_LINE_LIMIT,
         notice: lines.length > DOCUMENT_LINE_LIMIT ? "Document continues; use Read with start_line/end_line for the remainder." : "Complete Markdown document content." };
     }
     recordRead(context, { path, window: "metadata" });
     recordSourceMetadata(context, metadata);
-    recordObservedFile(context, { path, sha256, symbols_read: symbols.map((symbol) => symbol.name).filter(Boolean), symbol_map: symbols });
+    recordObservedFile(context, { path, sha256, symbols_read: symbols.map((symbol) => symbol.name).filter(Boolean), symbol_map: symbols, source_tool: "read_file" });
     return { ...metadata, observed_file: { path, sha256, symbols_read: symbols.map((symbol) => symbol.name).filter(Boolean) }, notice: "Metadata only. Inspect code_graph and symbol_map, then use Read with file_path and symbol for code." };
   }});
 }

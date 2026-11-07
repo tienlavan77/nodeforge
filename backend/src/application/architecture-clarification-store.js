@@ -38,7 +38,27 @@ export function createArchitectureClarificationStore({ projectId, fileService })
 
   // Restores pending choices and detects changed source files without automatically relaunching Architecture.
   async function list(conversationId) {
-    const sessions = await Promise.all((await readIndex()).map(get));
+    const ids = await readIndex();
+    const loaded = await Promise.all(ids.map(async (id) => {
+      try { return await get(id); }
+      catch (error) {
+        if (error.code === "ARCHITECTURE_SESSION_NOT_FOUND") return null;
+        throw error;
+      }
+    }));
+    const sessions = loaded.filter(Boolean);
+    if (sessions.length !== ids.length) {
+      const lock = await acquireTicketFileLock(fileService, `${indexPath}.lock`);
+      try {
+        const currentIds = await readIndex();
+        const currentSessions = await Promise.all(currentIds.map(async (id) => {
+          try { return await get(id); }
+          catch (error) { if (error.code === "ARCHITECTURE_SESSION_NOT_FOUND") return null; throw error; }
+        }));
+        const retainedIds = currentIds.filter((id, index) => currentSessions[index]);
+        if (retainedIds.length !== currentIds.length) await fileService.atomicWrite({ path: indexPath, content: JSON.stringify(retainedIds), replace: true });
+      } finally { await lock.release(); }
+    }
     return Promise.all(sessions.filter((session) => session.conversation_id === conversationId).map(async (session) => {
       if (["completed", "cancelled"].includes(session.status)) return session;
       try {

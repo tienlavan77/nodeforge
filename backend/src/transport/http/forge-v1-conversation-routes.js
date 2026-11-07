@@ -10,6 +10,49 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
 
   // Routes conversation CRUD, history, and owner messages.
   async function routeConversation({ method, parts, url, body, projectId, headers }) {
+    if (parts[0] === "handoffs" && handoffService) {
+      if (projectId && body.project_id && body.project_id !== projectId) throw Object.assign(new ConfigurationError("Project scope does not match the handoff request."), { statusCode: 404, code: "PROJECT_SCOPE_MISMATCH" });
+      if (parts.length === 1 && method === "GET") return { status: 200, body: { items: await handoffService.listHandoffs() } };
+      if (parts.length === 2 && method === "GET") {
+        if (typeof handoffService.getHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff detail is unavailable."), { code: "HANDOFF_DETAIL_UNAVAILABLE", statusCode: 503 });
+        return { status: 200, body: await handoffService.getHandoff(parts[1]) };
+      }
+      if (parts.length === 3 && method === "POST" && parts[2] === "run") {
+        if (typeof handoffService.resumeHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff run is unavailable."), { code: "HANDOFF_RUN_UNAVAILABLE", statusCode: 503 });
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff run."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+      }
+      if (parts.length === 3 && method === "POST" && parts[2] === "resume") {
+        if (typeof handoffService.resumeHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff resume is unavailable."), { code: "HANDOFF_RESUME_UNAVAILABLE", statusCode: 503 });
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff resume."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+      }
+      if (parts.length === 3 && method === "POST" && parts[2] === "stop") {
+        if (typeof handoffService.pauseHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff stop is unavailable."), { code: "HANDOFF_STOP_UNAVAILABLE", statusCode: 503 });
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff stop."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.pauseHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+      }
+      if (parts.length === 3 && method === "POST" && parts[2] === "reconcile") {
+        if (typeof handoffService.reconcileHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff reconciliation is unavailable."), { code: "HANDOFF_RECONCILE_UNAVAILABLE", statusCode: 503 });
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff reconciliation."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.reconcileHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256, operatorApproved: body.operator_approved === true }) };
+      }
+      if (parts.length === 3 && method === "GET" && parts[2] === "workspace") return { status: 200, body: await handoffService.handoffWorkspaceStatus({ handoffId: parts[1] }) };
+      if (parts.length === 3 && method === "POST" && parts[2] === "adopt-workspace") {
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for baseline adoption."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.adoptHandoffWorkspace({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+      }
+      if (parts.length === 3 && method === "POST" && parts[2] === "resume-critique") {
+        if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for critique resume."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
+        planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.resumeCritique({ handoffId: parts[1] }) };
+      }
+    }
     if (parts[0] === "projects" && parts[2] === "handoffs" && handoffService) {
       if (projectId && parts[1] !== projectId) throw Object.assign(new ConfigurationError("Project scope does not match the handoff request."), { statusCode: 404, code: "PROJECT_SCOPE_MISMATCH" });
       if (parts.length === 3 && method === "GET") return { status: 200, body: { items: await handoffService.listHandoffs() } };
