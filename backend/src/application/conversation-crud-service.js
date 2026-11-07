@@ -13,7 +13,7 @@ export function createConversationCrudService({ database, clock = () => new Date
   // Defines ensure function behavior for conversation-crud-service.js.
   function ensure({ id, project_id: projectId, agent_id: agentId, title } = {}) {
     const existing = get(id);
-    if (existing) return update(id, { title: title ?? existing.title });
+    if (existing) return existing;
     return create({ id, project_id: projectId, agent_id: agentId, title, allowSafeId: true });
   }
   // Defines list function behavior for conversation-crud-service.js.

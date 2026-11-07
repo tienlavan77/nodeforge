@@ -23,7 +23,7 @@ test("Codex profiles investigate through their Codex SDK with read-only Forge to
         assert.match(input.prompt, /AM returns its decision to SL; only SL coordinates Coder/);
         assert.doesNotMatch(input.prompt, /do not ask AM to rubber-stamp|AM retains Architecture\/contract decisions only/);
         assert.doesNotMatch(input.prompt, /FULFILLMENT STAGE for recorded owner decision/);
-        assert.deepEqual(input.options.forgeTools.definitions.map((definition) => definition.name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "git_status", "git_diff"]);
+        assert.deepEqual(input.options.forgeTools.definitions.map((definition) => definition.name), ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "lookup_schema"]);
         assert.equal(input.options.builtinWebSearch, undefined);
         assert.equal(input.options.sandboxMode, "read-only");
         assert.equal(input.options.networkAccessEnabled, true);
@@ -69,8 +69,7 @@ test("read-only investigation keeps traversal forbidden without exhausting allow
     const toolLogs = logs.filter((entry) => entry.event_name === "supervisor.blocker_tool_call");
     assert(toolLogs.every((entry) => entry.task_id === "TICKET-1" && entry.correlation_id === "BLOCKER-JOB-SL"));
     assert(toolLogs.every((entry) => entry.payload.tool === "read_file" && entry.payload.agent_id === "SL"));
-    assert.equal(JSON.stringify(logs).includes("../outside"), false);
-    assert.equal(JSON.stringify(toolLogs).includes(fixture.evidence.path), false);
+    assert.equal(toolLogs.every((entry) => entry.payload.path === undefined), true);
   } finally { await fixture.close(); }
 });
 

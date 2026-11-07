@@ -88,7 +88,7 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
     };
     if (childContext.subagent_depth > 1) throw Object.assign(new ConfigurationError("delegate_subagent nesting depth exceeded."), { code: "SUBAGENT_NESTING_FORBIDDEN" });
     const result = await executeTask(task, childContext);
-    const observed = normalizeObserved(result?.observed_files ?? childContext.observed_files, childContext).map((file) => ({
+    const observed = normalizeObserved(childContext.observed_files ?? result?.observed_files, childContext).map((file) => ({
       ...file,
       parent_execution_id: parentExecutionId,
       child_execution_id: childExecutionId,

@@ -104,7 +104,80 @@ Qua đọc trực tiếp `backend/src/tools/discovery/delegate-subagent-tool.js`
    - Dòng 134 và 136 lặp lại dòng `...(typeof file.child_agent_id === "string" ? { child_agent_id: file.child_agent_id } : {})`.
 2. Đúng như mục `Limitations` trong báo cáo SE đã nêu rõ: kết quả hiện tại (`VERIFY-RUN-8ca7cba2-e16d-48d0-b4c6-53f3a61927a8`, pass `delegate-subagent-tool.test.js` và `source-read-policy.test.js`) xác nhận hoàn tất **hardening cho phạm vi `delegate_subagent` read-only explorer**, không tuyên bố thay cho full provider matrix hay crash-recovery của luồng handoff AM–SE–RV.
 
-### 4.3. Quyết định cuối cùng của AM cho hạng mục `delegate_subagent` hardening
+### 4.3. Quyết định cho phạm vi `delegate_subagent` unit hardening
 
-- **Trạng thái:** **`PASS` (Đồng ý nghiệm thu phạm vi `delegate_subagent` hardening)**
-- Tất cả 4 điểm kỹ thuật trong Vòng 1 đã được SE khắc phục đầy đủ, khớp mã nguồn và pass kiểm thử mục tiêu.
+- **Trạng thái:** **`PASS` cho tầng unit hardening (`delegate-subagent-tool.js`)**, nhưng **CẦN SỬA TIẾP (`REVISE`) ở tầng wiring `owner-sdk-stream.js`** sau khi kiểm tra báo cáo cập nhật lần 3.
+
+---
+
+## 5. AM Review Vòng 3 — Kiểm tra bản cập nhật `docs/architecture/subagent-forge-tool-se-report.md` (`sha256:08dee12bbc14bbc7c94f14a006938985832ff3a7a55f23bc32e3ada04cc6a542`)
+
+### 5.1. Những điểm SE đã cập nhật thêm và đã khớp code
+
+1. **`delegate-subagent-tool.js` (`sha256:ec2c92148a3275be663f1f36eff71f1fd4e02860027629c7a7dc54ed4947e315`):**
+   - Đã xóa dòng `child_agent_id` bị lặp ở `normalizeObserved` (dòng 134–136).
+   - Đã đổi dòng 91 thành `normalizeObserved(childContext.observed_files ?? result?.observed_files, childContext)` để ưu tiên dữ liệu từ collector nội bộ (`childContext.observed_files`) trước dữ liệu tự trả về của executor, kèm unit test kiểm chứng (`VERIFY-RUN-c88104f0-80dd-46ee-a255-91c32c65a00f`, exit 0).
+2. **`owner-sdk-stream.js` (`sha256:81ec53d416a1b3edaad558e7cd9c33c485c3548adfe8513a717251072af900b2`):**
+   - Dòng 112 đã bổ sung `correlationId: child.correlation_id ?? child.execution_id` vào lệnh `childSdk.execute(...)`.
+
+### 5.2. Giải thích vì sao SE gọi lại `delegate_subagent` trong cùng turn vẫn gặp lỗi cũ `Claude SDK correlation_id is required.`
+
+- Khi SE sửa file `backend/src/application/owner-sdk-stream.js` trên đĩa rồi gọi `delegate_subagent` ngay trong cùng turn đang chạy, tiến trình Node server đang giữ closure `childExecutor` cũ trong RAM (được tạo ở đầu turn tại dòng 107 trước khi file được sửa). Node không hot-reload ESM module giữa chừng một turn đang chạy.
+
+### 5.3. Phát hiện Blocker mới ở `owner-sdk-stream.js` (dòng 112): Claude child subagent chưa được gắn `mcpServers` (`createOwnerClaudeMcpTools` + `createClaudeForgeOptions`)
+
+Khi kiểm tra kỹ `owner-sdk-stream.js` (dòng 107–114) đối chiếu với `claude-sdk-gateway.js` (dòng 74–95):
+
+- Trong `owner-sdk-stream.js` (dòng 112), `childExecutor` chỉ truyền:
+  ```js
+  options: {
+    effort: "low",
+    forgeTools: { registry: childTools.registry, definitions: childTools.definitions, context: childContext }
+  }
+  ```
+- Trong khi đó:
+  - `codex-sdk-gateway.js` (dòng 77) đọc `options.forgeTools` để tạo MCP session.
+  - **Nhưng `claude-sdk-gateway.js` (dòng 75–76) xóa `cloneableOptions.forgeTools` và chỉ đọc `options.mcpServers`, `options.allowedTools`, `options.tools`!**
+- Ở luồng agent cha (`owner-sdk-stream.js` dòng 121 và 147–150), code chuyển đổi `forgeTools` sang `mcpServers` thông qua:
+  ```js
+  const claudeTools = ["claude", "anthropic"].includes(profile.provider) ? createOwnerClaudeMcpTools(forgeTools) : null;
+  const claudeOptions = claudeTools ? createClaudeForgeOptions(claudeTools) : {};
+  ```
+- **Nhưng ở `childExecutor` (dòng 107–114), bước chuyển đổi `createOwnerClaudeMcpTools` + `createClaudeForgeOptions` (và `sandboxMode: "read-only"` cho Codex) đang bị thiếu hoàn toàn.**
+- **Hệ quả:** Khi chạy với provider `claude` / `anthropic`, child subagent sẽ không nhận được `mcpServers.forge` và `allowedTools`, dẫn đến không gọi được bất kỳ tool đọc nào (`search_tree`, `list_files`, `search_text`, `read_file`, `Read`).
+
+### 5.4. Yêu cầu sửa dứt điểm cho SE
+
+1. **Trong `backend/src/application/owner-sdk-stream.js` (dòng 107–114):**
+   - Tạo `childForgeTools = { registry: childTools.registry, definitions: childTools.definitions, context: childContext }`.
+   - Nếu `["claude", "anthropic"].includes(profile.provider)`: tạo `childClaudeOptions = createClaudeForgeOptions(createOwnerClaudeMcpTools(childForgeTools))` và spread vào `options` của `childSdk.execute(...)`.
+   - Nếu `sdk.conversationMode === "thread"` (Codex): truyền `sandboxMode: "read-only"`, `approvalPolicy: "on-request"`, `networkAccessEnabled: false`, `webSearchMode: "disabled"`.
+   - Truyền `conversationId` vào `childSdk.execute(...)` để `claudeHome` / `codexHome` của subagent cô lập theo đúng conversation.
+2. **Trong `backend/tests/unit/system-engineer-sdk-tools.test.js`:**
+   - Cập nhật fixture test cho khớp danh sách tool hiện hành (`Read`, `read_file_binary`, `delegate_subagent`) và truyền `claudeHomeRoot` / `projectRoot` vào thư mục tạm (`os.tmpdir()`) thay vì `"/project"` để không bị lỗi `EACCES`.
+   - Thêm 1 unit test trong `owner-sdk-tools.test.js` (hoặc `delegate-subagent-tool.test.js`) chứng minh khi parent chạy provider `claude`/`anthropic` và gọi `delegate_subagent`, `childSdk.execute` nhận được đủ `correlationId`, `subagentId`, `options.mcpServers.forge`, `options.tools: []` và `options.allowedTools` chỉ gồm 5 tool read-only `mcp__forge__*`.
+
+---
+
+## 6. AM Review Vòng 4 — Kiểm tra bản cập nhật `docs/architecture/subagent-forge-tool-se-report.md` (`sha256:3d79ca21d1ed2f8fbf2db1546218cb944f17da46788cae1d2c5f430bc589d480`)
+
+Đã đọc bản cập nhật mới nhất của `docs/architecture/subagent-forge-tool-se-report.md` và đối chiếu trực tiếp với `backend/src/application/owner-sdk-stream.js` (`sha256:751b9c6c6e8ede0ee85fe2648b7bb28195f852aef35fdeb6b1f4a2a34b9efb30`) cùng `backend/tests/unit/system-engineer-sdk-tools.test.js` (`sha256:c69e9c45dae4ce7cac370ca7d596160fa9bfd23c135ceb34e19a3b942f87809d`).
+
+### 6.1. Kết quả đối chiếu toàn bộ yêu cầu của Vòng 3
+
+| # | Yêu cầu từ Vòng 3 | Kiểm tra thực tế trong code | Kết quả |
+|---|---|---|---|
+| **1** | Gắn `createOwnerClaudeMcpTools` + `createClaudeForgeOptions` cho Claude child và `sandboxMode: "read-only"` cho Codex child trong `owner-sdk-stream.js` | Tại dòng 110–118 của `owner-sdk-stream.js`: đã tạo `childForgeTools`, gọi `createOwnerClaudeMcpTools(childForgeTools)` và `createClaudeForgeOptions(childClaudeTools)` cho `claude`/`anthropic`, cấu hình `{ sandboxMode: "read-only", approvalPolicy: "on-request", networkAccessEnabled: false, webSearchMode: "disabled" }` cho `thread` (Codex), đồng thời truyền `conversationId` và `correlationId: child.correlation_id ?? child.execution_id` vào `childSdk.execute(...)`. | **ĐẠT (PASS)** |
+| **2** | Sửa fixture `system-engineer-sdk-tools.test.js` và thêm test kiểm chứng parent/child Claude MCP composition | Tại `backend/tests/unit/system-engineer-sdk-tools.test.js` (dòng 163–170): đã cập nhật sang surface mới (`Read`, `read_file_binary`, `delegate_subagent`), dùng thư mục tạm ghi được và bổ sung test kiểm tra `childRequest` nhận đúng `subagentId`, `conversationId`, `correlationId`, `options.mcpServers.forge`, `options.tools: []` và `options.allowedTools` 5 tool read-only. | **ĐẠT (PASS)** |
+| **3** | Chạy lại kiểm thử và gọi thật `delegate_subagent` (Live revalidation) | Test suite `delegate-subagent-tool.test.js` + `system-engineer-sdk-tools.test.js` đã pass (`VERIFY-RUN-3914299f-a01d-438f-b2b4-b8455eb2964f`, exit 0). Lần gọi thật `delegate_subagent` với 2 task song song đã trả về `status: "completed"`, `tasks_completed: 2`, `observed_files` có đầy đủ `parent_execution_id`, `child_execution_id`, `child_agent_id`, `observed_at`, `source_tool`. | **ĐẠT (PASS)** |
+
+### 6.2. Ghi chú nhỏ từ Live Audit (Non-blocking)
+
+- Khi nhiều child trong cùng 1 batch đọc trùng 1 file `path`, `mergeObserved` hợp nhất `symbols_read` và giữ `sha256` mới nhất cùng provenance của child đầu tiên. Đây là hành vi hoàn toàn hợp lệ cho mục đích cấp receipt/checksum về parent và không chặn nghiệm thu.
+
+### 6.3. Kết luận nghiệm thu cuối cùng của AM cho `delegate_subagent`
+
+- **Quyết định:** **`PASS` (Hoàn tất nghiệm thu toàn bộ phạm vi `delegate_subagent` Read-Only Explorer)**
+- **Cơ sở nghiệm thu:**
+  1. Unit hardening (`delegate-subagent-tool.js`) + Runtime authorization gate (`tool-authorization.js`) + Read observation collectors (`agent-lifecycle-tools.js`, `source-read.js`) + Owner SDK child composition (`owner-sdk-stream.js`) đã khép kín.
+  2. Cả kiểm thử tự động (`VERIFY-RUN-3914299f-a01d-438f-b2b4-b8455eb2964f`) lẫn kiểm thử gọi thật (`delegate_subagent` live execution với 2 task song song) đều đã thành công.

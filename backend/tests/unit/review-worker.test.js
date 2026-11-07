@@ -121,7 +121,7 @@ test("Claude Reviewer receives the same Forge-only SDK boundary as other roles",
   });
   await worker.review({ task_id: "TASK-1", correlation_id: "CORR-1", request_id: "REVIEW-1", agent_id: "coder-1", payload: { ticket: { id: "TASK-1" }, changed_paths: ["src/a.js"] } });
   assert.deepEqual(request.options.tools, []);
-  assert.deepEqual(request.options.allowedTools, ["mcp__forge__search_tree", "mcp__forge__list_files", "mcp__forge__search_text", "mcp__forge__read_file", "mcp__forge__read_lines", "mcp__forge__query_review"]);
+  assert.deepEqual(request.options.allowedTools, ["mcp__forge__search_tree", "mcp__forge__list_files", "mcp__forge__search_text", "mcp__forge__read_file", "mcp__forge__Read", "mcp__forge__lookup_schema", "mcp__forge__query_review"]);
   assert.equal(request.options.mcpServers.forge.type, "sdk");
   assert.match(request.prompt, /REVIEW_CHECK_ISOLATION_UNSUPPORTED, never PASS/);
   assert.match(request.prompt, /including callers outside the manifest/);
@@ -139,7 +139,7 @@ test("Reviewer records per-tool checkpoint progress and failure state", async ()
         if (input.options.forgeTools.registry.read_file) await input.options.forgeTools.registry.read_file.execute({ path: "src/a.js" });
         else {
           assert.equal(input.resumeThreadId, "thread-rev-1");
-          assert.deepEqual(input.options.forgeTools.definitions, []);
+          assert.deepEqual(input.options.forgeTools.definitions.map(({ name }) => name), ["lookup_schema"]);
         }
         return { text: '{"verdict":"request_changes","findings":["legacy string"]}' };
       }

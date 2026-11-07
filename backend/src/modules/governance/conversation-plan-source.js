@@ -38,9 +38,13 @@ export async function readRetainedConversationPlanSource({ fileService, planId, 
 }
 
 // Writes the canonical JSON once and returns its path plus exact-byte SHA-256.
-export async function retainConversationPlanSource({ fileService, planId, revision, canonicalBytes }) {
+export async function retainConversationPlanSource({ fileService, planId, revision, canonicalBytes, overwriteUnapproved = false }) {
   const path = conversationPlanSourcePath({ planId, revision });
   const sha256 = createHash("sha256").update(String(canonicalBytes)).digest("hex");
+  if (overwriteUnapproved) {
+    await fileService.atomicWrite({ path, content: canonicalBytes, replace: true });
+    return { path, sha256 };
+  }
   try { await fileService.atomicCreate({ path, content: canonicalBytes }); }
   catch (error) {
     if (error.code !== "FILE_ALREADY_EXISTS") throw error;

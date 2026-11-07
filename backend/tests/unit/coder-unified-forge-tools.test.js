@@ -22,7 +22,9 @@ function fixture(governance) {
     } },
     codexSdkGateway: { execute: async (request) => {
       requests.codex = request;
-      for (const tool of ["read_lines", "edit_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
+      if (typeof request.onEvent === "function") {
+        for (const tool of ["read_lines", "edit_diff", "commit_changes", "report_done"]) await request.onEvent({ type: "item.completed", item: { type: "mcp_tool_call", server: "forge", tool, status: "completed" } });
+      }
       return { text: "done" };
     } }
   });
@@ -35,6 +37,8 @@ test("Claude and Codex ticket executors expose the System Engineer catalog with 
   await executors.runToolTicket({ agent_id: "A", role: "coder", provider: "claude" }, request);
   await executors.runCodexTask({ agent_id: "A", role: "coder", provider: "codex" }, request);
   assert.deepEqual(requests.claude.options.allowedTools.map((name) => name.replace("mcp__forge__", "")).sort(), requests.codex.options.forgeTools.definitions.map(({ name }) => name).sort());
+  assert.match(requests.claude.prompt, /delegate_subagent\(\{tasks:\[\{id,objective,paths\}\]\}\)/);
+  assert.match(requests.codex.prompt, /delegate_subagent\(\{tasks:\[\{id,objective,paths\}\]\}\)/);
   assert.deepEqual(requests.codex.options.forgeTools.definitions.map(({ name }) => name), CODER_TOOL_NAMES);
   const listTools = requests.claude.options.mcpServers.forge.instance.server._requestHandlers.get("tools/list");
   const exposed = await listTools({ method: "tools/list", params: {} }, {});
@@ -61,42 +65,55 @@ test("Coder can inspect seven distinct windows without an independent read quota
   const governance = createRuntimeToolGovernance();
   const { executors, requests } = fixture(governance);
   await executors.runCodexTask({ agent_id: "A", role: "coder", provider: "codex" }, { task_id: "T", request_id: "R", correlation_id: "C", payload: {}, ticket: { title: "Fix backend behavior", objective: "Correct backend response", acceptance_criteria: ["Returns the correct response"] } });
+  assert.match(requests.codex.prompt, /delegate_subagent/);
   const context = requests.codex.options.forgeTools.context;
   assert.equal(context.exploration_state.read_limit, null);
   assert.equal(context.exploration_state.search_limit, null);
   assert.ok(Number.isInteger(context.exploration_state.discovery_limit));
   for (let index = 1; index <= 7; index++) {
-    await governance.dispatch("read_lines", { path: "backend/example.js", start_line: index, end_line: index }, context, async () => ({ stdout: `line ${index}`, exit_code: 0 }));
+    await governance.dispatch("Read", { file_path: "backend/example.js", symbol: `fn${index}` }, context, async () => ({ content: `line ${index}`, sha256: `sha256:${"a".repeat(64)}` }));
   }
   await assert.rejects(governance.dispatch("sed_lines", {}, context, async () => ({})), { code: "TOOL_FORBIDDEN" });
 });
 
 test("legacy checkpoints resume with equivalent canonical names without relabeling semantic-search evidence", () => {
   const state = createResumeState({ status: "in_progress", completed_tools: ["rg_files", "rg_search", "sed_lines", "search_code", "commit_changes"], turn_history: [{ tool: "sed_lines", turn: 1, target: "backend/a.js", outcome: "ok" }], changed_paths: ["backend/a.js"], session_id: "SESSION" });
-  assert.deepEqual(state.completedTools, ["list_files", "search_text", "read_lines", "search_code", "commit_changes"]);
-  assert.equal(state.turnHistory[0].tool, "read_lines");
+  assert.deepEqual(state.completedTools, ["list_files", "search_text", "sed_lines", "search_code", "commit_changes"]);
+  assert.equal(state.turnHistory[0].tool, "sed_lines");
   assert.equal(state.sessionId, "SESSION");
   assert.deepEqual(state.changedPaths, ["backend/a.js"]);
 });
 
-test("Coder canonical read_file returns bounded source, checksum and scope denial", async () => {
+test("Coder canonical read_file returns metadata, checksum and rejects outside-project paths", async () => {
   const tool = createReadFileTool({ fileService: { readForIndex: async () => ({ content: "const first = 1;\nconst second = 2;\n" }) } });
   const context = { task_id: "T", agent_identity: { role: "coder" }, allowed_file_paths: ["backend/example.js"], allowed_prefixes: [] };
-  const result = await tool.execute({ path: "backend/example.js", offset: 2, limit: 1 }, context);
-  assert.equal(result.content, "const second = 2;");
+  const result = await tool.execute({ path: "backend/example.js" }, context);
+  assert.equal(result.content, undefined);
   assert.match(result.sha256, /^sha256:[a-f0-9]{64}$/);
-  await assert.rejects(tool.execute({ path: "backend/other.js", offset: 1, limit: 1 }, context));
+  await assert.rejects(tool.execute({ path: "../outside.js" }, context));
 });
 
-test("canonical read_lines satisfies Coder rules and is recorded before editing on resume", async () => {
+test("canonical Read satisfies Coder rules and is recorded before editing on resume", async () => {
   const state = createResumeState(null);
   const saved = [];
   const registry = checkpointedRegistry({ store: { save: async (record) => saved.push(record) }, registry: {
-    read_lines: { execute: async () => ({ stdout: "rules", exit_code: 0 }) }, edit_diff: { execute: async () => ({}) }
+    Read: { execute: async () => ({ content: "rules", sha256: `sha256:${"b".repeat(64)}` }) }, edit_diff: { execute: async () => ({}) }
   }, taskId: "T", selected: { role: "coder" }, resumeState: state });
   const context = { changed_paths: [] };
-  await registry.read_lines.execute({ path: "workflows/agents/coder/README.md", start_line: 1, end_line: 20 }, context);
+  await registry.Read.execute({ file_path: "workflows/agents/coder/README.md", start_line: 1, end_line: 20 }, context);
   await registry.edit_diff.execute({ path: "backend/example.js" }, context);
   assert.equal(saved[0].coder_rules_read, true);
-  assert.deepEqual(saved[1].completed_tools, ["read_lines", "edit_diff"]);
+  assert.deepEqual(saved[1].completed_tools, ["Read", "edit_diff"]);
+});
+
+test("Coder ticket runtime executes delegate_subagent and records observed_files into readCache", async () => {
+  const { executors, requests } = fixture();
+  const request = { task_id: "T-SUB", request_id: "R-SUB", correlation_id: "C-SUB", payload: {}, ticket: { title: "Explore modules", objective: "Inspect callers", acceptance_criteria: ["Observed files recorded"] } };
+  await executors.runCodexTask({ agent_id: "A", role: "coder", provider: "codex" }, request);
+  const res = await requests.codex.options.forgeTools.registry.delegate_subagent.execute({
+    tasks: [{ id: "sub1", objective: "Inspect backend", paths: ["backend/src"] }]
+  });
+  assert.equal(res.status, "completed");
+  assert.equal(res.tasks.length, 1);
+  assert.equal(res.tasks[0].id, "sub1");
 });

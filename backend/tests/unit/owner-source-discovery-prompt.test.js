@@ -26,6 +26,7 @@ test("AM and SE receive graph-first, symbol-focused source discovery in Forge mo
         assert.match(requests[0].prompt, /prefer Read\(\{file_path,symbol\}\)/);
         assert.match(requests[0].prompt, /Do not concatenate adjacent windows/);
         assert.match(requests[0].prompt, /An empty graph with index_status stale or unavailable/);
+        assert.match(requests[0].prompt, /delegate_subagent\(\{tasks:\[\{id,objective,paths\}\]\}\)/);
       }
     }
   }

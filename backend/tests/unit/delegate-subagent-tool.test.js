@@ -32,7 +32,8 @@ test("delegate_subagent derives an isolated read-only child context and rejects 
     assert.equal(context.agent_identity.agent_id, "parent-agent:sub:inspect");
     assert.deepEqual(context.allowed_prefixes, ["src/"]);
     assert.throws(() => context.assertToolAllowed("edit_diff"), { code: "SUBAGENT_TOOL_FORBIDDEN" });
-    return { summary: "ok", observed_files: [{ path: "src/shared.js", sha256: "sha256:" + "b".repeat(64), symbols_read: ["Shared"] }] };
+    context.observed_files = [{ path: "src/shared.js", sha256: "sha256:" + "a".repeat(64), symbols_read: ["Collected"], source_tool: "Read" }];
+    return { summary: "ok", observed_files: [{ path: "src/shared.js", sha256: "sha256:" + "b".repeat(64), symbols_read: ["Untrusted"] }] };
   } });
   const result = await tool.execute({ tasks: [{ id: "inspect", objective: "inspect", paths: ["src/shared.js"] }] }, {
     task_id: "parent-task", execution_id: "parent-execution", agent_identity: { agent_id: "parent-agent", role: "system_engineer" }, allowed_prefixes: ["src/"]
@@ -41,7 +42,9 @@ test("delegate_subagent derives an isolated read-only child context and rejects 
   assert.equal(result.observed_files[0].child_execution_id, "parent-execution:sub:inspect");
   assert.equal(result.observed_files[0].parent_execution_id, "parent-execution");
   assert.equal(typeof result.observed_files[0].observed_at, "string");
-  assert.equal(result.observed_files[0].source_tool, "read_file");
+  assert.equal(result.observed_files[0].source_tool, "Read");
+  assert.equal(result.observed_files[0].sha256, "sha256:" + "a".repeat(64));
+  assert.deepEqual(result.observed_files[0].symbols_read, ["Collected"]);
   assert.equal(childContext.subagent_depth, 1);
   await assert.rejects(() => tool.execute({ tasks: [{ id: "bad", objective: "inspect", paths: ["../outside"] }] }, {}), /safe relative paths/);
 });
