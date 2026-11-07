@@ -89,6 +89,23 @@ export async function assertNoSymlinkEscape(projectRoot, targetAbsPath) {
   }
 }
 
+// Business purpose: Validates that every non-flag argument or path-valued flag resolves inside projectRoot without traversing symlinks outside projectRoot.
+// Technical description: Inspects non-flag arguments and flag-assigned path values, resolves them against cwdAbsolute and projectRoot, and calls assertNoSymlinkEscape on each candidate path.
+export async function assertCommandArgSymlinkSafety(projectRoot, cwdAbsolute, command, args) {
+  const inlineEval = (command === "node" || command === "php") && args.some((t) => INLINE_EVAL_FLAGS.has(t));
+  for (let i = 0; i < args.length; i += 1) {
+    const raw = args[i];
+    if (inlineEval && i > 0 && INLINE_EVAL_FLAGS.has(args[i - 1])) continue;
+    const candidate = raw.startsWith("-") ? (raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "") : raw;
+    if (!candidate || /^https?:\/\//i.test(candidate)) continue;
+    const targetAbs = isAbsolute(candidate) ? resolve(candidate) : resolve(cwdAbsolute, candidate);
+    const rel = relative(resolve(projectRoot), targetAbs).split(sep).join("/");
+    if (!rel.startsWith("..") && !isAbsolute(rel)) {
+      await assertNoSymlinkEscape(projectRoot, targetAbs);
+    }
+  }
+}
+
 // Business purpose: Validates structured command and argument rules before spawning any child process.
 // Technical description: Enforces capability allowlist, rejects direct or indirect git tokens, checks per-tool forbidden flags/subcommands, and validates path arguments against projectRoot.
 export function validateRunCommandInput(input, projectRoot) {
@@ -136,6 +153,8 @@ function validatePerCommandPolicy(command, args, cwdAbsolute, projectRoot) {
     }
     if (isAbsolute(arg)) {
       resolveProjectContainedPath(projectRoot, arg, { forbidProtected: true, label: "argument" });
+    } else if (!arg.startsWith("-") && (arg.includes("/") || arg.includes("\\"))) {
+      resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, arg), { forbidProtected: true, label: "argument" });
     }
   }
   const hasInlineFlag = args.some((token) => INLINE_EVAL_FLAGS.has(token) || token.startsWith("--eval=") || token.startsWith("--print=") || token.startsWith("--require=") || token.startsWith("--import="));

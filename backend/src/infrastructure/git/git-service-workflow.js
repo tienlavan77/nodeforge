@@ -4,11 +4,12 @@
 import { ConfigurationError } from "../../shared/errors.js";
 
 // Business purpose: Creates the branch, restore, and stash operation handlers for Node Git Service.
-// Technical description: Wraps mutating branch, restore, and stash actions in guard (mutationLock) while keeping list/current queries read-only.
+// Technical description: Wraps mutating branch, restore, and stash actions in guard (mutationLock) while keeping list/current queries read-only and enforcing protected-branch checks before every working-tree mutation.
 export function createGitWorkflowServiceOps({
   execute,
   guard,
   emit,
+  status,
   currentBranch,
   branchExists,
   validateRevision,
@@ -30,6 +31,15 @@ export function createGitWorkflowServiceOps({
     }
   };
 
+  // Business purpose: Verifies that the active branch is not a protected branch (`main`, `master`, `production`) before executing a working-tree mutation.
+  // Technical description: Queries currentBranch and throws GIT_PROTECTED_BRANCH if the current branch is in protectedBranches.
+  async function assertCurrentBranchUnprotected(operationLabel) {
+    const active = (await currentBranch()) || "";
+    if (active && protectedBranches.has(active)) {
+      throw gitError("GIT_PROTECTED_BRANCH", `Cannot execute ${operationLabel} while on protected branch: ${active}.`);
+    }
+  }
+
   // Business purpose: Executes read-only branch queries (list and current) for any authorized agent role.
   // Technical description: Queries currentBranch and git branch --format to return branch names and HEAD SHA without mutating repository state.
   async function branchRead({ action } = {}) {
@@ -45,7 +55,7 @@ export function createGitWorkflowServiceOps({
   }
 
   // Business purpose: Executes governed branch mutations (create, switch, delete_merged) under mutationLock while protecting main/master/production branches.
-  // Technical description: Validates branch names and optional start_point, prevents deleting or overwriting protected branches, and emits git.branch audit events.
+  // Technical description: Validates branch names and optional start_point, prevents deleting, overwriting, or mutating protected branches, and emits git.branch audit events.
   async function branchMutate({ action, name, start_point } = {}) {
     if (!["create", "switch", "delete_merged"].includes(action)) {
       throw gitError("GIT_BRANCH_INVALID_ACTION", `Unsupported git_branch action: ${action ?? "<missing>"}.`);
@@ -63,6 +73,16 @@ export function createGitWorkflowServiceOps({
       return { action: "create", branch: name, base_commit: head };
     }
     if (action === "switch") {
+      const active = (await currentBranch()) || "";
+      if (protectedBranches.has(name) || protectedBranches.has(active)) {
+        const porcelain = typeof status === "function" ? await status() : "";
+        if (porcelain.trim().length > 0 && protectedBranches.has(active)) {
+          throw gitError("GIT_PROTECTED_BRANCH", `Cannot switch away from dirty protected branch: ${active}.`);
+        }
+        if (protectedBranches.has(name) && porcelain.trim().length > 0) {
+          throw gitError("GIT_PROTECTED_BRANCH", `Cannot switch with dirty working tree onto protected branch: ${name}.`);
+        }
+      }
       if (!(await branchExists(name))) throw gitError("GIT_BRANCH_NOT_FOUND", `Git branch does not exist: ${name}.`);
       const res = await execute(["switch", name], "GIT_BRANCH_SWITCH_FAILED");
       if (res.exitCode !== 0) throw gitError("GIT_BRANCH_SWITCH_FAILED", `Git branch switch failed: ${res.stderr ?? "unknown Git error"}`);
@@ -79,8 +99,8 @@ export function createGitWorkflowServiceOps({
     return { action: "delete_merged", branch: name, deleted: true };
   }
 
-  // Business purpose: Restores specific working-tree files or unstages index entries without allowing destructive global resets.
-  // Technical description: Requires a non-empty array of safe relative paths, validates optional source revision, and executes git restore under mutationLock.
+  // Business purpose: Restores specific working-tree files or unstages index entries without allowing destructive global resets or unprotected mutations on protected branches.
+  // Technical description: Verifies current branch is unprotected, requires a non-empty array of safe relative paths, validates optional source revision, and executes git restore under mutationLock.
   async function restore({ action, paths, source } = {}) {
     if (!["restore_worktree", "unstage"].includes(action)) {
       throw gitError("GIT_RESTORE_INVALID", `Unsupported git_restore action: ${action ?? "<missing>"}.`);
@@ -88,6 +108,7 @@ export function createGitWorkflowServiceOps({
     if (!Array.isArray(paths) || paths.length === 0) {
       throw new ConfigurationError("git_restore requires explicit non-empty paths; global reset is forbidden.");
     }
+    await assertCurrentBranchUnprotected(`git_restore (${action})`);
     const safePaths = validatePaths(paths);
     if (source !== undefined) validateRevision(source);
     const args = ["restore"];
@@ -116,12 +137,13 @@ export function createGitWorkflowServiceOps({
     return { action: "list", stashes };
   }
 
-  // Business purpose: Executes governed Git stash mutations (push, pop, apply) under mutationLock.
-  // Technical description: Validates stash action, optional message, path filters, and stash index before executing git stash.
+  // Business purpose: Executes governed Git stash mutations (push, pop, apply) under mutationLock while protecting main/master/production branches.
+  // Technical description: Verifies current branch is unprotected, validates stash action, optional message, path filters, and stash index before executing git stash.
   async function stashMutate({ action, message, paths = [], index = 0 } = {}) {
     if (!["push", "pop", "apply"].includes(action)) {
       throw gitError("GIT_STASH_INVALID", `Unsupported git_stash action: ${action ?? "<missing>"}.`);
     }
+    await assertCurrentBranchUnprotected(`git_stash (${action})`);
     if (action === "push") {
       const safePaths = paths.length ? validatePaths(paths) : [];
       if (message !== undefined && (typeof message !== "string" || !message.trim() || message.length > 200)) {
