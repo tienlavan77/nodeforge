@@ -100,6 +100,9 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   // Defines currentBranch function behavior for git-service.js.
   async function currentBranch() {
     const result = await execute(["branch", "--show-current"], "GIT_BRANCH_FAILED");
+    if (result.exitCode !== 0) {
+      throw gitError("GIT_BRANCH_FAILED", `Git branch lookup failed: ${result.stderr ?? "unknown Git error"}`);
+    }
     return result.stdout.trim();
   }
 

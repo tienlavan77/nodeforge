@@ -52,7 +52,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
     const workflow = createGitWorkflowTools({ gitService, projectRoot, conversationStateStore, conversationId });
     if (workflow.git_branch) implementations.git_branch = workflow.git_branch;
   }
-  const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId }) : { definitions: [], implementations: {} };
+  const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId, logger: { emit: (ev) => projectLogger?.({ timestamp: new Date().toISOString(), ...ev }) } }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
   if (typeof delegateSubagentExecutor === "function") implementations.delegate_subagent = createDelegateSubagentTool({ executeTask: delegateSubagentExecutor, evidenceStore });
   const baseDefinitions = [...engineeringToolDefinitions(), createSubagentEvidenceTool({ evidenceStore }).definition];

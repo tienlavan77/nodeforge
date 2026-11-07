@@ -238,7 +238,128 @@ test("Regression: Git workflow tools fail closed on missing roles, reject .git/.
       (err) => err.code === "GIT_BRANCH_SWITCH_FAILED" && err.changed_paths.includes("src/partial-git.js")
     );
     assert.ok(seScopedCtx.changed_paths.includes("src/partial-git.js"));
+
+    // Round-4: When both Git operation and assertDeltaScope fail, surface TOOL_RESOURCE_FORBIDDEN as primary error and reconcile observed delta
+    const scopeFailState = new Map();
+    await mkdir(join(root, "docs"), { recursive: true });
+    const scopeFailGitService = {
+      async branch() {
+        await writeFile(join(root, "docs", "secret.md"), "# out of scope\n");
+        throw Object.assign(new Error("Git checkout aborted midway"), { code: "GIT_BRANCH_SWITCH_FAILED" });
+      }
+    };
+    const scopeFailWorkflow = createGitWorkflowTools({
+      gitService: scopeFailGitService,
+      projectRoot: root,
+      conversationStateStore: {
+        get: async (id) => scopeFailState.get(id) ?? {},
+        update: async (id, patch) => scopeFailState.set(id, { ...(scopeFailState.get(id) ?? {}), ...patch })
+      },
+      conversationId: "CONV-R4"
+    });
+    await assert.rejects(
+      () => scopeFailWorkflow.git_branch.execute({ action: "switch", name: "feat/scope-fail" }, seScopedCtx),
+      (err) => err.code === "TOOL_RESOURCE_FORBIDDEN"
+        && err.cause?.code === "GIT_BRANCH_SWITCH_FAILED"
+        && Array.isArray(err.changed_paths)
+        && err.changed_paths.includes("docs/secret.md")
+        && Boolean(err.active_file_checksums?.["docs/secret.md"])
+    );
+    assert.ok(scopeFailState.get("CONV-R4")?.active_file_checksums?.["docs/secret.md"]);
+
+    // Round-4: Scoped git_stash push without explicit paths preflights dirty files and rejects out-of-scope workspace mutations
+    await assert.rejects(
+      () => workflow.git_stash.execute({ action: "push", message: "try-unstashed-all" }, seScopedCtx),
+      (err) => err.code === "TOOL_RESOURCE_FORBIDDEN"
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Regression Round-4: inline evaluation projectRoot sandbox, non-ENOENT symlink failure, commit-bound run_check fail-closed, and inspectStatus branch error propagation", async () => {
+  const root = await makeIsolatedGitRepo();
+  const outsideFile = join(tmpdir(), `nf-escape-${Date.now()}.txt`);
+  try {
+    const cmdService = createNodeCommandService({ projectRoot: root });
+
+    // 1. Inline php -r and node -e escaping projectRoot are rejected by policy or sandbox
+    await assert.rejects(
+      () => cmdService.executeCommand({ command: "php", args: ["-r", `file_put_contents('${outsideFile}', 'x');`] }),
+      (err) => err.code === "COMMAND_PATH_OUTSIDE_PROJECT"
+    );
+    await assert.rejects(
+      () => cmdService.executeCommand({ command: "node", args: ["-e", `require('node:fs').writeFileSync('${outsideFile}', 'x')`] }),
+      (err) => err.code === "COMMAND_PATH_OUTSIDE_PROJECT"
+    );
+    await assert.rejects(
+      () => cmdService.executeCommand({ command: "node", args: ["-e", "require('node:fs').readFileSync('../outside.txt')"] }),
+      (err) => err.code === "COMMAND_PATH_OUTSIDE_PROJECT"
+    );
+
+    // Runtime sandbox enforcement even for obfuscated dynamic paths inside node -e
+    const obfuscatedRes = await cmdService.executeCommand({
+      command: "node",
+      args: ["-e", "const p = ['', 'tmp', 'nf-sandbox-probe.txt'].join('/'); require('node:fs').writeFileSync(p, 'x');"]
+    });
+    assert.notEqual(obfuscatedRes.exit_code, 0);
+
+    // 2. assertNoSymlinkEscape fails closed on non-ENOENT filesystem errors (e.g. ENOTDIR when parent segment is a regular file)
+    await assert.rejects(
+      () => cmdService.executeCommand({ command: "node", args: ["src/index.js/nested-child.js"] }),
+      (err) => err.code === "COMMAND_FILESYSTEM_ERROR"
+    );
+
+    // 3. owner-engineer-tools run_check fails closed and logs when getHead or getCommitParent fails or is missing
+    const loggedEvents = [];
+    const { createOwnerEngineerTools } = await import("../../src/tools/roles/owner-engineer-tools.js");
+    const brokenHeadTools = createOwnerEngineerTools({
+      testService: { runCheck: async () => ({ status: "passed", ready_for_review: true }) },
+      gitService: {
+        getHead: async () => { throw new Error("git rev-parse HEAD failed"); },
+        getCommitParent: async () => "b".repeat(40)
+      },
+      logger: { emit: (ev) => loggedEvents.push(ev) }
+    });
+    await assert.rejects(
+      () => brokenHeadTools.implementations.run_check.execute({ type: "test", command: "node --test backend/tests/unit/lookup-schema-tool.test.js" }, { conversation_id: "CONV-CHK" }),
+      (err) => err.code === "GIT_METADATA_UNAVAILABLE"
+    );
+    assert.ok(loggedEvents.some((ev) => ev.event_name === "forge.run_check_git_metadata_failed"));
+
+    const brokenParentTools = createOwnerEngineerTools({
+      testService: { runCheck: async () => ({ status: "passed", ready_for_review: true }) },
+      gitService: {
+        getHead: async () => "a".repeat(40),
+        getCommitParent: async () => { throw new Error("Commit has no parent"); }
+      },
+      logger: { emit: (ev) => loggedEvents.push(ev) }
+    });
+    await assert.rejects(
+      () => brokenParentTools.implementations.run_check.execute({ type: "test", command: "node --test backend/tests/unit/lookup-schema-tool.test.js" }, { conversation_id: "CONV-CHK" }),
+      (err) => err.code === "GIT_METADATA_UNAVAILABLE"
+    );
+
+    // 4. git-service-extended inspectStatus propagates and audits currentBranch() failures instead of masking as detached HEAD
+    const gitEvents = [];
+    const brokenBranchGit = createGitService({
+      projectRoot: root,
+      onEvent: (ev) => gitEvents.push(ev),
+      runGit: async (args) => {
+        if (args[0] === "status") return { exitCode: 0, stdout: "", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current") {
+          return { exitCode: 128, stdout: "", stderr: "fatal: corrupt ref" };
+        }
+        return { exitCode: 0, stdout: "a".repeat(40), stderr: "" };
+      }
+    });
+    await assert.rejects(
+      () => brokenBranchGit.inspectStatus(),
+      (err) => err.code === "GIT_BRANCH_FAILED"
+    );
+    assert.ok(gitEvents.some((ev) => ev.type === "git.status.branch_lookup_failed"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outsideFile, { force: true });
   }
 });
