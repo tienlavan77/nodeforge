@@ -14,9 +14,9 @@ import {
   commandError,
   isProtectedInternalSegment,
   resolveProjectContainedPath,
-  validateArchiveOperation,
   validateRunCommandInput
 } from "./command-policy.js";
+import { validateArchiveOperation } from "./archive-policy.js";
 
 export {
   ALLOWED_COMMANDS,

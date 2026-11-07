@@ -173,6 +173,7 @@ export function createGitWorkflowTools({
       throw workflowError("GIT_STASH_INVALID", "git_stash requires action: list, push, pop, or apply.");
     }
     assertMutationRole("git_stash", action, context);
+    let effectivePaths = input.paths;
     if (input.paths !== undefined) {
       if (!Array.isArray(input.paths) || input.paths.length === 0 || input.paths.length > 64) {
         throw workflowError("GIT_STASH_INVALID", "git_stash paths must be a non-empty array of 1..64 project-relative paths.");
@@ -187,21 +188,20 @@ export function createGitWorkflowTools({
           throw workflowError("GIT_STASH_INVALID", "git_stash push requires explicit paths when executing in a scoped Coder context.");
         }
         const statusOut = await gitService.status({ paths: [] });
-        const dirtyPaths = String(statusOut ?? "")
-          .split(/\r?\n/)
-          .filter(Boolean)
-          .map((line) => {
+        const dirtyPaths = [...new Set(
+          String(statusOut ?? "").split(/\r?\n/).filter(Boolean).flatMap((line) => {
             const raw = line.slice(3).trim();
-            const arrowIdx = raw.indexOf(" -> ");
-            return (arrowIdx >= 0 ? raw.slice(arrowIdx + 4) : raw).replace(/^"|"$/g, "");
+            const parts = raw.includes(" -> ") ? raw.split(" -> ") : [raw];
+            return parts.map((p) => p.trim().replace(/^"|"$/g, "")).filter(Boolean);
           })
-          .filter(Boolean);
+        )];
         if (!dirtyPaths.length) {
           throw workflowError("GIT_STASH_INVALID", "git_stash push requires explicit paths when executing in a scoped Coder context.");
         }
         for (const dirtyPath of dirtyPaths) {
           validateMutatingGitPath(dirtyPath, context, "git_stash", "GIT_STASH_INVALID");
         }
+        effectivePaths = dirtyPaths;
       }
     }
 
@@ -209,11 +209,12 @@ export function createGitWorkflowTools({
       return gitService.stash({ action: "list" });
     }
 
+    const stashPayload = effectivePaths !== undefined ? { ...input, paths: effectivePaths } : input;
     return runWithReconciliation({
       toolName: "git_stash",
       context,
-      candidatePaths: input.paths ?? [],
-      operation: () => gitService.stash(input)
+      candidatePaths: effectivePaths ?? [],
+      operation: () => gitService.stash(stashPayload)
     });
   }
 }
