@@ -7,7 +7,7 @@ const CHECK_TYPES = new Set(["test", "lint", "typecheck", "build"]);
 const INTERNAL_WORKFLOW_PATH = /^workflows(?:\/|$)/;
 
 // Creates project-service tools that let System Engineer verify, commit, and push project work.
-export function createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId } = {}) {
+export function createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId, logger } = {}) {
   const implementations = {};
   const definitions = [];
   if (projectRoot || commandService) {
@@ -41,8 +41,49 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
     validateCheckCommand(input.command, input.type);
     const convId = ownerConversationId(context);
     const state = await conversationStateStore?.get?.(convId);
-    const headSha = state?.owner_last_commit_sha ?? (typeof gitService?.getHead === "function" ? await gitService.getHead().catch(() => null) : null);
-    const baseSha = headSha && typeof gitService?.getCommitParent === "function" ? await gitService.getCommitParent(headSha).catch(() => null) : null;
+    const logMetaFail = (message) => {
+      logger?.emit?.({
+        event_name: "forge.run_check_git_metadata_failed",
+        level: "error",
+        status: "failed",
+        message,
+        task_id: convId,
+        correlation_id: context.correlation_id,
+        source: "owner-engineer-tools"
+      });
+    };
+    let headSha = state?.owner_last_commit_sha ?? null;
+    if (!headSha) {
+      if (typeof gitService?.getHead !== "function") {
+        logMetaFail("run_check requires gitService.getHead or a recorded commit SHA before verification.");
+        throw invalid("run_check requires valid commit-bound HEAD SHA metadata before verification.", "GIT_METADATA_UNAVAILABLE");
+      }
+      try {
+        headSha = await gitService.getHead();
+      } catch (error) {
+        logMetaFail(`run_check failed to resolve HEAD SHA: ${error.message}`);
+        throw invalid(`run_check requires valid commit-bound HEAD SHA metadata: ${error.message}`, "GIT_METADATA_UNAVAILABLE");
+      }
+    }
+    if (!headSha || !/^[a-f0-9]{40,64}$/i.test(headSha)) {
+      logMetaFail(`run_check received invalid HEAD SHA: ${String(headSha)}`);
+      throw invalid("run_check requires valid commit-bound HEAD SHA metadata before verification.", "GIT_METADATA_UNAVAILABLE");
+    }
+    if (typeof gitService?.getCommitParent !== "function") {
+      logMetaFail("run_check requires gitService.getCommitParent to resolve parent base SHA.");
+      throw invalid("run_check requires valid parent base SHA metadata before verification.", "GIT_METADATA_UNAVAILABLE");
+    }
+    let baseSha = null;
+    try {
+      baseSha = await gitService.getCommitParent(headSha);
+    } catch (error) {
+      logMetaFail(`run_check failed to resolve parent base SHA for '${headSha}': ${error.message}`);
+      throw invalid(`run_check requires valid parent base SHA metadata: ${error.message}`, "GIT_METADATA_UNAVAILABLE");
+    }
+    if (!baseSha || !/^[a-f0-9]{40,64}$/i.test(baseSha)) {
+      logMetaFail(`run_check received invalid parent base SHA: ${String(baseSha)}`);
+      throw invalid("run_check requires valid parent base SHA metadata before verification.", "GIT_METADATA_UNAVAILABLE");
+    }
     const changedPaths = [...new Set([...(state?.owner_changed_paths ?? []), ...(state?.owner_last_commit_paths ?? []), ...(context.changed_paths ?? [])])].sort();
     const commitId = headSha ?? ownerRunId(context);
     const result = await testService.runCheck({ commitId, taskId: convId, sessionId: context.correlation_id, type: input.type, command: input.command, signal: context.abortSignal });

@@ -16,6 +16,8 @@ const FORBIDDEN_NPM_SUBCOMMANDS = new Set(["publish", "login", "logout", "adduse
 const SAFE_NPX_BINARIES = new Set(["tsc", "eslint", "prettier", "vitest", "jest", "mocha", "playwright", "prisma", "next", "tsx", "ajv"]);
 const INLINE_EVAL_FLAGS = new Set(["-e", "--eval", "-p", "--print", "-r", "--require", "--import", "--loader", "--experimental-loader"]);
 const INLINE_EXEC_PATTERNS = /\b(child_process|spawn|spawnSync|exec|execSync|execFile|execFileSync|fork|shell_exec|proc_open|passthru|popen|pcntl_exec|system)\b|\bprocess\.binding\b|['"`]git['"`]/i;
+const INLINE_FS_ESCAPE_PATTERNS = /\b(file_put_contents|file_get_contents|fopen|readfile|unlink|rename|copy|mkdir|rmdir|scandir|glob|chmod|chown|symlink|link|touch|move_uploaded_file|writeFileSync|writeFile|readFileSync|readFile|appendFileSync|appendFile|unlinkSync|rmSync|rmdirSync|mkdirSync|renameSync|copyFileSync|chmodSync|chownSync|symlinkSync|linkSync|openSync|createWriteStream|createReadStream)\b|(?:^|['"`\s=(])\/(?:tmp|etc|var|usr|bin|sbin|opt|root|home|proc|sys|dev)(?:\/|['"`\s)]|$)/i;
+const PHP_DISABLED_FUNCTIONS = "exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec,pcntl_fork,dl,mail,putenv,apache_setenv,posix_kill,posix_mkfifo,posix_setpgid,posix_setsid,posix_setuid,symlink,link,chgrp,chown,lchgrp,lchown";
 
 // Business purpose: Produces a typed ConfigurationError with a stable error code for command validation and execution failures.
 // Technical description: Attaches error.code to a ConfigurationError instance.
@@ -71,22 +73,67 @@ export function resolveProjectContainedPath(projectRoot, candidatePath, { forbid
 // Business purpose: Verifies that an existing path and its ancestors inside projectRoot do not traverse a symlink pointing outside projectRoot.
 // Technical description: Walks path segments from projectRoot, checking lstat and realpath when segments exist on disk.
 export async function assertNoSymlinkEscape(projectRoot, targetAbsPath) {
-  const rootReal = await realpath(projectRoot).catch(() => resolve(projectRoot));
+  let rootReal;
+  try {
+    rootReal = await realpath(projectRoot);
+  } catch (error) {
+    throw commandError("COMMAND_FILESYSTEM_ERROR", `Failed to resolve projectRoot realpath '${projectRoot}': ${error.message}`);
+  }
   const rel = relative(resolve(projectRoot), targetAbsPath).split(sep).filter(Boolean);
   let current = resolve(projectRoot);
   for (const part of rel) {
     current = resolve(current, part);
-    const stat = await lstat(current).catch(() => null);
-    if (!stat) continue;
+    let stat = null;
+    try {
+      stat = await lstat(current);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw commandError("COMMAND_FILESYSTEM_ERROR", `Failed to inspect path segment '${part}': ${error.message}`);
+    }
     if (stat.isSymbolicLink()) {
-      const targetReal = await realpath(current).catch(() => null);
-      if (!targetReal) throw commandError("COMMAND_SYMLINK_ESCAPE", `Broken symlink encountered: ${part}`);
+      let targetReal = null;
+      try {
+        targetReal = await realpath(current);
+      } catch (error) {
+        if (error?.code === "ENOENT") {
+          throw commandError("COMMAND_SYMLINK_ESCAPE", `Broken symlink encountered: ${part}`);
+        }
+        throw commandError("COMMAND_FILESYSTEM_ERROR", `Failed to resolve symlink '${part}': ${error.message}`);
+      }
       const relReal = relative(rootReal, targetReal).split(sep).join("/");
       if (relReal.startsWith("..") || isAbsolute(relReal) || isProtectedInternalSegment(relReal)) {
         throw commandError("COMMAND_SYMLINK_ESCAPE", `Symlink escapes projectRoot or points into protected directory: ${part}`);
       }
     }
   }
+}
+
+// Business purpose: Builds runtime sandbox arguments for inline node and php evaluations so filesystem access stays confined to projectRoot.
+// Technical description: Injects PHP open_basedir and disable_functions INI flags for php -r and Node permission flags (--permission, --allow-fs-read, --allow-fs-write) for node -e/-p when supported by the runtime.
+export function buildSandboxedInlineArgs(command, args, projectRoot) {
+  const rootAbs = resolve(projectRoot);
+  const hasInlineFlag = args.some((token) => INLINE_EVAL_FLAGS.has(token) || token.startsWith("--eval=") || token.startsWith("--print=") || token.startsWith("--require=") || token.startsWith("--import="));
+  if (!hasInlineFlag) return [...args];
+  if (command === "php") {
+    return [
+      "-d",
+      `open_basedir=${rootAbs}`,
+      "-d",
+      `disable_functions=${PHP_DISABLED_FUNCTIONS}`,
+      ...args
+    ];
+  }
+  if (command === "node") {
+    const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
+    const permFlag = nodeMajor >= 22 ? "--permission" : "--experimental-permission";
+    return [
+      permFlag,
+      `--allow-fs-read=${rootAbs}*`,
+      `--allow-fs-write=${rootAbs}*`,
+      ...args
+    ];
+  }
+  return [...args];
 }
 
 // Business purpose: Validates that every non-flag argument or path-valued flag resolves inside projectRoot without traversing symlinks outside projectRoot.
@@ -165,6 +212,19 @@ function validatePerCommandPolicy(command, args, cwdAbsolute, projectRoot) {
       }
       if (INLINE_EXEC_PATTERNS.test(arg)) {
         throw commandError("COMMAND_INLINE_PROCESS_FORBIDDEN", `Inline ${command} evaluation may not invoke child processes or git.`);
+      }
+      const literalMatches = [...arg.matchAll(/(['"`])((?:\\.|(?!\1).)+)\1/g)];
+      for (const match of literalMatches) {
+        const literal = match[2];
+        if (literal.includes("..")) {
+          throw commandError("COMMAND_PATH_OUTSIDE_PROJECT", `Inline ${command} evaluation may not contain parent traversal (..): ${literal}`);
+        }
+        if (literal.startsWith("/") && !/^\/\//.test(literal)) {
+          resolveProjectContainedPath(projectRoot, literal, { forbidProtected: true, label: "inline path literal" });
+        }
+      }
+      if (INLINE_FS_ESCAPE_PATTERNS.test(arg) && (/['"`]\s*\/[A-Za-z0-9._-]|\bchr\s*\(|\bbase64_decode\s*\(|\bhex2bin\s*\(|\bBuffer\.from\s*\(|\bString\.fromCharCode\s*\(/i.test(arg))) {
+        throw commandError("COMMAND_PATH_OUTSIDE_PROJECT", `Inline ${command} evaluation attempts unsafe filesystem access outside projectRoot.`);
       }
     }
     return;

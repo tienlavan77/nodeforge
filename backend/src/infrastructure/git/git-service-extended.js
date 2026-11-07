@@ -38,7 +38,13 @@ export function createExtendedGitOperations(deps) {
   async function inspectStatus({ paths = [] } = {}) {
     const safePaths = validatePaths(paths);
     const stdout = await status({ paths: safePaths });
-    const branchName = (await currentBranch().catch(() => "")) || null;
+    let branchName = null;
+    try {
+      branchName = (await currentBranch()) || null;
+    } catch (error) {
+      emit("git.status.branch_lookup_failed", { error: error.message, code: error.code ?? "GIT_BRANCH_FAILED" });
+      throw error;
+    }
     const headRes = await runGit(["rev-parse", "HEAD"], { cwd: projectRoot, timeout: timeoutMs });
     const headSha = headRes.exitCode === 0 ? headRes.stdout.trim() : null;
     let ahead = 0;

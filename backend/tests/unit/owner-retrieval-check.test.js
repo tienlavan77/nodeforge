@@ -14,7 +14,7 @@ test("retrieval check uses the ten-minute service deadline and preserves final r
     const calls = [];
     const receipt = { status, run_id: `RETRIEVAL-${status}`, breakdown: [{ kind: "test", status, exit_code: status === "passed" ? 0 : 1 }] };
     const testService = createTestService({ verificationOrchestrator: { run: async (plan, options) => { calls.push({ plan, options }); return receipt; } } });
-    const { implementations } = createOwnerEngineerTools({ testService });
+    const { implementations } = createOwnerEngineerTools({ testService, gitService: { getHead: async () => "a".repeat(40), getCommitParent: async () => "b".repeat(40) } });
     const controller = new AbortController();
     const result = await implementations.run_check.execute({ type: "test", command: "pnpm --dir backend eval:retrieval" },
       { conversation_id: "CONV-RETRIEVAL", correlation_id: "CORR-RETRIEVAL", abortSignal: controller.signal });
