@@ -1,5 +1,5 @@
 // Business purpose: Exposes the governed `run_command` tool to System Engineer and Coder roles while automatically synchronizing working-tree file mutations with the Node change ledger and active_file_checksums.
-// Technical description: Authorizes the caller (failing closed on missing/unauthorized roles), validates structured command inputs, snapshots the working tree before and after execution (including on timeout or failure), enforces role/ticket path scope for created, modified, and deleted paths, and reconciles sha256 checksums.
+// Technical description: Authorizes the caller (failing closed on missing/unauthorized roles), validates structured command inputs, snapshots the working tree before and after execution (including on timeout or failure), validates role/ticket path scope for created, modified, and deleted paths BEFORE writing to changeLedger or state, and reconciles sha256 checksums.
 
 import {
   ALLOWED_COMMANDS,
@@ -68,7 +68,7 @@ function isScopedMutationAllowed(path, context, operation = "write") {
 }
 
 // Business purpose: Creates the governed run_command tool bound to the project root, change ledger, and conversation state store.
-// Technical description: Wraps NodeCommandService.executeCommand with pre/post working-tree snapshots, error-path reconciliation, and scope enforcement for Coder and System Engineer.
+// Technical description: Wraps NodeCommandService.executeCommand with pre/post working-tree snapshots, pre-reconciliation scope validation, and error-path reconciliation.
 export function createRunCommandTool({
   projectRoot,
   commandService = projectRoot ? createNodeCommandService({ projectRoot }) : null,
@@ -88,7 +88,7 @@ export function createRunCommandTool({
   });
 
   // Business purpose: Runs one governed command and synchronizes any resulting file changes or deletions with the active session or ticket ledger.
-  // Technical description: Authorizes the caller (failing closed on missing roles), enforces path scope for created, modified, and deleted paths, reconciles even if execution times out or throws, and returns reconciled checksums.
+  // Technical description: Authorizes the caller (failing closed on missing roles), validates path scope for created, modified, and deleted paths BEFORE writing to changeLedger, reconciles even if execution times out or throws, and returns reconciled checksums.
   async function execute(input = {}, context = {}) {
     authorizeTool("run_command", context);
     const role = context?.agent_identity?.role;
@@ -122,18 +122,6 @@ export function createRunCommandTool({
     }
 
     const afterSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
-    const reconciled = await reconcileWorkingTreeMutation({
-      projectRoot: effectiveRoot,
-      beforeSnapshot,
-      afterSnapshot,
-      context,
-      changeLedger,
-      conversationStateStore,
-      conversationId: conversationId ?? context?.conversation_id,
-      logger,
-      toolName: "run_command"
-    });
-
     for (const [path, meta] of afterSnapshot.entries()) {
       const prev = beforeSnapshot.get(path);
       if ((!prev || prev.sha256 !== meta.sha256) && !isScopedMutationAllowed(path, context, "write")) {
@@ -146,9 +134,22 @@ export function createRunCommandTool({
       }
     }
 
+    const reconciled = await reconcileWorkingTreeMutation({
+      projectRoot: effectiveRoot,
+      beforeSnapshot,
+      afterSnapshot,
+      context,
+      changeLedger,
+      conversationStateStore,
+      conversationId: conversationId ?? context?.conversation_id,
+      logger,
+      toolName: "run_command"
+    });
+
     if (commandFailure) {
       commandFailure.changed_paths = reconciled.changed_paths;
       commandFailure.active_file_checksums = reconciled.active_file_checksums;
+      if (reconciled.deleted_paths.length) commandFailure.deleted_paths = reconciled.deleted_paths;
       throw commandFailure;
     }
 
@@ -172,7 +173,7 @@ export function createRunCommandTool({
       ...commandResult,
       changed_paths: reconciled.changed_paths,
       active_file_checksums: reconciled.active_file_checksums,
-      ...(reconciled.deleted_paths.length ? { deleted_paths: reconciled.deleted_paths } : {})
+      deleted_paths: reconciled.deleted_paths
     };
   }
 }

@@ -8,6 +8,7 @@ import {
   DEFAULT_COMMAND_TIMEOUT_MS,
   MAX_COMMAND_TIMEOUT_MS,
   MAX_STREAM_BYTES,
+  assertCommandArgSymlinkSafety,
   assertNoSymlinkEscape,
   commandError,
   isProtectedInternalSegment,
@@ -21,6 +22,7 @@ export {
   DEFAULT_COMMAND_TIMEOUT_MS,
   MAX_COMMAND_TIMEOUT_MS,
   MAX_STREAM_BYTES,
+  assertCommandArgSymlinkSafety,
   assertNoSymlinkEscape,
   commandError,
   isProtectedInternalSegment,
@@ -77,10 +79,11 @@ export function createNodeCommandService({ projectRoot, spawnProcess = defaultSp
   });
 
   // Business purpose: Validates and runs one structured project command to completion through Node within a shared deadline budget.
-  // Technical description: Resolves executable (using process.execPath for node and --no-install for npx), enforces Zip Slip guards with remaining timeout and signal, and returns bounded output.
+  // Technical description: Resolves executable (using process.execPath for node and --no-install for npx), enforces symlink and Zip Slip guards with remaining timeout and signal, and returns bounded output.
   async function executeCommand(input = {}, { signal } = {}) {
     const validated = validateRunCommandInput(input, projectRoot);
     await assertNoSymlinkEscape(projectRoot, validated.cwdAbsolute);
+    await assertCommandArgSymlinkSafety(projectRoot, validated.cwdAbsolute, validated.command, validated.args);
 
     const started = Date.now();
     const deadlineAt = started + validated.timeoutMs;

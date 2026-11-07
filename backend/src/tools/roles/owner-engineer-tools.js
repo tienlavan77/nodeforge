@@ -34,16 +34,33 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
   }
   return { definitions, implementations };
 
-  // Runs one explicitly scoped project check to completion and returns its result.
+  // Runs one explicitly scoped project check to completion and returns its result bound to the active commit/base SHA and conversation state.
   async function runCheck(input = {}, context = {}) {
     validateKeys(input, ["type", "command"]);
     if (!CHECK_TYPES.has(input.type)) throw invalid("run_check requires type test, lint, typecheck, or build.");
     validateCheckCommand(input.command, input.type);
-    const conversationId = ownerConversationId(context);
-    const state = await conversationStateStore?.get?.(conversationId);
-    const changedPaths = [...new Set([...(state?.owner_changed_paths ?? []), ...(context.changed_paths ?? [])])].sort();
-    const result = await testService.runCheck({ commitId: ownerRunId(context), taskId: conversationId, sessionId: context.correlation_id, type: input.type, command: input.command, signal: context.abortSignal });
-    return { ...result, changed_paths: changedPaths, output_preview: checkOutputPreview(result) };
+    const convId = ownerConversationId(context);
+    const state = await conversationStateStore?.get?.(convId);
+    const headSha = state?.owner_last_commit_sha ?? (typeof gitService?.getHead === "function" ? await gitService.getHead().catch(() => null) : null);
+    const baseSha = headSha && typeof gitService?.getCommitParent === "function" ? await gitService.getCommitParent(headSha).catch(() => null) : null;
+    const changedPaths = [...new Set([...(state?.owner_changed_paths ?? []), ...(state?.owner_last_commit_paths ?? []), ...(context.changed_paths ?? [])])].sort();
+    const commitId = headSha ?? ownerRunId(context);
+    const result = await testService.runCheck({ commitId, taskId: convId, sessionId: context.correlation_id, type: input.type, command: input.command, signal: context.abortSignal });
+    const receipt = {
+      run_id: result.run_id ?? commitId,
+      commit_sha: headSha,
+      base_sha: baseSha,
+      status: result.status,
+      ready_for_review: result.ready_for_review,
+      evaluated_at: result.evaluated_at ?? new Date().toISOString(),
+      command: input.command,
+      type: input.type,
+      changed_paths: changedPaths
+    };
+    if (conversationStateStore?.update && convId) {
+      await conversationStateStore.update(convId, { owner_last_verification_receipt: receipt });
+    }
+    return { ...result, commit_sha: headSha, base_sha: baseSha, changed_paths: changedPaths, output_preview: checkOutputPreview(result) };
   }
 
   // Commits only paths recorded by successful Forge writes in this conversation.

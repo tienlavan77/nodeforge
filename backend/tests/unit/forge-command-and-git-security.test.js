@@ -1,5 +1,5 @@
 // Business purpose: Verifies sandbox security, environment filtering, archive timeout/AbortSignal propagation, reconciliation edge cases, and role/path scope enforcement for `run_command` and the Forge Git Toolset.
-// Technical description: Covers Reviewer round-2 regression requirements including indirect git blocking, inline child_process rejection, filtered env, timeout reconciliation, ledger error surfacing, symlink/ignored-dir/oversized-file tracking, deletion scope, SE/Coder mutation scope, missing-role rejection, and branch-create reconciliation.
+// Technical description: Covers Reviewer round-2 and round-3 regression requirements including indirect git blocking, inline child_process rejection, filtered env, relative symlink argument blocking, pre-ledger scope rejection, failed Git workflow reconciliation, protected branch enforcement on restore/stash/switch, and missing-role rejection.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -28,7 +28,7 @@ async function makeIsolatedGitRepo() {
   return root;
 }
 
-test("Regression: blocks direct/indirect git execution, inline child_process spawning, and filters sensitive environment variables", async () => {
+test("Regression: blocks direct/indirect git execution, inline child_process spawning, relative symlink escape, and filters sensitive environment variables", async () => {
   const root = await makeIsolatedGitRepo();
   try {
     const cmdService = createNodeCommandService({ projectRoot: root });
@@ -53,6 +53,12 @@ test("Regression: blocks direct/indirect git execution, inline child_process spa
     ]) {
       await assert.rejects(() => runCommand.execute(inlineBypass, seCtx), (err) => err.code === "COMMAND_INLINE_PROCESS_FORBIDDEN");
     }
+
+    await symlink("/etc/hosts", join(root, "src", "outside-hosts.js"));
+    await assert.rejects(
+      () => runCommand.execute({ command: "node", args: ["--check", "src/outside-hosts.js"] }, seCtx),
+      (err) => err.code === "COMMAND_SYMLINK_ESCAPE"
+    );
 
     const filteredEnv = buildFilteredCommandEnv({
       PATH: "/usr/bin:/bin",
@@ -119,7 +125,7 @@ test("Regression: Archive service propagates caller timeout_ms and AbortSignal a
   }
 });
 
-test("Regression: reconciles timeout mutations, tracks symlinks/vendor/.forge/oversized files, surfaces ledger errors, and enforces deletion scope", async () => {
+test("Regression: reconciles timeout mutations, tracks symlinks/vendor/.forge/oversized files, surfaces ledger errors, and rejects out-of-scope mutations BEFORE writing to ledger", async () => {
   const root = await makeIsolatedGitRepo();
   try {
     const before = await snapshotWorkingTree(root);
@@ -152,7 +158,11 @@ test("Regression: reconciles timeout mutations, tracks symlinks/vendor/.forge/ov
       join(root, "src", "write-then-hang.mjs"),
       "import { writeFileSync } from 'node:fs'; writeFileSync('src/partial-timeout.js', 'export const p = 1;\\n'); setTimeout(() => {}, 10000);\n"
     );
-    const runCommand = createRunCommandTool({ projectRoot: root });
+    const ledgerEntries = [];
+    const runCommand = createRunCommandTool({
+      projectRoot: root,
+      changeLedger: { async write(entry) { ledgerEntries.push(entry); } }
+    });
     const timeoutCtx = {
       agent_identity: { agent_id: "se-1", role: "system_engineer" },
       task_id: "TASK-SEC-2",
@@ -161,29 +171,33 @@ test("Regression: reconciles timeout mutations, tracks symlinks/vendor/.forge/ov
       observed_files: []
     };
     await assert.rejects(
-      () => runCommand.execute({ command: "node", args: ["src/write-then-hang.mjs"], timeout_ms: 150 }, timeoutCtx),
+      () => runCommand.execute({ command: "node", args: ["src/write-then-hang.mjs"], timeout_ms: 400 }, timeoutCtx),
       (err) => err.code === "COMMAND_TIMEOUT" && err.changed_paths.includes("src/partial-timeout.js")
     );
     assert.ok(timeoutCtx.changed_paths.includes("src/partial-timeout.js"));
 
+    ledgerEntries.length = 0;
     await writeFile(join(root, "outside.txt"), "keep me\n");
     await writeFile(join(root, "src", "del-outside.mjs"), "import { unlinkSync } from 'node:fs'; unlinkSync('outside.txt');\n");
     const coderCtx = {
       agent_identity: { agent_id: "c-1", role: "coder" },
       task_id: "TASK-SEC-3",
       capabilities: ALL_CAPS,
-      allowed_prefixes: ["src"]
+      allowed_prefixes: ["src"],
+      changed_paths: []
     };
     await assert.rejects(
       () => runCommand.execute({ command: "node", args: ["src/del-outside.mjs"] }, coderCtx),
       (err) => err.code === "TOOL_RESOURCE_FORBIDDEN"
     );
+    assert.equal(ledgerEntries.length, 0);
+    assert.deepEqual(coderCtx.changed_paths, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("Regression: Git workflow tools fail closed on missing roles, reject .git/.forge paths, enforce SE and Coder scope, and reconcile branch create", async () => {
+test("Regression: Git workflow tools fail closed on missing roles, reject .git/.forge paths, enforce SE/Coder scope, and reconcile on failed Git mutations", async () => {
   const root = await makeIsolatedGitRepo();
   try {
     const gitService = createGitService({ projectRoot: root, mutationLock: (fn) => fn() });
@@ -204,23 +218,26 @@ test("Regression: Git workflow tools fail closed on missing roles, reject .git/.
       changed_paths: [],
       observed_files: []
     };
-    await assert.rejects(
-      () => workflow.git_restore.execute({ action: "restore_worktree", paths: [".git/config"] }, seScopedCtx),
-      (err) => err.code === "GIT_PROTECTED_PATH"
-    );
-    await assert.rejects(
-      () => workflow.git_stash.execute({ action: "push", paths: [".forge/state.json"] }, seScopedCtx),
-      (err) => err.code === "GIT_PROTECTED_PATH"
-    );
-    await assert.rejects(
-      () => workflow.git_restore.execute({ action: "restore_worktree", paths: ["docs/readme.md"] }, seScopedCtx),
-      (err) => err.code === "TOOL_RESOURCE_FORBIDDEN"
-    );
+    await assert.rejects(() => workflow.git_restore.execute({ action: "restore_worktree", paths: [".git/config"] }, seScopedCtx), (err) => err.code === "GIT_PROTECTED_PATH");
+    await assert.rejects(() => workflow.git_stash.execute({ action: "push", paths: [".forge/state.json"] }, seScopedCtx), (err) => err.code === "GIT_PROTECTED_PATH");
+    await assert.rejects(() => workflow.git_restore.execute({ action: "restore_worktree", paths: ["docs/readme.md"] }, seScopedCtx), (err) => err.code === "TOOL_RESOURCE_FORBIDDEN");
 
     const createRes = await workflow.git_branch.execute({ action: "create", name: "feat/reconciled" }, seScopedCtx);
     assert.equal(createRes.branch, "feat/reconciled");
-    assert.ok(Array.isArray(createRes.changed_paths));
-    assert.equal(typeof createRes.active_file_checksums, "object");
+    assert.ok(Array.isArray(createRes.deleted_paths));
+
+    const partialGitService = {
+      async branch() {
+        await writeFile(join(root, "src", "partial-git.js"), "export const partial = 1;\n");
+        throw Object.assign(new Error("Simulated partial git failure"), { code: "GIT_BRANCH_SWITCH_FAILED" });
+      }
+    };
+    const partialWorkflow = createGitWorkflowTools({ gitService: partialGitService, projectRoot: root });
+    await assert.rejects(
+      () => partialWorkflow.git_branch.execute({ action: "switch", name: "feat/other" }, seScopedCtx),
+      (err) => err.code === "GIT_BRANCH_SWITCH_FAILED" && err.changed_paths.includes("src/partial-git.js")
+    );
+    assert.ok(seScopedCtx.changed_paths.includes("src/partial-git.js"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

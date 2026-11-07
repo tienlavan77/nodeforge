@@ -84,6 +84,9 @@ export function forgetRead(cache, input) {
 // Technical description: clears stale window entries for the mutated path(s) and stores a window_invalidated digest entry with the latest sha256 extracted from edit_diff, write_diff, or move_file results.
 export function recordMutationChecksum(cache, { tool, input, result } = {}) {
   if (!cache || typeof cache !== "object") return cache;
+  if (Array.isArray(result?.deleted_paths)) {
+    for (const delPath of result.deleted_paths) forgetRead(cache, { path: delPath });
+  }
   if (tool === "delete_file") return forgetRead(cache, { path: input?.path });
   const fromPath = input?.from_path ?? input?.fromPath;
   const toPath = input?.to_path ?? input?.toPath ?? input?.path ?? result?.path;

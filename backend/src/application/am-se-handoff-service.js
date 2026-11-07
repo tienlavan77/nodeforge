@@ -85,18 +85,20 @@ function buildAmCritiqueReplyPrompt({ planJson, planId, seCritiqueText }) {
  * Business purpose: builds the prompt asking the independent Reviewer (RV) to inspect the System Engineer's code changes in read-only mode before Architecture Manager acceptance.
  * Technical description: combines the canonical plan outcomes/guardrails, current round number, and SE's implementation report, instructing RV to verify changed files and conventions (250 lines for .md, 400 code_lines for code) using read-only tools and end with [VERDICT: PASS] or [VERDICT: REVISE].
  */
-function buildRvImplementationReviewPrompt({ planJson, planId, round, maxRounds, seReplyText }) {
+function buildRvImplementationReviewPrompt({ planJson, planId, round, maxRounds, seReplyText, workspace }) {
   const outcomesSummary = (planJson?.outcomes ?? []).map((o) => `- ${o.id} (${o.outcome}): Tiêu chí: ${(o.acceptance_criteria ?? []).join("; ")} | Guardrails: ${(o.guardrails ?? []).join("; ")}`).join("\n");
+  const workspaceMeta = workspace ? `Pinned handoff workspace metadata: head_sha=${workspace.head_sha ?? "HEAD"}, scope_paths=${JSON.stringify(workspace.scope_paths ?? [])}` : "";
   return [
     `Independent Reviewer (RV) verification for System Engineer implementation (${planId}, round ${round}/${maxRounds}).`,
-    "Operate strictly in read-only mode: use your read-only Forge tools (read_file, Read, search_text, list_files, search_tree, git_status, git_diff) to inspect the System Engineer's changes against the plan outcomes, guardrails, test evidence, and repository conventions (at most 250 lines for .md files and 400 code_lines for code files). Never modify files.",
+    "Operate strictly in read-only mode: use your read-only Forge tools (read_file, Read, search_text, list_files, search_tree, git_status, git_diff, git_log, git_show, git_blame, git_branch) to inspect the System Engineer's changes against the plan outcomes, guardrails, test evidence, and repository conventions (at most 250 lines for .md files and 400 code_lines for code files). Use git_show({revision, path}), git_diff({base, head, paths}), and git_status({paths}) to inspect exact committed revisions without being blocked by unrelated working-tree files. Never modify files.",
+    workspaceMeta,
     "Write a clear, constructive review in natural language:",
     "1. Summarize verified implementation evidence and test coverage.",
     "2. List any defects, missing acceptance criteria, or guardrail violations with exact file paths and actionable repair instructions for SE.",
     "3. On the final line of your response, append exactly [VERDICT: PASS] if the implementation is ready for Architecture Manager acceptance, or [VERDICT: REVISE] if SE must fix issues first.",
     "", "Plan outcomes, acceptance criteria, and guardrails:", outcomesSummary, "",
     `System Engineer round ${round} report:`, String(seReplyText ?? "(No text returned)")
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 function buildAmAcceptanceReviewPrompt({ planJson, planId, round, maxRounds, seReplyText, rvReviewText = "" }) {
@@ -215,7 +217,7 @@ export function createAmSeHandoffService({
       const preceding = previous.at(-1);
       const prompt = step === "se"
         ? preceding?.verdict === "REVISE" ? `Please address the saved ${preceding.step.toUpperCase()} findings for round ${round}:\n${preceding.text}` : `Implement approved plan ${active.plan_id} r${active.plan_revision} (${active.plan_source_path}). Report implementation and verification evidence.`
-        : step === "rv" ? buildRvImplementationReviewPrompt({ planJson, planId: active.plan_id, round, maxRounds: active.max_rounds, seReplyText: seResult?.text })
+        : step === "rv" ? buildRvImplementationReviewPrompt({ planJson, planId: active.plan_id, round, maxRounds: active.max_rounds, seReplyText: seResult?.text, workspace: active.checkpoint?.workspace })
           : buildAmAcceptanceReviewPrompt({ planJson, planId: active.plan_id, round, maxRounds: active.max_rounds, seReplyText: seResult?.text, rvReviewText: rvResult?.text });
       let raw;
       if (step === "se" && typeof se === "function") raw = await se({ agentId: active.se_agent_id, prompt, conversationId: active.se_conversation_id, linkedConversationId: active.am_conversation_id, correlationId: executionId, phase: "implementation", round, withEvidence: true });
