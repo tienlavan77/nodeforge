@@ -26,35 +26,38 @@ export const delegateSubagentDefinition = {
   }
 };
 
-export const READ_ONLY_EXPLORER_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "Read"]);
+export const READ_ONLY_EXPLORER_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame"]);
 export const MAX_PARALLEL_SUBAGENTS = 3;
 export const MAX_SUBAGENTS_PER_TURN = 4;
 const SHA256_PATTERN = /^sha256:[a-fA-F0-9]{64}$/;
 const SAFE_RELATIVE_PATH = /^(?!\.\.)(?!.*(?:^|\/)\.\.(?:\/|$))(?!\/)[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/;
-const FORBIDDEN_CHILD_TOOLS = Object.freeze(["edit_diff", "write_diff", "delete_file", "move_file", "run_check", "run_test", "check_test", "commit_changes", "push_commit", "delegate_subagent"]);
+const FORBIDDEN_CHILD_TOOLS = Object.freeze(["edit_diff", "write_diff", "delete_file", "move_file", "run_command", "run_check", "run_test", "check_test", "git_branch", "git_restore", "git_stash", "commit_changes", "push_commit", "delegate_subagent"]);
 
 // Business purpose: creates the parent-owned delegation handler while keeping child execution provider-neutral.
-export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000 } = {}) {
+export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000, evidenceStore = null } = {}) {
   if (typeof executeTask !== "function") throw new ConfigurationError("delegate_subagent requires an injected child executor.");
   return { definition: delegateSubagentDefinition, execute: (input, context = {}) => executeBatch(input, context) };
 
-  // Technical description: validates and reserves the complete batch synchronously before any child starts.
+  // Technical description: reserves the complete batch synchronously, starts isolated workers in the background, and returns worker handles so the parent can continue.
   async function executeBatch(input, context) {
     const tasks = validateTasks(input);
     const used = Number(context.subagent_reservations ?? 0);
     if (used + tasks.length > MAX_SUBAGENTS_PER_TURN) throw Object.assign(new ConfigurationError("delegate_subagent per-turn child quota exceeded."), { code: "SUBAGENT_QUOTA_EXCEEDED" });
     context.subagent_reservations = used + tasks.length;
     const signal = context.abortSignal;
-    const results = await Promise.allSettled(tasks.map((task) => executeOne(task, context, signal)));
-    const taskResults = results.map((result, index) => result.status === "fulfilled"
-      ? { id: tasks[index].id, status: "fulfilled", summary: bound(result.value?.summary, maxSummaryChars), observed_files: normalizeObserved(result.value?.observed_files, context), subagent_usage: result.value?.subagent_usage ?? null }
-      : { id: tasks[index].id, status: "rejected", error: classifyError(result.reason), summary: "", observed_files: [] });
-    const observed = mergeObserved(taskResults.flatMap((item) => item.observed_files));
-    for (const file of observed) recordSourceMetadata(context, { path: file.path, sha256: file.sha256, symbol_map: file.symbol_map ?? [] });
-    context.observed_files = mergeObserved([...(context.observed_files ?? []), ...observed]);
-    const usage = taskResults.map((item) => item.subagent_usage).filter(Boolean);
-    context.subagent_usage = mergeUsage([...(context.subagent_usage ?? []), ...usage]);
-    return { status: taskResults.every((item) => item.status === "fulfilled") ? "completed" : "partial_success", tasks: taskResults, tasks_completed: taskResults.filter((item) => item.status === "fulfilled").length, observed_files: observed, subagent_usage: usage };
+    const workers = tasks.map((task) => ({ id: task.id, worker_id: `${context.agent_identity?.agent_id ?? "agent"}:sub:${task.id}`, status: "running" }));
+    void Promise.allSettled(tasks.map((task) => executeOne(task, context, signal))).then((results) => {
+      for (const result of results) {
+        if (result.status !== "fulfilled") continue;
+        for (const file of normalizeObserved(result.value?.raw_observed_files ?? result.value?.observed_files, context, { retainSymbolMap: true })) {
+          if (Array.isArray(file.symbol_map) && file.symbol_map.length) recordSourceMetadata(context, { path: file.path, sha256: file.sha256, symbol_map: file.symbol_map });
+        }
+      }
+      const observed = mergeObserved(results.filter((result) => result.status === "fulfilled").flatMap((result) => normalizeObserved(result.value?.observed_files, context)));
+      context.observed_files = mergeObserved([...(context.observed_files ?? []), ...observed]);
+      context.subagent_usage = mergeUsage([...(context.subagent_usage ?? []), ...results.filter((result) => result.status === "fulfilled").map((result) => result.value?.subagent_usage).filter(Boolean)]);
+    }).catch((error) => { context.projectLogger?.({ event_name: "subagent.batch_failed", level: "error", message: error.message, conversation_id: context.conversation_id, delegation_id: context.execution_id }); });
+    return { status: "started", workers, tasks_started: tasks.length, tasks_completed: 0, observed_files: [], subagent_usage: [] };
   }
 
   // Business purpose: executes one isolated read-only child and forwards only the parent abort signal.
@@ -87,8 +90,11 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
       }
     };
     if (childContext.subagent_depth > 1) throw Object.assign(new ConfigurationError("delegate_subagent nesting depth exceeded."), { code: "SUBAGENT_NESTING_FORBIDDEN" });
+    evidenceStore?.startWorker({ conversationId: context.conversation_id, delegationId: parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, objective: task.objective, eventSink: context.eventSink });
     const result = await executeTask(task, childContext);
-    const observed = normalizeObserved(childContext.observed_files ?? result?.observed_files, childContext).map((file) => ({
+    await evidenceStore?.complete({ conversationId: context.conversation_id, delegationId: parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, summary: result?.summary ?? "", observedFiles: childContext.observed_files ?? result?.observed_files ?? [], usage: result?.subagent_usage ?? null, eventSink: context.eventSink });
+    const rawObserved = childContext.observed_files ?? result?.observed_files;
+    const observed = normalizeObserved(rawObserved, childContext).map((file) => ({
       ...file,
       parent_execution_id: parentExecutionId,
       child_execution_id: childExecutionId,
@@ -96,7 +102,7 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
       observed_at: new Date().toISOString(),
       source_tool: file.source_tool ?? "read_file"
     }));
-    return { ...result, observed_files: observed };
+    return { ...result, raw_observed_files: rawObserved, observed_files: observed };
   }
 }
 
@@ -114,7 +120,7 @@ function validateTasks(input) {
 }
 
 // Technical description: keeps only observed metadata with verified path and checksum fields for parent handoff.
-function normalizeObserved(files, context = {}) {
+function normalizeObserved(files, context = {}, { retainSymbolMap = false } = {}) {
   if (!Array.isArray(files)) return [];
   const allowedPaths = Array.isArray(context.allowed_file_paths) ? context.allowed_file_paths : [];
   const allowedPrefixes = Array.isArray(context.allowed_prefixes) ? context.allowed_prefixes : [];
@@ -123,21 +129,29 @@ function normalizeObserved(files, context = {}) {
     if (!file || typeof file.path !== "string" || !SAFE_RELATIVE_PATH.test(file.path) || !SHA256_PATTERN.test(file.sha256 ?? "")) return false;
     if (!hasScope) return true;
     return allowedPaths.includes(file.path) || allowedPrefixes.some((prefix) => file.path === prefix || file.path.startsWith(`${String(prefix).replace(/\/$/, "")}/`));
-  }).map((file) => ({
-    path: file.path,
-    sha256: file.sha256,
-    symbols_read: [...new Set(Array.isArray(file.symbols_read) ? file.symbols_read.filter((symbol) => typeof symbol === "string") : [])],
-    ...(Array.isArray(file.symbol_map) ? { symbol_map: file.symbol_map } : {}),
-    ...(typeof file.source_tool === "string" ? { source_tool: file.source_tool } : {}),
-    ...(typeof file.parent_execution_id === "string" ? { parent_execution_id: file.parent_execution_id } : {}),
-    ...(typeof file.child_execution_id === "string" ? { child_execution_id: file.child_execution_id } : {}),
-    ...(typeof file.child_agent_id === "string" ? { child_agent_id: file.child_agent_id } : {}),
-    ...(typeof file.observed_at === "string" ? { observed_at: file.observed_at } : {})
-  }));
+  }).map((file) => {
+    const symbolNames = Array.isArray(file.symbol_map)
+      ? [...new Set(file.symbol_map.map((symbol) => symbol?.name).filter((name) => typeof name === "string" && name))].slice(0, 40)
+      : Array.isArray(file.symbols)
+        ? [...new Set(file.symbols.filter((name) => typeof name === "string" && name))].slice(0, 40)
+        : undefined;
+    return {
+      path: file.path,
+      sha256: file.sha256,
+      symbols_read: [...new Set(Array.isArray(file.symbols_read) ? file.symbols_read.filter((symbol) => typeof symbol === "string") : [])].slice(0, 40),
+      ...(symbolNames?.length ? { symbols: symbolNames } : {}),
+      ...(retainSymbolMap && Array.isArray(file.symbol_map) ? { symbol_map: file.symbol_map } : {}),
+      ...(typeof file.source_tool === "string" ? { source_tool: file.source_tool } : {}),
+      ...(typeof file.parent_execution_id === "string" ? { parent_execution_id: file.parent_execution_id } : {}),
+      ...(typeof file.child_execution_id === "string" ? { child_execution_id: file.child_execution_id } : {}),
+      ...(typeof file.child_agent_id === "string" ? { child_agent_id: file.child_agent_id } : {}),
+      ...(typeof file.observed_at === "string" ? { observed_at: file.observed_at } : {})
+    };
+  });
 }
 
 // Technical description: merges duplicate observations without discarding symbols read by another child.
-function mergeObserved(files) { const merged = new Map(); for (const file of files) { const current = merged.get(file.path); if (!current) merged.set(file.path, { ...file }); else merged.set(file.path, { ...current, sha256: file.sha256, symbols_read: [...new Set([...(current.symbols_read ?? []), ...(file.symbols_read ?? [])])] }); } return [...merged.values()]; }
+function mergeObserved(files) { const merged = new Map(); for (const file of files) { const current = merged.get(file.path); if (!current) merged.set(file.path, { ...file }); else merged.set(file.path, { ...current, sha256: file.sha256, symbols_read: [...new Set([...(current.symbols_read ?? []), ...(file.symbols_read ?? [])])].slice(0, 40), ...(current.symbols || file.symbols ? { symbols: [...new Set([...(current.symbols ?? []), ...(file.symbols ?? [])])].slice(0, 40) } : {}) }); } return [...merged.values()]; }
 
 // Technical description: bounds child prose before it is returned to the parent context.
 function mergeUsage(values) { return values.reduce((total, usage) => { if (typeof usage === "number") return total + usage; if (!usage || typeof usage !== "object") return total; return total + Number(usage.input_tokens ?? usage.inputTokens ?? 0); }, 0); }

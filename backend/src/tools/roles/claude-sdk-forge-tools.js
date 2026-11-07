@@ -89,6 +89,10 @@ function engineeringInputShape(inputSchema) {
   // Zod cannot convert allOf/if/then/else; removing this transport-only branch does not change Node validation.
   delete transport.allOf;
   delete transport.oneOf;
+  for (const prop of Object.values(transport?.properties ?? {})) {
+    if (typeof prop?.pattern === "string" && prop.pattern.includes("(?!")) delete prop.pattern;
+    if (typeof prop?.items?.pattern === "string" && prop.items.pattern.includes("(?!")) delete prop.items.pattern;
+  }
   return z.fromJSONSchema(transport).shape;
 }
 
@@ -155,6 +159,7 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__search_tree",
   "mcp__forge__list_files",
   "mcp__forge__search_text",
+  "mcp__forge__run_command",
   "mcp__forge__run_check",
   "mcp__forge__push_commit",
   "mcp__forge__Read",
@@ -168,6 +173,12 @@ export const forgeSdkToolNames = Object.freeze([
   "mcp__forge__check_test",
   "mcp__forge__git_status",
   "mcp__forge__git_diff",
+  "mcp__forge__git_log",
+  "mcp__forge__git_show",
+  "mcp__forge__git_blame",
+  "mcp__forge__git_branch",
+  "mcp__forge__git_restore",
+  "mcp__forge__git_stash",
   "mcp__forge__commit_changes",
   "mcp__forge__report_done",
   "mcp__forge__respond_to_review",

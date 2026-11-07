@@ -10,6 +10,7 @@ import { createReadFileTool } from "../../../tools/governance/agent-lifecycle-to
 import { terminalAuditLogger } from "../../../core/terminal-log-format.js";
 import { createRgSearchTool } from "../../../tools/discovery/rg-search.js";
 import { createGitReadTools } from "../../../tools/discovery/git-read-tools.js";
+import { createGitWorkflowTools } from "../../../tools/roles/git-workflow-tools.js";
 import { createOwnerSearchTreeTool } from "../../../tools/roles/owner-search-tree.js";
 import { createRgFilesTool } from "../../../tools/discovery/rg-files.js";
 import { engineeringToolDefinitions } from "../../../tools/engineering-tool-catalog.js";
@@ -82,7 +83,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       code_index: { ...(cached?.code_index ?? {}), path, symbols }, code_graph: cached?.sha256 === file.sha256 ? cached.code_graph ?? {} : {} };
   } } : snapshot ? { read: (input) => scopedFiles.readForIndex(input) } : codeCache;
   // Review discovery covers project source and instructions; the delta is not a read permission boundary.
-  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "review_diff", "run_review_check"], project_root: projectRoot };
+  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "review_diff", "run_review_check"], project_root: projectRoot };
   // Keeps text search under the same project, protected-path and symlink rules as direct reads.
   const searchCache = { read: async ({ path }) => {
     await assertReviewerReadPath(projectRoot, path);
@@ -90,11 +91,13 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     if (Buffer.byteLength(file.content) > MAX_FILE_BYTES) throw toolError("REVIEW_EVIDENCE_TOO_LARGE", "Reviewer source exceeds the file read budget.");
     return file;
   } };
+  const gitWorkflow = !snapshot && gitService ? createGitWorkflowTools({ gitService, projectRoot }) : {};
   const implementations = {
     lookup_schema: createLookupSchemaTool({ role: "reviewer" }),
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: { read: (input) => (input.path === ".forge" || input.path.startsWith(".forge/")) ? (codeCache?.read ? codeCache.read(input).catch(() => scopedFiles.readForIndex(input)) : scopedFiles.readForIndex(input)) : reviewCache?.read ? reviewCache.read(input) : scopedFiles.readForIndex(input) }, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
     search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }),
     ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: terminalAuditLogger(projectLogger) } }) : {}),
+    ...(gitWorkflow.git_branch ? { git_branch: gitWorkflow.git_branch } : {}),
     list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: terminalAuditLogger(projectLogger) } }),
     Read: createSourceReadTool({ fileService: scopedFiles, projectRoot, codeCache: snapshot || !codeCache?.read ? undefined : searchCache }),
     ...(ticketEvidence?.context?.review_commit_sha && ticketEvidence?.context?.base_sha ? {

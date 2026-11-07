@@ -10,17 +10,23 @@ import { createRoleFileService } from "../../infrastructure/filesystem/file-serv
 import { createOwnerDeleteFileTool, createOwnerMoveFileTool } from "./owner-delete-file.js";
 import { createOwnerReadFileBinaryTool, ownerReadFileBinaryDefinition } from "./owner-read-file-binary.js";
 import { createGitReadTools } from "../discovery/git-read-tools.js";
+import { createGitWorkflowTools } from "./git-workflow-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 import { createSourceReadTool } from "../discovery/source-read.js";
 import { createDelegateSubagentTool } from "../discovery/delegate-subagent-tool.js";
+import { createSubagentEvidenceStore } from "../discovery/subagent-evidence-store.js";
+import { createSubagentEvidenceTool } from "../discovery/subagent-evidence-tool.js";
+
+const sharedSubagentEvidenceStore = createSubagentEvidenceStore();
 import { createLookupSchemaTool } from "../discovery/lookup-schema-tool.js";
 import { formatForgeToolActivitySummary } from "../../application/system-engineer-sdk-transcript.js";
 import { extractOwnerToolPathMeta, recordDiscoveryCompactStep, updateActiveFileChecksums } from "../../application/owner-context-compaction.js";
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
-export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, conversationStateStore, conversationId, projectLogger, eventSink, context, delegateSubagentExecutor, readOnlyExplorer = false }) {
-  const explorerTools = ["search_tree", "list_files", "search_text", "read_file", "Read"];
-  const allowed = ownerRoleTools(role).filter((name) => (readOnlyExplorer ? explorerTools.includes(name) : true) && (!context?.planning_input_only || ["search_tree", "list_files", "search_text", "read_file", "read_file_binary", "Read", "git_status", "git_diff", "lookup_schema"].includes(name)));
+export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, commandService, conversationStateStore, conversationId, projectLogger, eventSink, context, delegateSubagentExecutor, evidenceStore = sharedSubagentEvidenceStore, readOnlyExplorer = false }) {
+  const explorerTools = ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame"];
+  const planningTools = ["search_tree", "list_files", "search_text", "read_file", "read_subagent_evidence", "read_file_binary", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "lookup_schema"];
+  const allowed = ownerRoleTools(role).filter((name) => (readOnlyExplorer ? explorerTools.includes(name) : true) && (!context?.planning_input_only || planningTools.includes(name)));
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
     await scopedFiles.assertReadPath(path);
@@ -29,6 +35,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   } };
   const base = createAgentCommandTools({ projectRoot, fileService: scopedFiles, codeSearch, codeCache: scopedCache, projectLogger: () => {}, wrap: (tool) => tool });
   const implementations = {
+    read_subagent_evidence: createSubagentEvidenceTool({ evidenceStore }).execute,
     lookup_schema: createLookupSchemaTool({ role }),
     ...base,
     search_tree: createOwnerSearchTreeTool({ fileService: scopedFiles, role }),
@@ -40,11 +47,15 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
     delete_file: createOwnerDeleteFileTool({ fileService: scopedFiles, codeCache: scopedCache }),
     move_file: createOwnerMoveFileTool({ fileService: scopedFiles, codeCache: scopedCache })
   };
-  if (["architecture_manager", "system_engineer", "reviewer"].includes(role) && typeof gitService?.status === "function" && typeof gitService?.diffWorkingTree === "function") Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
-  const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore }) : { definitions: [], implementations: {} };
+  if (["architecture_manager", "system_engineer", "sprint_leader", "reviewer"].includes(role) && typeof gitService?.status === "function" && typeof gitService?.diffWorkingTree === "function") {
+    Object.assign(implementations, createGitReadTools({ gitService, logger: { emit: () => {} } }));
+    const workflow = createGitWorkflowTools({ gitService, projectRoot, conversationStateStore, conversationId });
+    if (workflow.git_branch) implementations.git_branch = workflow.git_branch;
+  }
+  const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
-  if (typeof delegateSubagentExecutor === "function") implementations.delegate_subagent = createDelegateSubagentTool({ executeTask: delegateSubagentExecutor });
-  const baseDefinitions = engineeringToolDefinitions();
+  if (typeof delegateSubagentExecutor === "function") implementations.delegate_subagent = createDelegateSubagentTool({ executeTask: delegateSubagentExecutor, evidenceStore });
+  const baseDefinitions = [...engineeringToolDefinitions(), createSubagentEvidenceTool({ evidenceStore }).definition];
   const readIdx = baseDefinitions.findIndex(({ name }) => name === "read_file");
   const candidateDefinitions = ["architecture_manager", "system_engineer"].includes(role) && readIdx >= 0
     ? [...baseDefinitions.slice(0, readIdx + 1), ownerReadFileBinaryDefinition, ...baseDefinitions.slice(readIdx + 1)]

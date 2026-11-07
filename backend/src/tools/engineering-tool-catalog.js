@@ -2,7 +2,7 @@
 import { sourceReadDefinition } from "./discovery/source-read.js";
 import { queryReviewDefinition } from "./reporting/query-review-tool.js";
 import { lookupSchemaDefinition } from "./discovery/lookup-schema-tool.js";
-import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, reportDoneDefinition, respondToReviewDefinition } from "./index.js";
+import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, gitLogDefinition, gitShowDefinition, gitBlameDefinition, gitBranchDefinition, gitRestoreDefinition, gitStashDefinition, runCommandDefinition, reportDoneDefinition, respondToReviewDefinition } from "./index.js";
 import { rgFilesDefinition, rgSearchDefinition } from "./governance/agent-command-tools.js";
 import { ownerSearchTreeDefinition } from "./roles/owner-search-tree.js";
 import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./roles/owner-engineer-tools.js";
@@ -28,7 +28,10 @@ export function engineeringToolDefinitions() {
     { ...rgSearchDefinition, name: "search_text", description: "Search project file contents with safe paths and filters." },
     readFileDefinition,
     sourceReadDefinition, delegateSubagentDefinition,
-    writeDiffDefinition, editDiffDefinition, ownerDeleteFileDefinition, ownerMoveFileDefinition, gitStatusDefinition, gitDiffDefinition, runCheckDefinition,
+    writeDiffDefinition, editDiffDefinition, ownerDeleteFileDefinition, ownerMoveFileDefinition,
+    gitStatusDefinition, gitDiffDefinition, gitLogDefinition, gitShowDefinition, gitBlameDefinition,
+    gitBranchDefinition, gitRestoreDefinition, gitStashDefinition,
+    runCommandDefinition, runCheckDefinition,
     { ...commitChangesDefinition, description: "Commit only authorized files recorded in the execution-scoped Forge change ledger." },
     { ...pushCommitDefinition, description: "Push the exact execution-recorded commit only when a separate push grant is authorized." }, lookupSchemaDefinition
   ];
