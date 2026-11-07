@@ -114,24 +114,10 @@ export function buildSandboxedInlineArgs(command, args, projectRoot) {
   const rootAbs = resolve(projectRoot);
   const hasInlineFlag = args.some((token) => INLINE_EVAL_FLAGS.has(token) || token.startsWith("--eval=") || token.startsWith("--print=") || token.startsWith("--require=") || token.startsWith("--import="));
   if (!hasInlineFlag) return [...args];
-  if (command === "php") {
-    return [
-      "-d",
-      `open_basedir=${rootAbs}`,
-      "-d",
-      `disable_functions=${PHP_DISABLED_FUNCTIONS}`,
-      ...args
-    ];
-  }
+  if (command === "php") return ["-d", `open_basedir=${rootAbs}`, "-d", `disable_functions=${PHP_DISABLED_FUNCTIONS}`, ...args];
   if (command === "node") {
-    const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
-    const permFlag = nodeMajor >= 22 ? "--permission" : "--experimental-permission";
-    return [
-      permFlag,
-      `--allow-fs-read=${rootAbs}*`,
-      `--allow-fs-write=${rootAbs}*`,
-      ...args
-    ];
+    const permFlag = Number.parseInt(process.versions.node.split(".")[0], 10) >= 22 ? "--permission" : "--experimental-permission";
+    return [permFlag, `--allow-fs-read=${rootAbs}*`, `--allow-fs-write=${rootAbs}*`, ...args];
   }
   return [...args];
 }
@@ -143,9 +129,15 @@ export async function assertCommandArgSymlinkSafety(projectRoot, cwdAbsolute, co
   for (let i = 0; i < args.length; i += 1) {
     const raw = args[i];
     if (inlineEval && i > 0 && INLINE_EVAL_FLAGS.has(args[i - 1])) continue;
+    if (raw.startsWith("--eval=") || raw.startsWith("--print=") || raw.startsWith("--require=") || raw.startsWith("--import=")) continue;
     const candidate = raw.startsWith("-") ? (raw.includes("=") ? raw.slice(raw.indexOf("=") + 1) : "") : raw;
     if (!candidate || /^https?:\/\//i.test(candidate)) continue;
-    const targetAbs = isAbsolute(candidate) ? resolve(candidate) : resolve(cwdAbsolute, candidate);
+    if (isAbsolute(candidate) || (raw.startsWith("-") && (candidate.includes("/") || candidate.includes("\\")))) {
+      const resolved = resolveProjectContainedPath(projectRoot, isAbsolute(candidate) ? candidate : resolve(cwdAbsolute, candidate), { forbidProtected: true, label: "option argument" });
+      await assertNoSymlinkEscape(projectRoot, resolved.absolutePath);
+      continue;
+    }
+    const targetAbs = resolve(cwdAbsolute, candidate);
     const rel = relative(resolve(projectRoot), targetAbs).split(sep).join("/");
     if (!rel.startsWith("..") && !isAbsolute(rel)) {
       await assertNoSymlinkEscape(projectRoot, targetAbs);
@@ -198,10 +190,14 @@ function validatePerCommandPolicy(command, args, cwdAbsolute, projectRoot) {
     if (/(?:^|[\\/])(?:\.git|\.forge)(?:[\\/]|$)/.test(arg) || trimmedArg === ".git" || trimmedArg === ".forge") {
       throw commandError("COMMAND_PROTECTED_PATH", `Argument references protected directory (.git or .forge): ${arg}`);
     }
+    const isInlineCodeOption = arg.startsWith("--eval=") || arg.startsWith("--print=") || arg.startsWith("--require=") || arg.startsWith("--import=");
+    const optionValue = arg.startsWith("-") && arg.includes("=") && !isInlineCodeOption ? arg.slice(arg.indexOf("=") + 1) : "";
     if (isAbsolute(arg)) {
       resolveProjectContainedPath(projectRoot, arg, { forbidProtected: true, label: "argument" });
     } else if (!arg.startsWith("-") && (arg.includes("/") || arg.includes("\\"))) {
       resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, arg), { forbidProtected: true, label: "argument" });
+    } else if (optionValue && !/^https?:\/\//i.test(optionValue) && (isAbsolute(optionValue) || optionValue.includes("/") || optionValue.includes("\\") || optionValue.includes(".."))) {
+      resolveProjectContainedPath(projectRoot, isAbsolute(optionValue) ? optionValue : resolve(cwdAbsolute, optionValue), { forbidProtected: true, label: "option argument" });
     }
   }
   const hasInlineFlag = args.some((token) => INLINE_EVAL_FLAGS.has(token) || token.startsWith("--eval=") || token.startsWith("--print=") || token.startsWith("--require=") || token.startsWith("--import="));
@@ -234,9 +230,10 @@ function validatePerCommandPolicy(command, args, cwdAbsolute, projectRoot) {
       const token = args[i];
       if (FORBIDDEN_PNPM_SUBCOMMANDS.has(token)) throw commandError("COMMAND_FLAG_FORBIDDEN", `pnpm subcommand '${token}' is forbidden.`);
       if (token === "-g" || token === "--global" || token.startsWith("--global=")) throw commandError("COMMAND_FLAG_FORBIDDEN", "pnpm global operations (--global / -g) are forbidden.");
-      if (token === "--dir" || token === "-C") {
-        if (!args[i + 1]) throw commandError("COMMAND_ARGS_INVALID", `pnpm ${token} requires a directory argument.`);
-        resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, args[i + 1]), { forbidProtected: true, label: "pnpm --dir" });
+      if (token === "--dir" || token === "-C" || token.startsWith("--dir=") || token.startsWith("-C=")) {
+        const dirVal = token.includes("=") ? token.slice(token.indexOf("=") + 1) : args[i + 1];
+        if (!dirVal) throw commandError("COMMAND_ARGS_INVALID", `pnpm ${token} requires a directory argument.`);
+        resolveProjectContainedPath(projectRoot, isAbsolute(dirVal) ? dirVal : resolve(cwdAbsolute, dirVal), { forbidProtected: true, label: "pnpm --dir" });
       }
     }
     return;
@@ -246,16 +243,17 @@ function validatePerCommandPolicy(command, args, cwdAbsolute, projectRoot) {
       const token = args[i];
       if (FORBIDDEN_NPM_SUBCOMMANDS.has(token)) throw commandError("COMMAND_FLAG_FORBIDDEN", `npm subcommand '${token}' is forbidden.`);
       if (token === "-g" || token === "--global" || token === "--location=global") throw commandError("COMMAND_FLAG_FORBIDDEN", "npm global operations (-g / --global) are forbidden.");
-      if (token === "--prefix") {
-        if (!args[i + 1]) throw commandError("COMMAND_ARGS_INVALID", "npm --prefix requires a directory argument.");
-        resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, args[i + 1]), { forbidProtected: true, label: "npm --prefix" });
+      if (token === "--prefix" || token.startsWith("--prefix=")) {
+        const prefixVal = token.includes("=") ? token.slice(token.indexOf("=") + 1) : args[i + 1];
+        if (!prefixVal) throw commandError("COMMAND_ARGS_INVALID", "npm --prefix requires a directory argument.");
+        resolveProjectContainedPath(projectRoot, isAbsolute(prefixVal) ? prefixVal : resolve(cwdAbsolute, prefixVal), { forbidProtected: true, label: "npm --prefix" });
       }
     }
     return;
   }
   if (command === "npx") {
     for (const token of args) {
-      if (token === "-c" || token === "--call" || token === "--yes" || token === "-y" || token.startsWith("--package") || /^https?:\/\//i.test(token) || /^git\+/i.test(token)) {
+      if (token === "-c" || token.startsWith("-c=") || token === "--call" || token.startsWith("--call=") || token === "--yes" || token === "-y" || token.startsWith("--package") || /^https?:\/\//i.test(token) || /^git\+/i.test(token)) {
         throw commandError("COMMAND_FLAG_FORBIDDEN", `npx flag or remote package '${token}' is forbidden; only local project binaries are permitted.`);
       }
     }
@@ -269,68 +267,10 @@ function validatePerCommandPolicy(command, args, cwdAbsolute, projectRoot) {
     for (let i = 0; i < args.length; i += 1) {
       const token = args[i];
       if (token === "-S" || token.startsWith("-S")) throw commandError("COMMAND_FLAG_FORBIDDEN", "php built-in web server (-S) is forbidden.");
-      if (token === "-c") {
-        if (!args[i + 1]) throw commandError("COMMAND_ARGS_INVALID", "php -c requires a configuration path inside projectRoot.");
-        resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, args[i + 1]), { forbidProtected: true, label: "php -c" });
-      }
-    }
-  }
-}
-
-// Business purpose: Validates zip and unzip archive paths and entries so archives cannot read/write outside projectRoot or perform Zip Slip attacks.
-// Technical description: Resolves archive and target paths inside projectRoot, checks symlinks, and inspects zip entries using the caller's remaining deadline and AbortSignal.
-export async function validateArchiveOperation(command, args, cwdAbsolute, projectRoot, runProcess, { remainingTimeoutMs, signal } = {}) {
-  if (command === "zip") {
-    const pathArgs = args.filter((arg) => !arg.startsWith("-"));
-    if (pathArgs.length < 2) throw commandError("COMMAND_ARCHIVE_INVALID", "zip requires an output archive path and at least one input path inside projectRoot.");
-    for (const rawTarget of pathArgs) {
-      const resolved = resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, rawTarget), { forbidProtected: true, label: "zip path" });
-      await assertNoSymlinkEscape(projectRoot, resolved.absolutePath);
-    }
-    return;
-  }
-  if (command === "unzip") {
-    const isListOnly = args.includes("-l") || args.includes("-Z") || args.includes("-Z1");
-    let archiveArg = null;
-    let targetDirAbs = cwdAbsolute;
-    for (let i = 0; i < args.length; i += 1) {
-      const token = args[i];
-      if (token === "-d") {
-        if (!args[i + 1]) throw commandError("COMMAND_ARCHIVE_INVALID", "unzip -d requires a target directory inside projectRoot.");
-        targetDirAbs = resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, args[i + 1]), { forbidProtected: true, label: "unzip target_dir" }).absolutePath;
-        i += 1;
-      } else if (!token.startsWith("-") && !archiveArg) {
-        archiveArg = token;
-      }
-    }
-    if (!archiveArg) throw commandError("COMMAND_ARCHIVE_INVALID", "unzip requires an archive file path inside projectRoot.");
-    const resolvedArchive = resolveProjectContainedPath(projectRoot, resolve(cwdAbsolute, archiveArg), { forbidProtected: true, label: "unzip archive" });
-    await assertNoSymlinkEscape(projectRoot, resolvedArchive.absolutePath);
-    await assertNoSymlinkEscape(projectRoot, targetDirAbs);
-    if (!isListOnly) {
-      const preflightTimeout = () => {
-        const left = typeof remainingTimeoutMs === "function" ? remainingTimeoutMs() : (remainingTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS);
-        if (left <= 0) throw commandError("COMMAND_TIMEOUT", "Command exceeded timeout before archive inspection completed.");
-        return Math.min(left, 15_000);
-      };
-      const listRes = await runProcess("unzip", ["-Z1", resolvedArchive.absolutePath], { cwd: cwdAbsolute, timeoutMs: preflightTimeout(), signal });
-      if (listRes.exitCode !== 0) throw commandError("COMMAND_ARCHIVE_INVALID", `Failed to inspect archive entries before extraction: ${listRes.stderr || "invalid zip archive"}`);
-      const entries = listRes.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-      for (const entryName of entries) {
-        if (isAbsolute(entryName) || entryName.startsWith("/") || entryName.startsWith("\\")) {
-          throw commandError("COMMAND_ZIP_SLIP_FORBIDDEN", `Zip Slip detected: archive entry has absolute path '${entryName}'.`);
-        }
-        const normalizedEntry = normalize(entryName).replace(/\\/g, "/");
-        if (normalizedEntry === ".." || normalizedEntry.startsWith("../") || normalizedEntry.includes("/../") || isProtectedInternalSegment(normalizedEntry)) {
-          throw commandError("COMMAND_ZIP_SLIP_FORBIDDEN", `Zip Slip or protected path detected in archive entry '${entryName}'.`);
-        }
-        const destAbs = resolve(targetDirAbs, entryName);
-        resolveProjectContainedPath(projectRoot, destAbs, { forbidProtected: true, label: "archive entry" });
-        await assertNoSymlinkEscape(projectRoot, destAbs);
-      }
-      const verboseRes = await runProcess("unzip", ["-Z", "-l", resolvedArchive.absolutePath], { cwd: cwdAbsolute, timeoutMs: preflightTimeout(), signal });
-      if (verboseRes.exitCode === 0 && /^l[rwx-]{9}/m.test(verboseRes.stdout)) {
-        throw commandError("COMMAND_ZIP_SLIP_FORBIDDEN", "Archive contains symbolic link entries, which are forbidden during unzip extraction.");
+      if (token === "-c" || token.startsWith("-c")) {
+        const cfgVal = token === "-c" ? args[i + 1] : (token.startsWith("-c=") ? token.slice(3) : token.slice(2));
+        if (!cfgVal) throw commandError("COMMAND_ARGS_INVALID", "php -c requires a configuration path inside projectRoot.");
+        resolveProjectContainedPath(projectRoot, isAbsolute(cfgVal) ? cfgVal : resolve(cwdAbsolute, cfgVal), { forbidProtected: true, label: "php -c" });
       }
     }
   }
