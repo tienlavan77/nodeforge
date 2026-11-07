@@ -1,5 +1,5 @@
 // Business purpose: Provides governed Git branch, restore, and stash tools (`git_branch`, `git_restore`, `git_stash`) through Node Git Service with automatic working-tree sha256 reconciliation and strict role/path scope enforcement.
-// Technical description: Enforces read-only branch inspection for all roles, restricts mutating actions (`create`, `switch`, `delete_merged`, `git_restore`, `git_stash`) to System Engineer and Coder (failing closed on missing roles), rejects `.git` and `.forge` paths, and reconciles changed_paths and active_file_checksums after every working-tree mutation.
+// Technical description: Enforces read-only branch inspection for all roles, restricts mutating actions (`create`, `switch`, `delete_merged`, `git_restore`, `git_stash`) to System Engineer and Coder (failing closed on missing roles), rejects `.git` and `.forge` paths, and reconciles changed_paths, active_file_checksums, and deleted_paths on both success and failure.
 
 import { snapshotWorkingTree, reconcileWorkingTreeMutation } from "../../infrastructure/git/workspace-ledger-sync.js";
 import { authorizeTool, isAgentPathAllowed } from "../governance/tool-authorization.js";
@@ -29,7 +29,7 @@ function isScopedMutationAllowed(path, context, operation = "write") {
 }
 
 // Business purpose: Creates the governed Git workflow tools (git_branch, git_restore, git_stash) bound to Node Git Service and workspace reconciliation.
-// Technical description: Enforces role-level and action-level permissions, protected branch rules, protected path rejection, and post-mutation sha256 reconciliation.
+// Technical description: Enforces role-level and action-level permissions, protected branch rules, protected path rejection, and post-mutation sha256 reconciliation on both success and failure.
 export function createGitWorkflowTools({
   gitService,
   projectRoot,
@@ -46,6 +46,55 @@ export function createGitWorkflowTools({
     tools.git_stash = Object.freeze({ name: "git_stash", definition: gitStashDefinition, execute: executeStash });
   }
   return Object.freeze(tools);
+
+  // Business purpose: Wraps a mutating Git operation in pre/post working-tree snapshots so any complete or partial working-tree changes are scope-checked and reconciled even when the Git operation fails.
+  // Technical description: Captures beforeSnapshot, runs operation in try/catch, captures afterSnapshot in finally, validates delta scope before ledger write, reconciles checksums and deleted_paths, and rethrows any original error with reconciled metadata attached.
+  async function runWithReconciliation({ toolName, context, candidatePaths = [], operation }) {
+    const effectiveRoot = projectRoot ?? context?.project_root;
+    const beforeSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
+    let result;
+    let opError = null;
+    try {
+      result = await operation();
+    } catch (error) {
+      opError = error;
+    }
+    const afterSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
+    let scopeError = null;
+    try {
+      assertDeltaScope(beforeSnapshot, afterSnapshot, context, toolName);
+    } catch (error) {
+      scopeError = error;
+    }
+    if (scopeError) {
+      throw opError ?? scopeError;
+    }
+    const resolvedCandidates = typeof candidatePaths === "function" ? candidatePaths(result) : candidatePaths;
+    const reconciled = await reconcileWorkingTreeMutation({
+      projectRoot: effectiveRoot,
+      beforeSnapshot,
+      afterSnapshot,
+      candidatePaths: Array.isArray(resolvedCandidates) ? resolvedCandidates : [],
+      context,
+      changeLedger,
+      conversationStateStore,
+      conversationId: conversationId ?? context?.conversation_id,
+      logger,
+      toolName
+    });
+    if (opError) {
+      opError.changed_paths = reconciled.changed_paths;
+      opError.active_file_checksums = reconciled.active_file_checksums;
+      opError.deleted_paths = reconciled.deleted_paths;
+      throw opError;
+    }
+    return {
+      ...result,
+      changed_paths: reconciled.changed_paths,
+      active_file_checksums: reconciled.active_file_checksums,
+      deleted_paths: reconciled.deleted_paths
+    };
+  }
 
   // Business purpose: Executes read-only or mutating branch operations with protected-branch checks and working-tree reconciliation on create and switch.
   // Technical description: Permits list/current for any role with git_branch capability; restricts create/switch/delete_merged to SE and Coder and reconciles working-tree state on create or switch.
@@ -64,12 +113,9 @@ export function createGitWorkflowTools({
       }
     }
 
-    const effectiveRoot = projectRoot ?? context?.project_root;
     const mutatesWorkingTree = action === "switch" || action === "create";
-    const beforeSnapshot = mutatesWorkingTree ? await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) }) : null;
-
-    const result = await gitService.branch(input);
     if (!mutatesWorkingTree) {
+      const result = await gitService.branch(input);
       logger?.emit?.({
         event_name: "forge.git_branch_completed",
         level: "info",
@@ -82,28 +128,15 @@ export function createGitWorkflowTools({
       return result;
     }
 
-    const afterSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
-    assertDeltaScope(beforeSnapshot, afterSnapshot, context, "git_branch");
-    const reconciled = await reconcileWorkingTreeMutation({
-      projectRoot: effectiveRoot,
-      beforeSnapshot,
-      afterSnapshot,
+    return runWithReconciliation({
+      toolName: "git_branch",
       context,
-      changeLedger,
-      conversationStateStore,
-      conversationId: conversationId ?? context?.conversation_id,
-      logger,
-      toolName: "git_branch"
+      operation: () => gitService.branch(input)
     });
-    return {
-      ...result,
-      changed_paths: reconciled.changed_paths,
-      active_file_checksums: reconciled.active_file_checksums
-    };
   }
 
   // Business purpose: Restores explicit project-relative files in the working tree or unstages index entries without allowing global resets or protected path mutations.
-  // Technical description: Validates non-empty paths within SE/Coder role scope, rejects .git/.forge paths, runs gitService.restore under mutationLock, and reconciles sha256 checksums.
+  // Technical description: Validates non-empty paths within SE/Coder role scope, rejects .git/.forge paths, runs gitService.restore under mutationLock, and reconciles sha256 checksums and deleted_paths.
   async function executeRestore(input = {}, context = {}) {
     authorizeTool("git_restore", context);
     assertMutationRole("git_restore", input?.action ?? "restore", context);
@@ -118,33 +151,16 @@ export function createGitWorkflowTools({
       validateMutatingGitPath(rawPath, context, "git_restore", "GIT_RESTORE_PATH_INVALID");
     }
 
-    const effectiveRoot = projectRoot ?? context?.project_root;
-    const beforeSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
-    const result = await gitService.restore(input);
-    const afterSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
-    assertDeltaScope(beforeSnapshot, afterSnapshot, context, "git_restore");
-    const reconciled = await reconcileWorkingTreeMutation({
-      projectRoot: effectiveRoot,
-      beforeSnapshot,
-      afterSnapshot,
-      candidatePaths: result.restored_paths ?? input.paths,
+    return runWithReconciliation({
+      toolName: "git_restore",
       context,
-      changeLedger,
-      conversationStateStore,
-      conversationId: conversationId ?? context?.conversation_id,
-      logger,
-      toolName: "git_restore"
+      candidatePaths: (res) => res?.restored_paths ?? input.paths,
+      operation: () => gitService.restore(input)
     });
-
-    return {
-      ...result,
-      changed_paths: reconciled.changed_paths,
-      active_file_checksums: reconciled.active_file_checksums
-    };
   }
 
-  // Business purpose: Executes governed Git stash operations (list, push, pop, apply) and reconciles working-tree file checksums after mutations.
-  // Technical description: Validates stash parameters, rejects .git/.forge paths, enforces SE/Coder path scope, calls gitService.stash, and runs reconcileWorkingTreeMutation for push/pop/apply.
+  // Business purpose: Executes governed Git stash operations (list, push, pop, apply) and reconciles working-tree file checksums and deleted_paths after mutations.
+  // Technical description: Validates stash parameters, rejects .git/.forge paths, enforces SE/Coder path scope, calls gitService.stash, and runs runWithReconciliation for push/pop/apply.
   async function executeStash(input = {}, context = {}) {
     authorizeTool("git_stash", context);
     assertAllowedKeys(input, ["action", "message", "paths", "index"], "git_stash");
@@ -166,29 +182,12 @@ export function createGitWorkflowTools({
       return gitService.stash({ action: "list" });
     }
 
-    const effectiveRoot = projectRoot ?? context?.project_root;
-    const beforeSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
-    const result = await gitService.stash(input);
-    const afterSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
-    assertDeltaScope(beforeSnapshot, afterSnapshot, context, "git_stash");
-    const reconciled = await reconcileWorkingTreeMutation({
-      projectRoot: effectiveRoot,
-      beforeSnapshot,
-      afterSnapshot,
-      candidatePaths: input.paths ?? [],
+    return runWithReconciliation({
+      toolName: "git_stash",
       context,
-      changeLedger,
-      conversationStateStore,
-      conversationId: conversationId ?? context?.conversation_id,
-      logger,
-      toolName: "git_stash"
+      candidatePaths: input.paths ?? [],
+      operation: () => gitService.stash(input)
     });
-
-    return {
-      ...result,
-      changed_paths: reconciled.changed_paths,
-      active_file_checksums: reconciled.active_file_checksums
-    };
   }
 }
 

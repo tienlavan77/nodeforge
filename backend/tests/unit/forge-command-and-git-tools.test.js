@@ -17,7 +17,7 @@ import { createLookupSchemaTool } from "../../src/tools/discovery/lookup-schema-
 import { ownerRoleTools, authorizeOwnerTool } from "../../src/tools/roles/owner-role-tool-policy.js";
 import { READ_ONLY_EXPLORER_TOOLS } from "../../src/tools/discovery/delegate-subagent-tool.js";
 import { checkpointedRegistry, createResumeState } from "../../src/modules/supervisor/ticket/ticket-resume.js";
-import { activeFileChecksums } from "../../src/modules/supervisor/ticket/ticket-read-cache.js";
+import { activeFileChecksums, rememberRead } from "../../src/modules/supervisor/ticket/ticket-read-cache.js";
 
 const ALL_CAPS = [
   "run_command", "git_status", "git_diff", "git_log", "git_show", "git_blame",
@@ -86,6 +86,7 @@ test("O1: run_command executes node, redacts secrets, bounds output to 8KB, and 
     assert.ok(!res.stdout.includes("supersecret123456"));
     assert.ok(res.changed_paths.includes("src/generated.js"));
     assert.match(res.active_file_checksums["src/generated.js"], /^sha256:[0-9a-f]{64}$/);
+    assert.ok(Array.isArray(res.deleted_paths));
     assert.ok(ledgerWrites.some((item) => item.path === "src/generated.js"));
     assert.match(convStoreMap.get("CONV-SE-1").active_file_checksums["src/generated.js"].sha256, /^sha256:[0-9a-f]{64}$/);
 
@@ -140,23 +141,31 @@ test("O2: Complete Forge Git Toolset (status, diff, log, show, blame, branch, re
     assert.equal(branchList.current, "main");
     await assert.rejects(() => workflowTools.git_branch.execute({ action: "create", name: "feat/rv" }, rvContext), (err) => err.code === "TOOL_FORBIDDEN");
     await assert.rejects(() => workflowTools.git_branch.execute({ action: "create", name: "main" }, seContext), (err) => err.code === "GIT_PROTECTED_BRANCH");
+    await assert.rejects(() => workflowTools.git_restore.execute({ action: "restore_worktree", paths: ["src/index.js"] }, seContext), (err) => err.code === "GIT_PROTECTED_BRANCH");
+    await assert.rejects(() => workflowTools.git_stash.execute({ action: "push", paths: ["src/index.js"] }, seContext), (err) => err.code === "GIT_PROTECTED_BRANCH");
 
     const createdBranch = await workflowTools.git_branch.execute({ action: "create", name: "feat/test-branch" }, seContext);
     assert.equal(createdBranch.branch, "feat/test-branch");
     assert.ok(Array.isArray(createdBranch.changed_paths));
-    assert.equal(typeof createdBranch.active_file_checksums, "object");
+    assert.ok(Array.isArray(createdBranch.deleted_paths));
 
-    const stashPush = await workflowTools.git_stash.execute({ action: "push", message: "wip index", paths: ["src/index.js"] }, seContext);
+    await assert.rejects(() => workflowTools.git_branch.execute({ action: "switch", name: "main" }, seContext), (err) => err.code === "GIT_PROTECTED_BRANCH");
+
+    await writeFile(join(root, "src", "temp-untracked.js"), "export const tmp = 1;\n");
+    const stashPush = await workflowTools.git_stash.execute({ action: "push", message: "wip index", paths: ["src/index.js", "src/temp-untracked.js"] }, seContext);
     assert.equal(stashPush.action, "push");
     assert.ok(stashPush.changed_paths.includes("src/index.js"));
+    assert.ok(stashPush.deleted_paths.includes("src/temp-untracked.js"));
 
     const stashPop = await workflowTools.git_stash.execute({ action: "pop", index: 0 }, seContext);
     assert.equal(stashPop.action, "pop");
     assert.match(stashPop.active_file_checksums["src/index.js"], /^sha256:[0-9a-f]{64}$/);
+    await rm(join(root, "src", "temp-untracked.js"), { force: true });
 
     const restored = await workflowTools.git_restore.execute({ action: "restore_worktree", paths: ["src/index.js"] }, seContext);
     assert.deepEqual(restored.restored_paths, ["src/index.js"]);
     assert.match(restored.active_file_checksums["src/index.js"], /^sha256:[0-9a-f]{64}$/);
+    assert.ok(Array.isArray(restored.deleted_paths));
 
     await workflowTools.git_branch.execute({ action: "switch", name: "main" }, seContext);
     const delBranch = await workflowTools.git_branch.execute({ action: "delete_merged", name: "feat/test-branch" }, seContext);
@@ -174,11 +183,13 @@ test("O2: Complete Forge Git Toolset (status, diff, log, show, blame, branch, re
   }
 });
 
-test("O1 & O2: Ticket Runtime checkpointedRegistry reconciles state.readCache and changedPaths after run_command", async () => {
+test("O1 & O2: Ticket Runtime checkpointedRegistry reconciles state.readCache, deleted_paths, and changedPaths after run_command/git_stash", async () => {
   const root = await createIsolatedGitRepo();
   try {
     const runCommand = createRunCommandTool({ projectRoot: root });
     const state = createResumeState(null);
+    rememberRead(state.readCache, { path: "src/to-delete.js" }, { path: "src/to-delete.js", sha256: `sha256:${"a".repeat(64)}`, total_lines: 1 });
+    await writeFile(join(root, "src", "to-delete.js"), "export const gone = true;\n");
     const store = { async save() {}, async complete() {} };
     const wrapped = checkpointedRegistry({
       store,
@@ -187,15 +198,17 @@ test("O1 & O2: Ticket Runtime checkpointedRegistry reconciles state.readCache an
       selected: { agent_id: "coder-1", role: "coder" },
       resumeState: state
     });
-    await writeFile(join(root, "src", "gen-step.mjs"), "import { writeFileSync } from 'node:fs'; writeFileSync('src/from-cmd.js', 'export const x = 42;\\n');\n");
+    await writeFile(join(root, "src", "gen-step.mjs"), "import { writeFileSync, unlinkSync } from 'node:fs'; writeFileSync('src/from-cmd.js', 'export const x = 42;\\n'); unlinkSync('src/to-delete.js');\n");
     const res = await wrapped.run_command.execute(
       { command: "node", args: ["src/gen-step.mjs"] },
       { agent_identity: { agent_id: "coder-1", role: "coder" }, task_id: "TKT-1", capabilities: ALL_CAPS, project_root: root, changed_paths: [] }
     );
     assert.equal(res.exit_code, 0);
+    assert.ok(res.deleted_paths.includes("src/to-delete.js"));
     assert.ok(state.changedPaths.includes("src/from-cmd.js"));
     const checksums = activeFileChecksums(state.readCache);
     assert.match(checksums["src/from-cmd.js"].sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(checksums["src/to-delete.js"], undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
