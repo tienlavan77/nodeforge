@@ -122,15 +122,20 @@ export function createRunCommandTool({
     }
 
     const afterSnapshot = await snapshotWorkingTree(effectiveRoot, { includeContent: Boolean(changeLedger) });
+    let scopeError = null;
     for (const [path, meta] of afterSnapshot.entries()) {
       const prev = beforeSnapshot.get(path);
       if ((!prev || prev.sha256 !== meta.sha256) && !isScopedMutationAllowed(path, context, "write")) {
-        throw Object.assign(new ConfigurationError(`run_command modified path outside authorized scope: ${path}`), { code: "TOOL_RESOURCE_FORBIDDEN" });
+        scopeError = Object.assign(new ConfigurationError(`run_command modified path outside authorized scope: ${path}`), { code: "TOOL_RESOURCE_FORBIDDEN" });
+        break;
       }
     }
-    for (const [path] of beforeSnapshot.entries()) {
-      if (!afterSnapshot.has(path) && !isScopedMutationAllowed(path, context, "delete")) {
-        throw Object.assign(new ConfigurationError(`run_command deleted path outside authorized scope: ${path}`), { code: "TOOL_RESOURCE_FORBIDDEN" });
+    if (!scopeError) {
+      for (const [path] of beforeSnapshot.entries()) {
+        if (!afterSnapshot.has(path) && !isScopedMutationAllowed(path, context, "delete")) {
+          scopeError = Object.assign(new ConfigurationError(`run_command deleted path outside authorized scope: ${path}`), { code: "TOOL_RESOURCE_FORBIDDEN" });
+          break;
+        }
       }
     }
 
@@ -139,12 +144,20 @@ export function createRunCommandTool({
       beforeSnapshot,
       afterSnapshot,
       context,
-      changeLedger,
+      changeLedger: scopeError ? null : changeLedger,
       conversationStateStore,
       conversationId: conversationId ?? context?.conversation_id,
       logger,
       toolName: "run_command"
     });
+
+    if (scopeError) {
+      scopeError.changed_paths = reconciled.changed_paths;
+      scopeError.active_file_checksums = reconciled.active_file_checksums;
+      scopeError.deleted_paths = reconciled.deleted_paths;
+      if (commandFailure) scopeError.cause = commandFailure;
+      throw scopeError;
+    }
 
     if (commandFailure) {
       commandFailure.changed_paths = reconciled.changed_paths;
