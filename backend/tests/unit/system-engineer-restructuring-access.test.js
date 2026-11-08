@@ -51,7 +51,7 @@ test("PNG metadata and archival use original binary bytes through owner Forge to
   const tools = createOwnerConversationTools({ role: "system_engineer", projectRoot, fileService: createFileService({ projectRoot }), codeCache, context });
   const metadata = await tools.registry.read_file.execute({ path: "docs/diagram.png" }, context);
   const sha256 = "sha256:" + createHash("sha256").update(bytes).digest("hex");
-  assert.deepEqual(metadata, { path: "docs/diagram.png", sha256, size_bytes: bytes.length, binary: true, content_omitted: true });
+  assert.deepEqual(metadata, { path: "docs/diagram.png", sha256, size_bytes: bytes.length, binary: true, encoding: "base64", content_base64: bytes.toString("base64") });
   await assert.rejects(tools.registry.move_file.execute({ from_path: "docs/diagram.png", to_path: "docs/assets/diagram.png", before_checksum: "sha256:" + "0".repeat(64) }, context), { code: "CHECKSUM_MISMATCH" });
   await tools.registry.move_file.execute({ from_path: "docs/diagram.png", to_path: "docs/assets/diagram.png", before_checksum: sha256 }, context);
   assert.deepEqual(await readFile(join(projectRoot, "docs/assets/diagram.png")), bytes);

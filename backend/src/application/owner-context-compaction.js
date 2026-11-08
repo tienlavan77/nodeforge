@@ -2,9 +2,9 @@
 // Technical description: extracts file paths, sha256 checksums, and line counts from read/write tool calls, maintains active_file_checksums maps, builds bounded owner and discovery receipt digests, and evaluates token-threshold rollover for owner SDK sessions.
 import { DEFAULT_ROLLOVER_INPUT_TOKENS, extractTurnInputTokens } from "../modules/supervisor/ticket/ticket-context-compaction.js";
 
-const READ_TOOLS = new Set(["read_file", "read_file_binary", "Read", "sed_lines"]);
+const READ_TOOLS = new Set(["read_file", "Read", "sed_lines"]);
 const WRITE_TOOLS = new Set(["write_diff", "edit_diff", "delete_file", "move_file"]);
-const DISCOVERY_TOOLS = new Set(["read_file", "read_file_binary", "Read", "search_text", "list_files", "search_tree"]);
+const DISCOVERY_TOOLS = new Set(["read_file", "Read", "search_text", "list_files", "search_tree"]);
 
 // Business purpose: normalizes file path metadata across read_file, Read, edit_diff, write_diff, delete_file, and move_file calls so SE and AM checkpoints track every accessed or modified file consistently.
 // Technical description: extracts path, from_path, to_path, symbol, start_line, and end_line from a tool input object.
@@ -144,6 +144,15 @@ export function formatDiscoveryCompactReceipt(state = {}) {
 
 // Business purpose: determines whether an active SE or AM SDK thread has exceeded the input token threshold and should roll over to a fresh session on the next turn.
 // Technical description: checks retainedState.sdk_thread_id and compares retainedState.last_turn_input_tokens against threshold (default 120,000).
+// Business purpose: detects provider usage that requires a safe compact boundary after the current tool-safe turn.
+// Technical description: compares normalized context input tokens against soft and hard limits without aborting an active mutation.
+export function shouldCompactAfterTurn(usage = {}, { softLimit = DEFAULT_ROLLOVER_INPUT_TOKENS - 20_000, hardLimit = DEFAULT_ROLLOVER_INPUT_TOKENS } = {}) {
+  const inputTokens = Number(usage.context_input_tokens ?? usage.input_tokens ?? usage.inputTokens ?? 0);
+  const cachedTokens = Number(usage.cached_input_tokens ?? usage.cachedInputTokens ?? 0);
+  const measured = Math.max(inputTokens, cachedTokens);
+  return { measured_tokens: measured, soft_limit: softLimit, hard_limit: hardLimit, compact_required: measured >= hardLimit, compact_recommended: measured >= softLimit };
+}
+
 export function shouldRolloverOwnerSession(retainedState = {}, { continueExecution = false, resumeOf = null, planningInputOnly = false, threshold = DEFAULT_ROLLOVER_INPUT_TOKENS, incomingText = "", history = [] } = {}) {
   if (resumeOf) return false;
   const hasThread = typeof retainedState?.sdk_thread_id === "string" && Boolean(retainedState.sdk_thread_id.trim());

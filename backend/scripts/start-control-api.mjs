@@ -88,13 +88,17 @@ const planFileService = createFileService({ projectRoot: config.cwd, allowPlanSt
 const markdownPlanStore = createMarkdownPlanStore({ projectId: config.projectId, database, fileService: planFileService });
 const planStore = createHumanPlanStore({ projectId: config.projectId, database, fileService: planFileService, markdownPlans: markdownPlanStore });
 const sprintRegistry = createSprintRegistry({ projectId: config.projectId, database, plans: planStore });
-const planOwnerAuth = createPlanOwnerAuth({ token: process.env.NODEFORGE_PLAN_OWNER_TOKEN, ownerId: process.env.NODEFORGE_PLAN_OWNER_ID });
+const defaultOwnerId = process.env.NODEFORGE_PLAN_OWNER_ID || "project-owner";
+const strictPlanOwnerAuth = process.env.NODEFORGE_REQUIRE_OWNER_TOKEN === "1" && process.env.NODEFORGE_PLAN_OWNER_TOKEN
+  ? createPlanOwnerAuth({ token: process.env.NODEFORGE_PLAN_OWNER_TOKEN, ownerId: defaultOwnerId })
+  : null;
+const planOwnerAuth = strictPlanOwnerAuth ?? Object.freeze({ verify: () => defaultOwnerId });
 const notebookAuth = createNotebookProjectAuth({
   planOwnerAuth,
   verifyIdentity: (headers = {}) => {
     const authHeader = headers.authorization ?? headers.Authorization;
-    return typeof authHeader === "string" && authHeader.trim()
-      ? planOwnerAuth.verify(headers)
+    return strictPlanOwnerAuth && typeof authHeader === "string" && authHeader.trim()
+      ? strictPlanOwnerAuth.verify(headers)
       : (process.env.NODEFORGE_PLAN_OWNER_ID || "local-owner");
   },
   canAccessProject: ({ projectId: targetProjectId } = {}) => targetProjectId === "__unlocated_notebook__"
