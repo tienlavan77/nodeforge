@@ -14,7 +14,7 @@ function ownerServices(role) {
   return { role, projectRoot: process.cwd(), fileService: { readFile() {}, readForIndex() {}, atomicWrite() {}, deleteFile() {}, listFiles() {}, listDirectories() {} },
     gitService: { status() {}, diffWorkingTree() {}, commit() {}, pushCommit() {} }, testService: { runCheck() {} },
     delegateSubagentExecutor: async () => ({ summary: "", observed_files: [] }),
-    conversationStateStore: { get() {}, update() {} }, context: { task_id: "OWNER", capabilities: [...ENGINEERING_TOOL_NAMES, "read_file_binary"], agent_identity: { role } } };
+    conversationStateStore: { get() {}, update() {} }, context: { task_id: "OWNER", capabilities: [...ENGINEERING_TOOL_NAMES], agent_identity: { role } } };
 }
 
 test("System Engineer uses the shared schemas without changing its owner ledger handlers", () => {
@@ -24,7 +24,6 @@ test("System Engineer uses the shared schemas without changing its owner ledger 
     "list_files",
     "search_text",
     "read_file",
-    "read_file_binary",
     "Read",
     "delegate_subagent",
     "write_diff",

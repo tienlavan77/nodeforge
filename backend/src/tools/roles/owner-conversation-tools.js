@@ -8,7 +8,6 @@ import { engineeringToolDefinitions } from "../engineering-tool-catalog.js";
 import { createOwnerSearchTreeTool } from "./owner-search-tree.js";
 import { createRoleFileService } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { createOwnerDeleteFileTool, createOwnerMoveFileTool } from "./owner-delete-file.js";
-import { createOwnerReadFileBinaryTool, ownerReadFileBinaryDefinition } from "./owner-read-file-binary.js";
 import { createGitReadTools } from "../discovery/git-read-tools.js";
 import { createGitWorkflowTools } from "./git-workflow-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
@@ -25,7 +24,7 @@ import { extractOwnerToolPathMeta, recordDiscoveryCompactStep, updateActiveFileC
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
 export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, commandService, conversationStateStore, conversationId, projectLogger, eventSink, context, delegateSubagentExecutor, evidenceStore = sharedSubagentEvidenceStore, readOnlyExplorer = false }) {
   const explorerTools = ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame"];
-  const planningTools = ["search_tree", "list_files", "search_text", "read_file", "read_subagent_evidence", "read_file_binary", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "lookup_schema"];
+  const planningTools = ["search_tree", "list_files", "search_text", "read_file", "read_subagent_evidence", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "lookup_schema"];
   const allowed = ownerRoleTools(role).filter((name) => (readOnlyExplorer ? explorerTools.includes(name) : true) && (!context?.planning_input_only || planningTools.includes(name)));
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
@@ -40,7 +39,6 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
     ...base,
     search_tree: createOwnerSearchTreeTool({ fileService: scopedFiles, role }),
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: scopedCache, projectRoot, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch) }),
-    ...( ["architecture_manager", "system_engineer"].includes(role) ? { read_file_binary: createOwnerReadFileBinaryTool({ fileService: scopedFiles }) } : {} ),
     Read: createSourceReadTool({ fileService: scopedFiles, codeCache: scopedCache, projectRoot }),
     write_diff: createWriteDiffTool({ fileService: scopedFiles, codeCache }),
     edit_diff: createEditDiffTool({ fileService: scopedFiles, codeCache }),
@@ -56,11 +54,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   Object.assign(implementations, engineerTools.implementations);
   if (typeof delegateSubagentExecutor === "function") implementations.delegate_subagent = createDelegateSubagentTool({ executeTask: delegateSubagentExecutor, evidenceStore });
   const baseDefinitions = [...engineeringToolDefinitions(), createSubagentEvidenceTool({ evidenceStore }).definition];
-  const readIdx = baseDefinitions.findIndex(({ name }) => name === "read_file");
-  const candidateDefinitions = ["architecture_manager", "system_engineer"].includes(role) && readIdx >= 0
-    ? [...baseDefinitions.slice(0, readIdx + 1), ownerReadFileBinaryDefinition, ...baseDefinitions.slice(readIdx + 1)]
-    : baseDefinitions;
-  const definitions = candidateDefinitions.map((definition) => role === "system_engineer" && definition.name === "search_text" ? { ...definition, input_schema: { ...definition.input_schema, properties: { ...definition.input_schema.properties, paths: { type: "array", minItems: 1, items: { type: "string", pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*|\\.forge(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*)$" } } } } } : definition)
+  const definitions = baseDefinitions.map((definition) => role === "system_engineer" && definition.name === "search_text" ? { ...definition, input_schema: { ...definition.input_schema, properties: { ...definition.input_schema.properties, paths: { type: "array", minItems: 1, items: { type: "string", pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*|\\.forge(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*)$" } } } } } : definition)
     .filter(({ name }) => allowed.includes(name) && typeof implementations[name]?.execute === "function");
   const registry = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input, toolContext = context) => {
     const started = Date.now();

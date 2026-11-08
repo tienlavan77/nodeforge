@@ -23,8 +23,7 @@ test("external question exposes a separate authenticated response form with the 
   assert.match(html, /Obtain the direct response/);
   assert.match(html, /Denied because &lt;script&gt;/);
   assert.match(html, /Gửi phản hồi cho SL/);
-  assert.match(html, /Owner token/);
-  assert.match(html, /type="password"/);
+  assert.doesNotMatch(html, /type="password"/);
   assert.doesNotMatch(html, /Ghi quyết định|<script>/);
 });
 

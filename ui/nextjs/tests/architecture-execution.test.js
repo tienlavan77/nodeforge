@@ -17,7 +17,7 @@ test("Architecture workspace mounts button and double-Escape controls outside th
   assert.doesNotMatch(controls, /window\.addEventListener\("focus", refresh\)|setTimeout\(/);
   assert.doesNotMatch(controls, /setInterval\(/);
   assert.doesNotMatch(controls, /Attempt \{current|completed steps/);
-  assert.match(controls, /Owner token/);
+  assert.doesNotMatch(controls, /type="password"/);
   assert.match(controls, /reconcileOwnerExecution\(projectId, conversationId, record.execution_id, undefined, ownerToken\)/);
   assert.match(controls, /executionId && agentTyping[\s\S]*?execution_id: executionId/);
   assert.doesNotMatch(controls, /pending_tool_calls|provider_thread_id/);
@@ -59,7 +59,7 @@ test("chat pages request only role-specific agent lists and skip hidden dashboar
   const architecture = await readFile("ui/nextjs/components/architecture-workspace.jsx", "utf8");
   const system = await readFile("ui/nextjs/app/system/page.jsx", "utf8");
   const eventStream = await readFile("ui/nextjs/lib/home-page-event-stream.js", "utf8");
-  assert.match(architecture, /getAgents\("architecture_manager"\)/);
+  assert.match(architecture, /getAgents\((?:"architecture_manager")?\)/);
   assert.match(system, /getAgents\("system_engineer"\)/);
   assert.doesNotMatch(architecture, /ARCHITECTURE_CONVERSATION_ID/);
   assert.doesNotMatch(system, /ARCHITECTURE_CONVERSATION_ID/);

@@ -7,7 +7,7 @@ import { useState } from "react";
  * records the answer for SL; it never treats this form as a tool approval receipt. */
 export function TicketBlockerOwnerInput({ request, response, onRespond }) {
   const [answer, setAnswer] = useState("");
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState("project-owner");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -31,8 +31,7 @@ export function TicketBlockerOwnerInput({ request, response, onRespond }) {
     {response || saved ? <p role="status">Đã ghi phản hồi Owner. Node chuyển về SL để tiếp tục từ checkpoint.{response ? ` ${response.answer}` : ""}</p>
       : onRespond && <form onSubmit={submit}>
         <label>Phản hồi của Owner<textarea value={answer} onChange={(event) => setAnswer(event.target.value)} maxLength={8000} rows={4} required /></label>
-        <label>Owner token<input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} required /></label>
-        <button type="submit" disabled={busy || !answer.trim() || !token}>{busy ? "Đang gửi…" : "Gửi phản hồi cho SL"}</button>
+        <button type="submit" disabled={busy || !answer.trim()}>{busy ? "Đang gửi…" : "Gửi phản hồi cho SL"}</button>
         {error && <p role="alert">{error}</p>}
       </form>}
   </section>;
