@@ -9,6 +9,8 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
 import { createNodeCommandService } from "../../src/infrastructure/command/command-service.js";
+import { buildSandboxedInlineArgs } from "../../src/infrastructure/command/command-policy.js";
+import { validateArchiveOperation } from "../../src/infrastructure/command/archive-policy.js";
 import { createRunCommandTool } from "../../src/tools/roles/run-command-tool.js";
 import { createGitService } from "../../src/infrastructure/git/git-service.js";
 import { createGitWorkflowTools } from "../../src/tools/roles/git-workflow-tools.js";
@@ -207,6 +209,60 @@ test("Regression Round-4 & Round-5: commit-bound run_check fail-closed metadata,
         assert.ok(content.includes(schemaId), `Expected ${readmeRel} to document ${schemaId}`);
       }
     }
+
+    // 4. Plan r1 O1/O3: Sibling prefix boundary, php -d symlink value extraction, node file/dir flags, attached unzip -d<dir> & zip bomb, pnpm -C<dir> & npm exec
+    const nodeSandbox = buildSandboxedInlineArgs("node", ["-e", "1"], root);
+    const phpSandbox = buildSandboxedInlineArgs("php", ["-r", "1;"], root);
+    assert.ok(nodeSandbox.some((a) => a.startsWith("--allow-fs-read=") && (a.endsWith("/*") || a.endsWith("\\*"))));
+    assert.ok(phpSandbox.some((a) => a.startsWith("open_basedir=") && (a.endsWith("/") || a.endsWith("\\"))));
+
+    const cmdService = createNodeCommandService({ projectRoot: root });
+    await symlink("/tmp", join(root, "src", "evil-link"));
+    for (const [call, expectedCode] of [
+      [{ command: "php", args: ["-d", "auto_prepend_file=src/evil-link", "-r", "echo 1;"] }, "COMMAND_SYMLINK_ESCAPE"],
+      [{ command: "php", args: ["-dauto_prepend_file=src/evil-link", "-r", "echo 1;"] }, "COMMAND_SYMLINK_ESCAPE"],
+      [{ command: "php", args: ["-csrc/evil-link", "-r", "echo 1;"] }, "COMMAND_SYMLINK_ESCAPE"],
+      [{ command: "node", args: ["--env-file=/tmp/outside.env", "src/index.js"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "node", args: ["--env-file", "../outside.env", "src/index.js"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "node", args: ["--diagnostic-dir=/tmp", "src/index.js"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "node", args: ["--cpu-prof-dir=/tmp", "src/index.js"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "node", args: ["--redirect-warnings=/tmp/warn.log", "src/index.js"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "unzip", args: ["src/index.js", "-d/tmp"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "unzip", args: ["src/index.js", "-d../outside"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "pnpm", args: ["-C/tmp", "test"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "pnpm", args: ["--store-dir=/tmp/store", "test"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "npm", args: ["--userconfig=/tmp/.npmrc", "test"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "npm", args: ["--cache", "/tmp/cache", "test"] }, "COMMAND_PATH_OUTSIDE_PROJECT"],
+      [{ command: "npm", args: ["exec", "cowsay"] }, "COMMAND_FLAG_FORBIDDEN"]
+    ]) {
+      await assert.rejects(() => cmdService.executeCommand(call), (err) => err?.code === expectedCode);
+    }
+
+    await assert.rejects(
+      () => validateArchiveOperation("unzip", ["src/index.js"], root, root, async (_c, a) => ({
+        exitCode: 0,
+        stdout: a[0] === "-Z1" ? "huge.bin\n" : "-rw-r--r--  3.0 unx 104857600 bx defN 26-Nov-08 00:00 huge.bin\n1 file, 104857600 bytes uncompressed, 1024 bytes compressed\n",
+        stderr: ""
+      })),
+      (err) => err?.code === "COMMAND_ARCHIVE_TOO_LARGE"
+    );
+    await assert.rejects(
+      () => validateArchiveOperation("unzip", ["src/index.js"], root, root, async () => ({
+        exitCode: 0,
+        stdout: "safe.txt\n",
+        stderr: "",
+        truncated: true
+      })),
+      (err) => err?.code === "COMMAND_ARCHIVE_TOO_LARGE"
+    );
+    await assert.rejects(
+      () => validateArchiveOperation("unzip", ["src/index.js"], root, root, async (_c, a) => ({
+        exitCode: a[0] === "-Z1" ? 0 : 2,
+        stdout: a[0] === "-Z1" ? "safe.txt\n" : "",
+        stderr: "corrupt central directory"
+      })),
+      (err) => err?.code === "COMMAND_ARCHIVE_INVALID"
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
