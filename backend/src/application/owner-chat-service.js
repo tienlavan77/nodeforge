@@ -130,7 +130,7 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
         approvalRevision: input.payload.approval_revision,
         approvalSha256: input.payload.approval_sha256,
         approvalComments: input.payload.approval_comments,
-        requestArchitecture: (prompt, conversationId, options = {}) => streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType: options.responseContentType, exposeText: options.exposeText ?? !isPlanCommand, correlationId: options.correlationId, withEvidence: options.withEvidence === true }),
+        requestArchitecture: (prompt, conversationId, options = {}) => streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType: options.responseContentType, exposeText: options.exposeText ?? !isPlanCommand, correlationId: options.correlationId, withEvidence: options.withEvidence === true, planningInputOnly: options.planningInputOnly ?? !options.withEvidence }),
         requestSystemEngineer: ({ agentId: seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId, withEvidence }) => streamHandoffSystemEngineer({ seAgentId, prompt, conversationId: seConvId, linkedConversationId, correlationId, withEvidence }),
         requestReviewer: ({ agentId: rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId, withEvidence }) => streamHandoffReviewer({ rvAgentId, prompt, conversationId: rvConvId, linkedConversationId, correlationId, withEvidence })
       });
@@ -146,13 +146,13 @@ export function createOwnerChatService({ bus, architectureManagerId = "architect
     }
   }
   // Streams an Architecture response and persists it in the same conversation.
-  async function streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType, exposeText = true, correlationId, withEvidence = false }) {
+  async function streamCommandArchitecture({ input, agentId, prompt, conversationId, responseContentType, exposeText = true, correlationId, withEvidence = false, planningInputOnly = !withEvidence }) {
     agentId = agentRoleResolver ? agentRoleResolver.resolveProfile("architecture_manager")?.agent_id : architectureManagerId; if (!agentId || typeof agentStream !== "function") throw new ConfigurationError("Configured Architecture agent stream is unavailable.");
     const contentType = responseContentType ?? (prompt.startsWith("Architecture clarification discovery") ? "text/plain" : "text/markdown");
     const message = { id: `MSG-ARCHITECTURE-COMMAND-${input.message_id}`, project_id: input.project_id, sender: { id: "NODE", role: "node" }, recipient: { id: agentId, role: roleForAgent(agentId) }, message_type: "owner.message", conversation_id: conversationId, correlation_id: correlationId ?? `${input.correlation_id}-ARCH-${randomUUID()}`, payload: { text: prompt }, timestamp: new Date().toISOString() };
     let text = ""; let index = 0; let terminal;
     if (exposeText) bus.sendFast(responseMessage(message, "architecture.working", { agent_status: "WORKING" }, "COMMAND-WORKING"));
-    for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType, planning_input_only: true, ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId: message.correlation_id, conversationId })) {
+    for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType, planning_input_only: Boolean(planningInputOnly), ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId: message.correlation_id, conversationId })) {
       if (chunk?.handoff_terminal) terminal = chunk.handoff_terminal;
       if (typeof chunk.text !== "string" || !chunk.text) continue;
       text += chunk.text;

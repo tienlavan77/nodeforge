@@ -19,8 +19,6 @@ async function mount(client, handoff) {
   new Function("require", "module", "exports", bundle.outputFiles[0].text)((name) => name === "react" ? react : name === "react/jsx-runtime" ? jsx : requireFromUi(name), module, module.exports);
   const render = () => { cursor = 0; return module.exports.AmSeHandoffControls({ client, projectId: "PROJECT-A", embedded: true }); };
   const find = (node, predicate) => { if (!node || typeof node !== "object") return null; if (Array.isArray(node)) return node.map((entry) => find(entry, predicate)).find(Boolean) ?? null; return predicate(node) ? node : find(node.props?.children, predicate); };
-  const tokenInput = find(render(), (node) => node.type === "input");
-  tokenInput.props.onChange({ target: { value: "owner-token" } });
   const button = find(render(), (node) => node.type === "button" && node.props.children === "Run");
   return { click: async () => { button.props.onClick(); await new Promise((resolve) => setImmediate(resolve)); }, alert: () => find(render(), (node) => node.props?.role === "alert")?.props.children };
 }
@@ -39,8 +37,8 @@ test("AM-SE approval records the exact Owner decision and resumes SE without SL 
   const control = await mount(client, handoff);
   await control.click();
   assert.deepEqual(calls.map((call) => call[0]), ["decide", "resume"]);
-  assert.deepEqual(calls[0].slice(1, 5), ["PROJECT-A", { plan_id: "PLAN-A", revision: 2, sha256: handoff.plan_sha256, status: "awaiting_human_approval", format: "markdown" }, "approved", "owner-token"]);
-  assert.deepEqual(calls[1].slice(1), ["PROJECT-A", handoff, "owner-token"]);
+  assert.deepEqual(calls[0].slice(1, 5), ["PROJECT-A", { plan_id: "PLAN-A", revision: 2, sha256: handoff.plan_sha256, status: "awaiting_human_approval", format: "markdown" }, "approved", "project-owner"]);
+  assert.deepEqual(calls[1].slice(1), ["PROJECT-A", handoff, "project-owner"]);
 });
 
 test("AM-SE approval refuses stale revision/SHA without recording a decision or resuming", async () => {

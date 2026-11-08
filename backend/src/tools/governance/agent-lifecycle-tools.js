@@ -54,15 +54,36 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
     if (Object.keys(input).some((key) => key !== "path")) throw error("INPUT_INVALID", "read_file accepts path only; use Read with symbol or start_line/end_line for source.");
     const path = safePath(input.path, "read", context.agent_identity?.role);
-    if (context.agent_identity?.role === "system_engineer" && /\.(?:png|bak)$/i.test(path)) {
+    const readBinary = async () => {
       assertAllowed(path, context);
-      const bytes = await fileService.readFile({ path, encoding: null });
+      const raw = await fileService.readFile({ path, encoding: null });
+      const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw ?? ""), "utf8");
       assertAllowed(path, context);
-      return { path, sha256: checksum(bytes), size_bytes: Buffer.byteLength(bytes), ...(/\.bak$/i.test(path) ? { backup: true } : { binary: true }), content_omitted: true };
+      const sha256 = checksum(bytes);
+      recordRead(context, { path, window: "binary" });
+      recordObservedFile(context, { path, sha256, symbols_read: [], source_tool: "read_file" });
+      return { path, sha256, size_bytes: bytes.byteLength, binary: true, encoding: "base64", content_base64: bytes.toString("base64") };
+    };
+    if (/\.bak$/i.test(path)) {
+      assertAllowed(path, context);
+      const raw = await fileService.readFile({ path, encoding: null });
+      const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw ?? ""), "utf8");
+      assertAllowed(path, context);
+      return { path, sha256: checksum(bytes), size_bytes: bytes.byteLength, backup: true, content_omitted: true };
+    }
+    if (/\.(?:png|jpe?g|gif|webp|ico|bmp|svgz|woff2?|ttf|otf|pdf|zip|gz|tar|7z|wasm|bin)$/i.test(path)) {
+      return readBinary();
     }
     const markdown = /\.md$/i.test(path);
-    assertAllowed(path, context); const file = context.agent_identity?.role !== "coder" && isDependencyPath(path) && (projectRoot ?? context.project_root)
-      ? await dependencyReader({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
+    assertAllowed(path, context);
+    let file;
+    try {
+      file = context.agent_identity?.role !== "coder" && isDependencyPath(path) && (projectRoot ?? context.project_root)
+        ? await dependencyReader({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
+    } catch (readError) {
+      if (/Refusing to index binary file/i.test(String(readError?.message ?? "")) && typeof fileService?.readFile === "function") return readBinary();
+      throw readError;
+    }
     if (!file || typeof file.content !== "string") throw error("READ_FAILED", `File could not be read: ${path}`);
     assertAllowed(path, context);
     const sha256 = file.sha256 ?? checksum(file.content);

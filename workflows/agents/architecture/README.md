@@ -14,6 +14,7 @@ Read this README before working. Before returning any structured output, call `l
 | Answer SL's technical consultation within approved authority | `architecture_manager.blocker_decision.v1` | `consultation_response` exchange |
 | Create or revise the canonical Architecture Plan | `architecture_manager.architecture_plan.v1` | Architecture Plan JSON / RFC 7396 JSON Merge Patch |
 | Ask Owner about an evidenced scope or structure boundary | `architecture_manager.owner_consultation.v1` | `payload.consultation` |
+| Inspect repository Git state (`git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch`) | `forge.git_tools.v1` | Forge Git tool arguments (filter by `action`) |
 
 AM decides within the approved plan and returns its answer to SL. AM may request independent Reviewer evidence and receive its report before deciding. Never dispatch Coder directly. Consult Owner only outside approved scope/authority or for evidenced project-structure risk. Use `contract_draft` only with `governance_required`; a resolved decision is not a plan revision or new Owner approval.
 

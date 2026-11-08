@@ -29,11 +29,13 @@ export async function handoffWorkspaceSnapshot({ gitService, fileService, projec
     const state = item.slice(0, 2);
     const path = item.slice(3);
     if (!path || path.startsWith("/") || path.split("/").includes("..") || path.includes("\\")) unsafe();
-    paths.push({ path, deleted: state.includes("D") && !state.includes("M") && !state.includes("A") });
+    const ignored = path === ".forge" || path.startsWith(".forge/") || path === "node_modules" || path.startsWith("node_modules/");
+    if (!ignored && !path.endsWith("/")) paths.push({ path, deleted: state.includes("D") && !state.includes("M") && !state.includes("A") });
     if (state.includes("R") || state.includes("C")) {
       const oldPath = entries[++i];
       if (!oldPath || oldPath.startsWith("/") || oldPath.split("/").includes("..")) unsafe();
-      paths.push({ path: oldPath, deleted: true });
+      const oldIgnored = oldPath === ".forge" || oldPath.startsWith(".forge/") || oldPath === "node_modules" || oldPath.startsWith("node_modules/");
+      if (!oldIgnored && !oldPath.endsWith("/")) paths.push({ path: oldPath, deleted: true });
     }
   }
   if (Array.isArray(scopePaths)) {

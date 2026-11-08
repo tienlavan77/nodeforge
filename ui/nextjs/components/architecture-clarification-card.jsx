@@ -8,7 +8,7 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
   const [step, setStep] = useState(session.status === "generation_failed" ? session.questions.length : 0);
   const [selections, setSelections] = useState(session.selections);
   const [notes, setNotes] = useState(session.notes);
-  const [token, setToken] = useState("");
+  const [token] = useState("project-owner");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const inFlight = useRef(false);
@@ -54,8 +54,7 @@ export function ArchitectureClarificationCard({ session, onSave, onConfirm, onRe
     {generating && <p role="status">{questions.length ? "Đang tạo plan từ các quyết định đã chốt." : "Architecture đang tạo plan từ cuộc trao đổi. Không cần nhập Owner token hoặc gửi lại yêu cầu."}</p>}
     {editable && <>
       <p>{session.status === "generation_failed" ? "Không cần trả lời lại các lựa chọn đã lưu. Có thể thử tạo plan lại hoặc sửa lựa chọn; thao tác này không phải approval plan." : "Chờ owner quyết định. Khuyến nghị chưa được chọn sẵn. Xác nhận lựa chọn không phải approval plan."}</p>
-      <label className="architecture-clarification-token">Owner token <input type="password" autoComplete="off" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Nhập để lưu và xác nhận lựa chọn" /></label>
-      {unsaved && <p role="status">Lựa chọn hoặc ghi chú chưa được lưu. Nhập Owner token để lưu hoặc xác nhận; reload sẽ mất phần nháp chưa lưu.</p>}
+      {unsaved && <p role="status">Lựa chọn hoặc ghi chú chưa được lưu; reload sẽ mất phần nháp chưa lưu.</p>}
       <nav aria-label="Tiến độ câu hỏi">{questions.map((item, index) => <button type="button" key={item.id} aria-current={step === index ? "step" : undefined} disabled={busy} onClick={() => act(async () => { if (token) await onSave(session, selections, notes, token); setStep(index); })}>{index + 1}. {item.title}{Object.hasOwn(selections, item.id) ? " ✓" : ""}</button>)}</nav>
       {question ? <fieldset disabled={busy}>
         <legend>Câu {step + 1}/{questions.length} — {question.title}</legend><p>{question.reason}</p>

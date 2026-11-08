@@ -9,6 +9,7 @@ Read this README before working. Before structured output call `lookup_schema` w
 | --- | --- | --- |
 | Return a ticket verdict, findings, adjudications or verification request | `reviewer.review_result.v1` | `review_result` exchange |
 | Answer AM's evidence question without a verdict | `reviewer.evidence_result.v1` | `review_result` with `purpose=blocker_evidence` |
+| Inspect repository Git state (`git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch`) | `forge.git_tools.v1` | Forge Git tool arguments (filter by `action`) |
 
 Use `lookup_schema({})` for your role catalog or `lookup_schema({"intent":"the response needed"})` to find an ID. Fetch that ID before responding. Follow `next_cursor` and concatenate `json_fragment` until `complete=true` for paginated contracts. Copy the evidence subject from Node's request, never the example. Reviewer exchanges findings with Coder; an AM-requested evidence report returns to AM for decision.
 

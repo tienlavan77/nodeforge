@@ -21,13 +21,13 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
         if (typeof handoffService.resumeHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff run is unavailable."), { code: "HANDOFF_RUN_UNAVAILABLE", statusCode: 503 });
         if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff run."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
         const approvedOwnerId = planOwnerAuth.verify(headers);
-        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256, runToCompletion: body.run_to_completion ?? true }) };
       }
       if (parts.length === 3 && method === "POST" && parts[2] === "resume") {
         if (typeof handoffService.resumeHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff resume is unavailable."), { code: "HANDOFF_RESUME_UNAVAILABLE", statusCode: 503 });
         if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff resume."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
         const approvedOwnerId = planOwnerAuth.verify(headers);
-        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[1], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256, runToCompletion: body.run_to_completion ?? true }) };
       }
       if (parts.length === 3 && method === "POST" && parts[2] === "stop") {
         if (typeof handoffService.pauseHandoff !== "function") throw Object.assign(new ConfigurationError("Handoff stop is unavailable."), { code: "HANDOFF_STOP_UNAVAILABLE", statusCode: 503 });
@@ -74,7 +74,7 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
         if (typeof handoffService.resumeHandoff !== "function") throw Object.assign(new ConfigurationError("Implementation resume is unavailable."), { code: "HANDOFF_RESUME_UNAVAILABLE", statusCode: 503 });
         if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff resume."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
         const approvedOwnerId = planOwnerAuth.verify(headers);
-        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[3], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256 }) };
+        return { status: 200, body: await handoffService.resumeHandoff({ handoffId: parts[3], approvedOwnerId, expectedRevision: body.approval_revision, expectedSha256: body.approval_sha256, runToCompletion: body.run_to_completion ?? true }) };
       }
       if (parts.length === 5 && method === "POST" && parts[4] === "resume-critique") {
         if (typeof handoffService.resumeCritique !== "function") throw Object.assign(new ConfigurationError("Critique resume is unavailable."), { code: "HANDOFF_CRITIQUE_UNAVAILABLE", statusCode: 503 });

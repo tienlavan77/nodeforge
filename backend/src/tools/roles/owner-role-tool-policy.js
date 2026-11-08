@@ -8,8 +8,8 @@ const READ_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "r
 const DELEGATE_TOOL = "delegate_subagent";
 const GIT_READ_TOOLS = Object.freeze(["git_status", "git_diff", "git_log", "git_show", "git_blame"]);
 const ROLE_TOOLS = Object.freeze({
-  architecture_manager: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, "read_file_binary", ...GIT_READ_TOOLS, "git_branch", "write_diff", "edit_diff", "delete_file"]),
-  system_engineer: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, "read_file_binary", "write_diff", "edit_diff", "delete_file", "move_file", ...GIT_READ_TOOLS, "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit"]),
+  architecture_manager: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, ...GIT_READ_TOOLS, "git_branch", "write_diff", "edit_diff", "delete_file"]),
+  system_engineer: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, "write_diff", "edit_diff", "delete_file", "move_file", ...GIT_READ_TOOLS, "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit"]),
   sprint_leader: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, ...GIT_READ_TOOLS, "git_branch"]),
   coder: Object.freeze([...READ_TOOLS, DELEGATE_TOOL]),
   reviewer: Object.freeze([...READ_TOOLS, DELEGATE_TOOL, ...GIT_READ_TOOLS, "git_branch"]),
@@ -32,7 +32,7 @@ export function ownerWritePrefixes(role) { return roleWritePrefixes(role); }
 export async function authorizeOwnerTool(name, input, context, projectRoot) {
   authorizeTool(name, context);
   if (context.planning_input_only === true) {
-    if (![...READ_TOOLS, "read_file_binary", ...GIT_READ_TOOLS, "git_branch"].includes(name)) throw forbidden("Planning input permits discovery and Git reads only.");
+    if (![...READ_TOOLS, ...GIT_READ_TOOLS, "git_branch"].includes(name)) throw forbidden("Planning input permits discovery and Git reads only.");
     if (name === "git_branch" && !["list", "current"].includes(input?.action)) throw forbidden("Planning input permits read-only git_branch (list, current) only.");
   }
   const role = context.agent_identity?.role;

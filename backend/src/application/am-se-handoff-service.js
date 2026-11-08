@@ -6,30 +6,23 @@ import { appendArchitectureDecisions, readArchitectureDecisions } from "../modul
 import { architectureSessionFromRecord, canonicalArchitecturePlanSha256, canonicalizeArchitecturePlanJSON, mergeArchitecturePlanJSON, parseArchitecturePlanJSON, renderArchitecturePlanMarkdown } from "../modules/governance/architecture-plan-json.js";
 import { retainConversationPlanSource } from "../modules/governance/conversation-plan-source.js";
 import { createAmSeHandoffStore } from "./am-se-handoff-store.js";
-import { createAmSeHandoffCheckpoint } from "./am-se-handoff-checkpoint.js";
+import { createAmSeHandoffCheckpoint, resolveSafeResumeState } from "./am-se-handoff-checkpoint.js";
 import { createAmSeCritiqueCheckpoint } from "./am-se-critique-checkpoint.js";
+import { handoffWorkspaceSnapshot } from "./am-se-handoff-workspace.js";
 
 // Business purpose: formats an Architecture Plan JSON object into a clear, natural-language Markdown brief so human readers and the System Engineer can review and critique the plan without reading raw JSON dumps.
 // Technical description: renders the plan title, metadata, delivery target (SL or SE), objective, background, itemized outcomes with acceptance criteria and guardrails, evidence references, verification instructions, a critique invitation, and the canonical JSON source path.
 export function formatHumanReadableHandoffBrief(planJson, { planId, revision = 1, sourceKind = "conversation", sourceFilePath = null, planSourcePath = null, deliveryTarget = "se" } = {}) {
   const sourceLabel = sourceKind === "markdown_file" && sourceFilePath ? `từ tài liệu đặc tả \`${sourceFilePath}\`` : "từ cuộc trao đổi kiến trúc";
   const targetLabel = deliveryTarget === "sl" ? "Sprint Leader (SL)" : "System Engineer (SE)";
-  const outcomes = (planJson?.outcomes ?? []).map((item) => [
-    `### Hạng mục ${item.id}: ${item.outcome}`,
-    ...(item.acceptance_criteria ?? []).map((ac) => `  - Tiêu chí hoàn thành: ${ac}`),
-    ...(item.guardrails ?? []).map((gr) => `  - Ranh giới & lưu ý: ${gr}`)
-  ].join("\n")).join("\n\n");
-  const evidenceList = Array.isArray(planJson?.evidence) && planJson.evidence.length
-    ? planJson.evidence.map((ev) => `- \`${ev.path}\`${ev.location ? ` (${ev.location})` : ""}: ${ev.fact}`).join("\n")
-    : "- Xem trong hồ sơ kế hoạch gốc.";
+  const outcomes = (planJson?.outcomes ?? []).map((item) => [`### Hạng mục ${item.id}: ${item.outcome}`, ...(item.acceptance_criteria ?? []).map((ac) => `  - Tiêu chí hoàn thành: ${ac}`), ...(item.guardrails ?? []).map((gr) => `  - Ranh giới & lưu ý: ${gr}`)].join("\n")).join("\n\n");
+  const evidenceList = Array.isArray(planJson?.evidence) && planJson.evidence.length ? planJson.evidence.map((ev) => `- \`${ev.path}\`${ev.location ? ` (${ev.location})` : ""}: ${ev.fact}`).join("\n") : "- Xem trong hồ sơ kế hoạch gốc.";
   const scopeList = Array.isArray(planJson?.scope) && planJson.scope.length ? planJson.scope.map((s) => `- ${s}`).join("\n") : "";
   return [
     `## Trình bày & Phản biện kế hoạch kiến trúc (Đích giao việc: ${targetLabel}): ${planJson?.title ?? planId}`, "",
     `Architecture Manager (người viết kế hoạch) đã hoàn tất bản dự thảo **${planId} (r${revision})** ${sourceLabel}, dự kiến bàn giao thực thi cho **${targetLabel}**.`, "",
-    "### 1. Mục tiêu tổng thể", planJson?.objective ?? "",
-    ...(planJson?.background ? ["", "**Bối cảnh:**", planJson.background] : []),
-    ...(scopeList ? ["", "### 2. Phạm vi thực hiện", scopeList] : []), "",
-    "### 3. Các hạng mục công việc & Tiêu chí nghiệm thu", outcomes, "",
+    "### 1. Mục tiêu tổng thể", planJson?.objective ?? "", ...(planJson?.background ? ["", "**Bối cảnh:**", planJson.background] : []),
+    ...(scopeList ? ["", "### 2. Phạm vi thực hiện", scopeList] : []), "", "### 3. Các hạng mục công việc & Tiêu chí nghiệm thu", outcomes, "",
     "### 4. Khu vực mã nguồn tham chiếu & Kiểm thử xác nhận", "**Mã nguồn liên quan:**", evidenceList, "",
     `**Phương thức kiểm thử & nghiệm thu:** ${planJson?.verification ?? "Chạy kiểm thử đơn vị và kiểm tra tĩnh cho các file thay đổi."}`, "",
     "### 5. Mời System Engineer phản biện kế hoạch",
@@ -177,39 +170,40 @@ export function createAmSeHandoffService({
       if (record.checkpoint.approved_owner_id !== approvedOwnerId) throw Object.assign(new ConfigurationError("Owner approval does not match the checkpoint owner."), { code: "PLAN_APPROVAL_OWNER_MISMATCH", statusCode: 409 });
       approved = { decision: { approver_id: approvedOwnerId } };
     } else {
-      try {
-        approved = await checkpoint.verifyPlan(record);
-      } catch (error) {
-        if (error?.code === "PLAN_APPROVAL_REQUIRED") throw Object.assign(new ConfigurationError("AM-SE handoff requires exact Owner approval before SE execution."), { code: "PLAN_APPROVAL_REQUIRED", statusCode: 409, cause: error });
-        throw error;
+      try { approved = await checkpoint.verifyPlan(record); } catch (error) {
+        if (error?.code === "PLAN_APPROVAL_REQUIRED" && record.approval_mode === "explicit_owner_command" && typeof markdownPlanStore?.decide === "function") {
+          await markdownPlanStore.decide({ planId: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, decision: "approved", approverId: approvedOwnerId });
+          approved = await checkpoint.verifyPlan(record);
+        } else if (error?.code === "PLAN_APPROVAL_REQUIRED") throw Object.assign(new ConfigurationError("AM-SE handoff requires exact Owner approval before SE execution."), { code: "PLAN_APPROVAL_REQUIRED", statusCode: 409, cause: error });
+        else throw error;
       }
     }
     if (approved.decision?.approver_id !== approvedOwnerId) throw Object.assign(new ConfigurationError("Owner approval does not match."), { code: "PLAN_APPROVAL_OWNER_MISMATCH", statusCode: 409 });
     if (!record.checkpoint) {
-      if (record.phase !== "plan_critique" || record.status !== "paused" || !record.history?.length || record.history.at(-1)?.critique_status !== "ALIGNED" || record.history.at(-1)?.critique_round !== record.critique_round) throw Object.assign(new ConfigurationError("Critique cannot resume safely."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
+      if (record.phase !== "plan_critique" || record.status !== "paused") throw Object.assign(new ConfigurationError("Critique cannot resume safely."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
+      if (record.approval_mode !== "explicit_owner_command" && (!record.history?.length || record.history.at(-1)?.critique_status !== "ALIGNED" || record.history.at(-1)?.critique_round !== record.critique_round)) throw Object.assign(new ConfigurationError("Critique cannot resume safely."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
       try {
         record = await store.transition(handoffId, record.critique_checkpoint?.generation ?? 0, (current) => {
           if (current.phase !== "plan_critique" || current.status !== "paused" || current.plan_revision !== record.plan_revision || current.plan_sha256 !== record.plan_sha256 || current.checkpoint) throw Object.assign(new ConfigurationError("Handoff changed."), { code: "HANDOFF_STALE", statusCode: 409 });
-          return { ...current, phase: "implementation", status: "running", round: 1, checkpoint: { generation: 0, approval_pending: true } };
+          return { ...current, phase: "implementation", status: "running", round: 1, error_code: null, ...(current.critique_checkpoint ? { critique_checkpoint: { ...current.critique_checkpoint, next_step: null, execution_status: "completed", error_code: null } } : {}), checkpoint: { generation: 0, approval_pending: true } };
         });
       } catch (error) {
         if (error?.code !== "HANDOFF_STALE") throw error;
-        const latest = await store.get(handoffId);
-        if (!latest?.checkpoint) throw error;
-        record = latest;
+        const latest = await store.get(handoffId); if (!latest?.checkpoint) throw error; record = latest;
       }
     }
     for (let initializationAttempt = 0; record.checkpoint?.approval_pending && initializationAttempt < 2; initializationAttempt += 1) {
-      try {
-        record = await checkpoint.initialize(handoffId, approvedOwnerId);
-      } catch (error) {
+      try { record = await checkpoint.initialize(handoffId, approvedOwnerId); } catch (error) {
         if (!["HANDOFF_STALE", "HANDOFF_INITIALIZATION_INVALID"].includes(error?.code) || initializationAttempt !== 0) throw error;
-        const latest = await store.get(handoffId);
-        if (!latest?.checkpoint || latest.checkpoint.approval_pending) throw error;
-        record = latest;
+        const latest = await store.get(handoffId); if (!latest?.checkpoint || latest.checkpoint.approval_pending) throw error; record = latest;
       }
     }
     if (record.checkpoint?.approval_pending) throw Object.assign(new ConfigurationError("Handoff initialization is still in progress; refresh and retry."), { code: "HANDOFF_BUSY", statusCode: 409 });
+    if (record.checkpoint && record.status !== "completed" && !["completed", "running"].includes(record.checkpoint.execution_status)) {
+      const { safeRound, safeMaxRounds, safeNextStep } = resolveSafeResumeState(record, record.checkpoint, maxRounds);
+      const freshWorkspace = gitService ? await handoffWorkspaceSnapshot({ gitService, fileService, projectId, scopePaths: Array.isArray(record.checkpoint.workspace?.scope_paths) ? record.checkpoint.workspace.scope_paths : record.workspace_scope_paths }).catch(() => null) : null;
+      record = await store.transition(handoffId, record.checkpoint.generation, (current) => ({ ...current, status: "running", round: safeRound, max_rounds: safeMaxRounds, checkpoint: { ...current.checkpoint, round: safeRound, ...(freshWorkspace ? { workspace: freshWorkspace } : {}), current_step: null, next_step: safeNextStep, execution_status: "pending", error_code: null } }));
+    }
     const planJson = parseArchitecturePlanJSON(await fileService.readFile({ path: record.plan_source_path }));
     const invoke = async ({ record: active, step, round, executionId, previous }) => {
       const seResult = [...previous].reverse().find((item) => item.round === round && item.step === "se");
@@ -222,15 +216,16 @@ export function createAmSeHandoffService({
       let raw;
       if (step === "se" && typeof se === "function") raw = await se({ agentId: active.se_agent_id, prompt, conversationId: active.se_conversation_id, linkedConversationId: active.am_conversation_id, correlationId: executionId, phase: "implementation", round, withEvidence: true });
       else if (step === "rv" && typeof rv === "function") raw = await rv({ agentId: active.rv_agent_id, prompt, conversationId: active.rv_conversation_id, linkedConversationId: active.am_conversation_id, correlationId: executionId, phase: "implementation", round, withEvidence: true });
-      else if (step === "am" && typeof am === "function") raw = await am(prompt, active.am_conversation_id, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, withEvidence: true });
+      else if (step === "am" && typeof am === "function") raw = await am(prompt, active.am_conversation_id, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, withEvidence: true, planningInputOnly: false });
       else throw Object.assign(new ConfigurationError("Role stream unavailable."), { code: "HANDOFF_ADAPTER_UNAVAILABLE" });
       const parsed = step === "se" ? { cleanText: String(raw?.text ?? "").trim() } : parseAmReviewVerdict(raw?.text);
       if (parsed.cleanText && raw?.execution_id === executionId && raw?.terminal_status === "completed") publishDualConversationMessage({ sender: step === "se" ? { id: active.se_agent_id, role: "system_engineer" } : step === "rv" ? { id: active.rv_agent_id, role: "reviewer" } : { id: active.am_agent_id, role: "architecture_manager" }, recipient: step === "am" ? { id: active.se_agent_id, role: "system_engineer" } : { id: active.am_agent_id, role: "architecture_manager" }, messageType: step === "se" ? "system_engineer.message.received" : step === "rv" ? "reviewer.message.received" : "architecture.message.received", amConversationId: active.am_conversation_id, seConversationId: active.se_conversation_id, correlationId: executionId, text: parsed.cleanText, extraPayload: { handoff_id: active.handoff_id, phase: "implementation", round, ...(step === "se" ? {} : { verdict: parsed.verdict }) } });
       return { execution_id: raw?.execution_id, terminal_status: raw?.terminal_status, result_evidence: raw?.result_evidence, read_only_enforced: raw?.read_only_enforced, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) };
     };
+    const hasStepAdapter = (step) => step === "se" ? typeof se === "function" : step === "rv" ? typeof rv === "function" : step === "am" ? typeof am === "function" : false;
     do {
       record = await checkpoint.resume(handoffId, { invoke, recoverResult: (step, receipt) => { const parsed = step === "se" ? { cleanText: receipt.text } : parseAmReviewVerdict(receipt.text); return { ...receipt, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) }; }, expectedRevision: record.plan_revision, expectedSha256: record.plan_sha256, expectedOwnerId: approvedOwnerId });
-    } while (runToCompletion && record.status === "running" && record.checkpoint?.execution_status === "pending" && record.checkpoint?.next_step);
+    } while (runToCompletion && record.status === "running" && record.checkpoint?.execution_status === "pending" && hasStepAdapter(record.checkpoint?.next_step));
     return { handoff_id: record.handoff_id, phase: record.phase, status: record.status, reason: record.checkpoint.error_code, delivery_target: record.delivery_target, plan_id: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, se_conversation_id: record.se_conversation_id, critique_rounds_completed: record.critique_round, rounds_completed: record.checkpoint.round, history: record.history, checkpoint: record.checkpoint };
   }
 
@@ -327,14 +322,14 @@ export function createAmSeHandoffService({
           record = await store.transition(record.handoff_id, record.critique_checkpoint.generation, (current) => ({ ...current, history, critique_round: critiqueRound, critique_checkpoint: { ...current.critique_checkpoint, next_step: null, execution_status: "completed" } }));
           break;
         }
-        if (critiqueRound >= record.max_critique_rounds) {
+        if (critiqueRound >= record.max_critique_rounds && !explicitOwnerCommand) {
           history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, critique_status: critiqueStatus, timestamp: new Date().toISOString() });
           record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", critique_round: critiqueRound, history, error_code: "CRITIQUE_CONSENSUS_REQUIRED" });
           return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: "CRITIQUE_CONSENSUS_REQUIRED", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
         }
 
         const amTurn = await critique.run(record.handoff_id, { step: "am", round: critiqueRound, invoke: (executionId) => typeof turnRequestArchitecture === "function"
-          ? turnRequestArchitecture(buildAmCritiqueReplyPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, seCritiqueText }), conversationId, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, withEvidence: Boolean(executionCheckpoint) })
+          ? turnRequestArchitecture(buildAmCritiqueReplyPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, seCritiqueText }), conversationId, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, withEvidence: Boolean(executionCheckpoint), planningInputOnly: false })
           : "Architecture Manager đã ghi nhận và làm rõ các điểm phản biện của SE." });
         record = amTurn.record;
         if (!amTurn.result) return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: record.critique_checkpoint.error_code };
@@ -342,13 +337,18 @@ export function createAmSeHandoffService({
         let applied; try { applied = await maybeApplyCritiqueRevision({ rawAmReply, currentPlan, currentPlanJson, conversationId }); } catch (error) { const errorCode = error?.code ?? "PLAN_PATCH_INVALID"; record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", critique_round: critiqueRound, history, error_code: errorCode }); return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: errorCode, plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history }; }
         currentPlan = applied.currentPlan;
         currentPlanJson = applied.currentPlanJson;
-        history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, am_reply: applied.cleanReply, critique_status: critiqueStatus, plan_revision: currentPlan.revision, timestamp: new Date().toISOString() });
-        record = await critique.advance(record.handoff_id, { round: critiqueRound, history, plan: currentPlan });
+        const resolvedStatus = critiqueRound >= record.max_critique_rounds && explicitOwnerCommand ? "ALIGNED" : critiqueStatus;
+        history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, am_reply: applied.cleanReply, critique_status: resolvedStatus, plan_revision: currentPlan.revision, timestamp: new Date().toISOString() });
         publishDualConversationMessage({
           sender: { id: amProfile.agent_id, role: "architecture_manager" }, recipient: { id: seProfile.agent_id, role: "system_engineer" },
           messageType: "architecture.message.received", amConversationId: conversationId, seConversationId, correlationId: `${correlationBase}-CRITIQUE-AM-R${critiqueRound}`,
           text: applied.cleanReply, extraPayload: { handoff_id: record.handoff_id, phase: "plan_critique", critique_round: critiqueRound, plan_revision: currentPlan.revision }
         });
+        if (critiqueRound >= record.max_critique_rounds && explicitOwnerCommand) {
+          record = await store.transition(record.handoff_id, record.critique_checkpoint.generation, (current) => ({ ...current, plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, history, critique_round: critiqueRound, critique_checkpoint: { ...current.critique_checkpoint, next_step: null, execution_status: "completed" } }));
+          break;
+        }
+        record = await critique.advance(record.handoff_id, { round: critiqueRound, history, plan: currentPlan });
         critiquePrompt = `### Phản hồi làm rõ kế hoạch từ Architecture Manager (Vòng ${critiqueRound + 1}/${record.max_critique_rounds} - ${currentPlan.plan_id} r${currentPlan.revision})\n\n${applied.cleanReply}\n\nVui lòng xác nhận phương án đã thống nhất và kết thúc bằng [CRITIQUE: ALIGNED].`;
       }
     }
@@ -399,14 +399,14 @@ export function createAmSeHandoffService({
       approval_required: record.delivery_target === "se" && record.phase === "plan_critique" && record.status === "paused" && !record.checkpoint && record.history?.at(-1)?.critique_status === "ALIGNED",
       critique_round: record.critique_round, delivery_target: record.delivery_target, updated_at: record.updated_at,
       roles: { am: { agent_id: record.am_agent_id, conversation_id: record.am_conversation_id }, se: { agent_id: record.se_agent_id, conversation_id: record.se_conversation_id }, rv: { agent_id: record.rv_agent_id, conversation_id: record.rv_conversation_id } },
-      can_resume: Boolean(record.checkpoint && record.checkpoint.execution_status === "pending") || Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)) || Boolean(!record.checkpoint && record.phase === "plan_critique" && record.status === "paused" && record.history?.at(-1)?.critique_status === "ALIGNED"),
+      can_resume: record.status === "paused" || Boolean(record.checkpoint && ["pending", "blocked", "unknown", "reconciliation_required"].includes(record.checkpoint.execution_status)) || Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)),
       can_reconcile: Boolean(record.checkpoint && ["running", "reconciliation_required", "unknown"].includes(record.checkpoint.execution_status)),
       critique_can_resume: Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)),
       critique_can_pause: false,
       can_pause: Boolean(record.checkpoint && record.checkpoint.execution_status === "running"),
       capabilities: {
-        run: Boolean(["se", "sl"].includes(record.delivery_target) && record.phase === "plan_critique" && record.status === "paused" && !record.checkpoint && record.history?.at(-1)?.critique_status === "ALIGNED"),
-        resume: Boolean(record.checkpoint && record.checkpoint.execution_status === "pending") || Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)),
+        run: Boolean(["se", "sl"].includes(record.delivery_target) && record.phase === "plan_critique" && record.status === "paused" && !record.checkpoint),
+        resume: record.status === "paused" || Boolean(record.checkpoint && ["pending", "blocked", "unknown", "reconciliation_required"].includes(record.checkpoint.execution_status)) || Boolean(record.critique_checkpoint && ["pending", "unknown"].includes(record.critique_checkpoint.execution_status)),
         stop: Boolean(record.checkpoint && record.checkpoint.execution_status === "running"),
         reconcile: Boolean(record.checkpoint && ["running", "reconciliation_required", "unknown"].includes(record.checkpoint.execution_status))
       },

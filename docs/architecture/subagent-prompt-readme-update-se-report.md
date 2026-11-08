@@ -35,6 +35,8 @@
   - Sửa lỗi lọc nhầm `mcp__forge__Read` khỏi `allowedTools` của Coder trên Claude SDK và loại bỏ việc gắn trùng `delegateSubagentDefinition` trong `runCodexTask`.
 - **`backend/src/tools/engineering-tool-binding.js` & `backend/src/modules/supervisor/ticket/ticket-resume.js`:**
   - Tự động ghi nhận `observed_files` trả về từ `delegate_subagent` vào `context.observed_files` và `state.readCache` (`rememberRead`) để Coder dùng ngay `before_checksum` cho `edit_diff` trên các file subagent đã đọc.
+- **`backend/src/tools/discovery/delegate-subagent-tool.js` & `backend/tests/unit/delegate-subagent-tool.test.js`:**
+  - Tối ưu kích thước JSON trả về của `delegate_subagent`: trong `executeBatch`, Node vẫn ghi nhận đầy đủ `symbol_map` (`retainSymbolMap: true`) vào `recordSourceMetadata(context, ...)` để Agent Cha gọi `Read({ file_path, symbol })` bình thường, nhưng trong payload `observed_files` trả về cho model (`normalizeObserved` & `mergeObserved`), loại bỏ `symbol_map` nặng (chứa summary dài) và chỉ giữ mảng tên symbol gọn nhẹ (`symbols: file.symbol_map.map(s => s.name).slice(0, 40)`), ngăn chặn triệt để hiện tượng phình kích thước tool result vượt ngưỡng token.
 
 ---
 

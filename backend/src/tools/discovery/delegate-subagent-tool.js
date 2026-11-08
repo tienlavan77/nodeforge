@@ -90,9 +90,9 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
       }
     };
     if (childContext.subagent_depth > 1) throw Object.assign(new ConfigurationError("delegate_subagent nesting depth exceeded."), { code: "SUBAGENT_NESTING_FORBIDDEN" });
-    evidenceStore?.startWorker({ conversationId: context.conversation_id, delegationId: parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, objective: task.objective, eventSink: context.eventSink });
+    evidenceStore?.startWorker({ conversationId: context.evidence_scope?.conversationId ?? context.conversation_id, delegationId: context.evidence_scope?.delegationId ?? parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, objective: task.objective, eventSink: context.eventSink });
     const result = await executeTask(task, childContext);
-    await evidenceStore?.complete({ conversationId: context.conversation_id, delegationId: parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, summary: result?.summary ?? "", observedFiles: childContext.observed_files ?? result?.observed_files ?? [], usage: result?.subagent_usage ?? null, eventSink: context.eventSink });
+    await evidenceStore?.complete({ conversationId: context.evidence_scope?.conversationId ?? context.conversation_id, delegationId: context.evidence_scope?.delegationId ?? parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, summary: result?.summary ?? "", observedFiles: childContext.observed_files ?? result?.observed_files ?? [], usage: result?.subagent_usage ?? null, eventSink: context.eventSink });
     const rawObserved = childContext.observed_files ?? result?.observed_files;
     const observed = normalizeObserved(rawObserved, childContext).map((file) => ({
       ...file,

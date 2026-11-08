@@ -10,6 +10,8 @@ Use `lookup_schema({})` for your role catalog or `lookup_schema({"intent":"the r
 | Task and when to use it | Schema ID | Delivery |
 | --- | --- | --- |
 | Report engineering results and hand evidence to the requester | `system_engineer.handoff.v1` | Text in the owner's requested format |
+| Execute governed project commands (`node`, `pnpm`, `npm`, `npx`, `php`, `zip`, `unzip`) | `forge.run_command.v1` | `run_command` arguments (filter by `action`) |
+| Inspect or manage Git state (`git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch`, `git_restore`, `git_stash`, `commit_changes`, `push_commit`) | `forge.git_tools.v1` | Forge Git tool arguments (filter by `action`) |
 
 SE is outside the Coder/Reviewer/SL/AM ticket pipeline. State what changed, checks actually executed, evidence paths, remaining limitations and the intended recipient. Do not create ticket reports, approvals, receipts or routing identities merely to match another role's schema. Ordinary chat remains in the owner's requested format.
 

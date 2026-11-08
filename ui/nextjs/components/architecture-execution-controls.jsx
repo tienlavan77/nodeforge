@@ -10,7 +10,7 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
   const [error, setError] = useState("");
   const [, setHint] = useState("");
   const [busy, setBusy] = useState(false);
-  const [ownerToken, setOwnerToken] = useState("");
+  const [ownerToken, setOwnerToken] = useState("project-owner");
   const lastEscape = useRef(0);
   const inFlight = useRef(false);
   const revision = useRef(0);
@@ -103,7 +103,7 @@ export function ArchitectureExecutionControls({ client, projectId, conversationI
     {busy && <span>Updating execution…</span>}
     {current?.status === "pausing" && <span>Stopping current action…</span>}
     {["pausing", "interrupted"].includes(current?.status) && <>{current?.status === "interrupted" && <span>One action interrupted</span>}{["continue", "restart", "discard"].map((action) => <button key={action} type="button" className="claude-retry" disabled={busy || current?.status === "pausing" || !current?.[`can_${action}`]} onClick={() => void decide(action)} aria-label={action === "continue" ? "Continue interrupted action" : action === "restart" ? "Restart interrupted action" : "Discard interrupted action"}>{action === "continue" ? "Continue" : action === "restart" ? "Restart" : "Discard"}</button>)}</>}
-    {current?.status === "manual_required" && <><span>Execution needs owner review.</span>{current.can_reconcile && <><input className="architecture-owner-token" type="password" aria-label="Owner token" autoComplete="off" value={ownerToken} onChange={(event) => setOwnerToken(event.target.value)} /><button type="button" className="claude-retry" disabled={busy || !ownerToken} onClick={() => void decide("reconcile")}>Verify document</button></>}{current.can_discard && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("discard")}>Discard</button>}</>}
+    {current?.status === "manual_required" && <><span>Execution needs owner review.</span>{current.can_reconcile && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("reconcile")}>Verify document</button>}{current.can_discard && <button type="button" className="claude-retry" disabled={busy} onClick={() => void decide("discard")}>Discard</button>}</>}
     {error && <span role="alert">{error}</span>}
   </div>;
 }

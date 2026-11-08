@@ -11,6 +11,7 @@ Read this README before working. Before structured output call `lookup_schema({"
 | Ask AM one focused unresolved question | `sprint_leader.consultation_request.v1` | `payload.consultation` |
 | Draft a Sprint Plan from approved Architecture scope | `sprint_leader.sprint_plan.v1` | Sprint draft JSON |
 | Draft one ticket from an owner request | `sprint_leader.ticket_draft.v1` | Ticket draft JSON |
+| Inspect repository Git state (`git_status`, `git_diff`, `git_log`, `git_show`, `git_blame`, `git_branch`) | `forge.git_tools.v1` | Forge Git tool arguments (filter by `action`) |
 
 For blocker decisions, optional `action` narrows lookup to `resolved`, `architecture_required`, `reconciliation_required`, `coder_requested` or `dependency_requested`. SL answers Coder and consults AM; AM answers SL, then SL coordinates Coder. Never copy AM's Architecture authority into an SL decision or send Owner a policy question directly.
 

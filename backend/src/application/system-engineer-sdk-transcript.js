@@ -94,7 +94,7 @@ export function createSystemEngineerSdkTranscript(runId) {
   return { accept, finish, snapshot: () => ({ type: "conversation_turn", run_id: runId, revision, status, entries: [...entries.values()] }) };
 }
 
-const FORGE_TOOLS = new Set(["search_tree", "list_files", "search_text", "read_file", "read_file_binary", "Read", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "lookup_schema", "select_code_graph_candidates", "search_code", "rg_files", "rg_search", "sed_lines", "run_test", "check_test", "report_done", "respond_to_review", "review_diff", "run_review_check", "query_review"]);
+const FORGE_TOOLS = new Set(["search_tree", "list_files", "search_text", "read_file", "Read", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "lookup_schema", "select_code_graph_candidates", "search_code", "rg_files", "rg_search", "sed_lines", "run_test", "check_test", "report_done", "respond_to_review", "review_diff", "run_review_check", "query_review"]);
 
 // Business purpose: gives the project owner live, detailed visibility into every Forge tool command executed by agents in the agent activity monitor without leaking file contents or secrets.
 // Technical description: normalizes MCP and direct Forge tool invocations into a bounded CLI-style command string with paths, line ranges, symbols, search patterns, and flags.
@@ -109,7 +109,7 @@ export function formatForgeToolCommand(rawName, rawInput, complete = true) {
   if (name === "run_check" && typeof input?.command === "string" && input.command.trim()) {
     return `${name}${input.type ? ` [${input.type}]` : ""} ${input.command.trim()}`;
   }
-  if (typeof input?.command === "string" && input.command.trim()) return input.command.trim();
+  if (name !== "run_command" && typeof input?.command === "string" && input.command.trim()) return input.command.trim();
   if (!rawName.startsWith("mcp__forge__") && !FORGE_TOOLS.has(name)) return "";
   if (!input || typeof input !== "object" || (!complete && !Object.keys(input).length)) return "";
   if (name === "delegate_subagent") {
@@ -124,7 +124,6 @@ export function formatForgeToolCommand(rawName, rawInput, complete = true) {
     const range = typeof input.symbol === "string" && input.symbol ? `#${input.symbol}` : Number.isInteger(input.offset) || Number.isInteger(input.limit) ? `:${input.offset ?? 1}..${(input.offset ?? 1) + (input.limit ?? 250) - 1}` : " (index/full)";
     return input.path ? `${name} ${input.path}${range}` : complete ? name : "";
   }
-  if (name === "read_file_binary") return input.path ? `${name} ${input.path} (binary)` : complete ? name : "";
   if (name === "Read") return input.file_path ? `Read ${input.file_path}:${input.symbol ?? `${input.start_line}..${input.end_line}`}` : complete ? name : "";
   if (name === "sed_lines") return input.path ? `${name} ${input.path}:${input.start_line ?? 1}..${input.end_line ?? ""}` : complete ? name : "";
   if (name === "edit_diff") return input.path ? `${name} ${input.path}${input.occurrence === "all" ? " (occurrence=all)" : ""}` : complete ? name : "";
@@ -167,5 +166,5 @@ export function formatForgeToolActivitySummary(rawName, rawInput, status, result
   if (errorCode) details.push(errorCode);
   if (status !== "started" && Number.isFinite(durationMs)) details.push(`${durationMs}ms`);
   const suffix = details.length ? ` (${details.join(", ")})` : "";
-  return `${name} ${commandText}${suffix}`;
+  return `${commandText}${suffix}`;
 }

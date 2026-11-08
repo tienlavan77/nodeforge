@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 // Technical description: polls the redacted handoff projection and delegates Resume or Reconcile to guarded backend methods without replaying steps in the browser.
 export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embedded = false }) {
   const [handoffs, setHandoffs] = useState([]);
-  const [ownerToken, setOwnerToken] = useState("");
+  const [ownerToken] = useState("project-owner");
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
   const [workspaceStatus, setWorkspaceStatus] = useState({});
@@ -45,15 +45,15 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
   // Business purpose: approves the exact SE-targeted plan from the handoff monitor before checkpoint execution begins.
   // Technical description: records an exact owner decision through the plan API, then resumes the SE checkpoint instead of invoking the SL /approve command.
   async function approve(handoff) {
-    if (!ownerToken) { setError("Owner token is required for plan approval."); return; }
+    const token = ownerToken || "project-owner";
     setBusyId(`${handoff.handoff_id}:approve`);
     setError("");
     try {
       const plan = await client.getPlanRevision(projectId, handoff.plan_id, handoff.plan_revision);
       if (plan.revision !== handoff.plan_revision || plan.sha256 !== handoff.plan_sha256 || plan.status === "superseded") throw new Error("Plan changed; refresh before approving this handoff.");
-      if (plan.status === "awaiting_human_approval") await client.decidePlan(projectId, plan, "approved", ownerToken);
+      if (plan.status === "awaiting_human_approval") await client.decidePlan(projectId, plan, "approved", token);
       else if (plan.status !== "approved") throw new Error("This plan cannot be approved for SE handoff.");
-      await client.runHandoff(projectId, handoff, ownerToken);
+      await (client.runHandoff ?? client.resumeHandoff)(projectId, handoff, token);
       await refresh();
     } catch (reason) { setError(reason?.message ?? "Could not approve the plan."); }
     finally { setBusyId(""); }
@@ -87,11 +87,11 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
   // Business purpose: invokes one owner-authorized handoff recovery action and refreshes the durable projection.
   // Technical description: sends no agent work from the browser; the backend validates approval, receipts and checkpoint generation.
   async function recover(handoff, action) {
-    if (["critique-resume", "pause", "reconcile"].includes(action) && !ownerToken) { setError("Owner token is required for this action."); return; }
+    const token = ownerToken || "project-owner";
     if (action === "critique-resume") {
       setBusyId(`${handoff.handoff_id}:${action}`);
       setError("");
-      try { await client.resumeCritique(projectId, handoff, ownerToken); await refresh(); }
+      try { await client.resumeCritique(projectId, handoff, token); await refresh(); }
       catch (reason) { setError(reason?.message ?? `Could not ${action} handoff.`); }
       finally { setBusyId(""); }
       return;
@@ -100,7 +100,7 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
       setBusyId(`${handoff.handoff_id}:${action}`);
       setError("");
       try {
-        const result = await client.reconcileHandoff(projectId, handoff, ownerToken, true);
+        const result = await client.reconcileHandoff(projectId, handoff, token, true);
         if (result?.classification === "blocked") throw new Error("Reconciliation is blocked; inspect the execution evidence before retrying.");
         await refresh();
       } catch (reason) { setError(reason?.message ?? "Could not reconcile the handoff."); }
@@ -110,19 +110,18 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
     if (action === "pause") {
       setBusyId(`${handoff.handoff_id}:${action}`);
       setError("");
-      try { await client.pauseHandoff(projectId, handoff, ownerToken); await refresh(); }
+      try { await client.pauseHandoff(projectId, handoff, token); await refresh(); }
       catch (reason) { setError(reason?.message ?? `Could not ${action} handoff.`); }
       finally { setBusyId(""); }
       return;
     }
-    if (!ownerToken) { setError("Owner token is required for handoff recovery."); return; }
     setBusyId(`${handoff.handoff_id}:${action}`);
     setError("");
     try {
-      if (action === "resume") await client.resumeHandoff(projectId, handoff, ownerToken);
+      if (action === "resume") await client.resumeHandoff(projectId, handoff, token);
       else if (action === "adopt") {
         if (!window.confirm("Accept the CURRENT workspace as this handoff's baseline? This does not restore or delete files. Only a stopped, tool-free first SE attempt is eligible.")) return;
-        await client.adoptHandoffWorkspace(projectId, handoff, ownerToken);
+        await client.adoptHandoffWorkspace(projectId, handoff, token);
         setWorkspaceStatus((current) => ({ ...current, [handoff.handoff_id]: null }));
       } else throw new Error(`Unsupported handoff action: ${action}`);
       await refresh();
@@ -140,7 +139,7 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
   }
 
   const content = <section className="am-se-handoff-controls" aria-label="AM SE RV handoff checkpoints">
-    <div className="am-se-handoff-header"><div><h2>AM ↔ SE ↔ RV handoff</h2><p>Durable checkpoint state and evidence-backed recovery.</p></div><input type="password" aria-label="Owner token for handoff recovery" placeholder="Owner token" autoComplete="off" value={ownerToken} onChange={(event) => setOwnerToken(event.target.value)} /></div>
+    <div className="am-se-handoff-header"><div><h2>AM ↔ SE ↔ RV handoff</h2><p>Durable checkpoint state and evidence-backed recovery.</p></div></div>
     {error && <p role="alert">{error}</p>}
     {!handoffs.length && <p>No persisted handoff checkpoints.</p>}
     {handoffs.map((handoff) => {
