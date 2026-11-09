@@ -2,6 +2,8 @@
 import { createSourceReadTool } from "./discovery/source-read.js";
 import { createOwnerSearchTreeTool } from "./roles/owner-search-tree.js";
 import { createLookupSchemaTool } from "./discovery/lookup-schema-tool.js";
+import { createSubagentEvidenceTool } from "./discovery/subagent-evidence-tool.js";
+import { sharedSubagentEvidenceStore } from "./discovery/subagent-evidence-sync.js";
 import { isAgentPathAllowed } from "./governance/tool-authorization.js";
 import { isDependencyPath } from "../infrastructure/filesystem/dependency-read.js";
 import { createRoleFileService } from "../infrastructure/filesystem/file-service-role-policy.js";
@@ -9,8 +11,12 @@ import { executionReadScope } from "./execution-file-access.js";
 import { assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
 
 // Filters directory listings to the Node-issued ticket scope without widening repository authority.
-export function engineeringToolImplementations({ fileService, projectRoot, codeCache, wrap }) {
-  const tools = { Read: wrap(createSourceReadTool({ fileService, projectRoot, codeCache }), "Read", false), lookup_schema: wrap(createLookupSchemaTool(), "lookup_schema") };
+export function engineeringToolImplementations({ fileService, projectRoot, codeCache, wrap, evidenceStore = sharedSubagentEvidenceStore }) {
+  const tools = {
+    Read: wrap(createSourceReadTool({ fileService, projectRoot, codeCache }), "Read", false),
+    lookup_schema: wrap(createLookupSchemaTool(), "lookup_schema"),
+    read_subagent_evidence: wrap(createSubagentEvidenceTool({ evidenceStore, fileService, codeCache, projectRoot }), "read_subagent_evidence")
+  };
   if (fileService?.listFiles && fileService?.listDirectories) {
     tools.search_tree = wrap({ execute: async (input, context) => {
       if (projectRoot && (context.agent_identity?.role === "coder" || isDependencyPath(input?.path))) {

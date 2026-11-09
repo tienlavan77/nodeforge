@@ -25,7 +25,7 @@ export function buildCodexTicketPrompt(ticket, targetPath, allowedPrefixes, comp
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
     `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code across the current project; choose the files yourself. No file is a mandatory target merely because it was found first.`,
-    "Before disk discovery, call read_subagent_evidence({conversation_id, delegation_id}) and consult the shared subagent evidence store. Reuse valid path, checksum, symbol, code graph and source_worker evidence; search disk only when evidence is missing or stale, and do not reread valid evidence.",
+    "Before disk discovery, always call read_subagent_evidence({}) first to consult the durable per-agent and cross-shared subagent evidence store. For fresh entries (fresh: true), reuse the sha256 checksum, symbol_map, and code_graph directly without calling read_file or searching again; if delegate_subagent returns status: fallback_to_parent (fallback_to_parent: true), inspect the remaining paths directly.",
     "Use the canonical Forge tools search_tree, list_files, search_text, read_file, Read, delegate_subagent, run_command, and the Forge Git tools to discover files, inspect current source, and verify changes; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];
@@ -127,7 +127,7 @@ export function buildToolTicketPrompt(ticket, targetPath, allowedPrefixes, compl
   const backendRequired = isBackendTicket(ticket);
   const instructions = [
     `Discover the implementation from the ticket title, objective and acceptance criteria. Search and read relevant code across the current project; choose the files yourself. No file is a mandatory target merely because it was found first.`,
-    "Before disk discovery, call read_subagent_evidence({conversation_id, delegation_id}) and consult the shared subagent evidence store. Reuse valid path, checksum, symbol, code graph and source_worker evidence; search disk only when evidence is missing or stale, and do not reread valid evidence.",
+    "Before disk discovery, always call read_subagent_evidence({}) first to consult the durable per-agent and cross-shared subagent evidence store. For fresh entries (fresh: true), reuse the sha256 checksum, symbol_map, and code_graph directly without calling read_file or searching again; if delegate_subagent returns status: fallback_to_parent (fallback_to_parent: true), inspect the remaining paths directly.",
     "Use the canonical Forge tools search_tree, list_files, search_text, read_file, Read, delegate_subagent, run_command, and the Forge Git tools to discover files, inspect current source, and verify changes; add focused tests for changed behavior.",
     ...(backendRequired ? ["If backend behavior is required, locate the relevant backend implementation and tests from the ticket rather than assuming a fixed route or service file."] : [])
   ];

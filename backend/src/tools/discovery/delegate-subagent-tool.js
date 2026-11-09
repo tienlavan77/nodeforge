@@ -38,26 +38,59 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
   if (typeof executeTask !== "function") throw new ConfigurationError("delegate_subagent requires an injected child executor.");
   return { definition: delegateSubagentDefinition, execute: (input, context = {}) => executeBatch(input, context) };
 
-  // Technical description: reserves the complete batch synchronously, starts isolated workers in the background, and returns worker handles so the parent can continue.
+  // Technical description: validates and reserves the complete batch, executes isolated workers in parallel, records source metadata receipts and evidence store entries, and returns bounded task and worker results.
   async function executeBatch(input, context) {
     const tasks = validateTasks(input);
     const used = Number(context.subagent_reservations ?? 0);
     if (used + tasks.length > MAX_SUBAGENTS_PER_TURN) throw Object.assign(new ConfigurationError("delegate_subagent per-turn child quota exceeded."), { code: "SUBAGENT_QUOTA_EXCEEDED" });
     context.subagent_reservations = used + tasks.length;
     const signal = context.abortSignal;
-    const workers = tasks.map((task) => ({ id: task.id, worker_id: `${context.agent_identity?.agent_id ?? "agent"}:sub:${task.id}`, status: "running" }));
-    void Promise.allSettled(tasks.map((task) => executeOne(task, context, signal))).then((results) => {
-      for (const result of results) {
-        if (result.status !== "fulfilled") continue;
-        for (const file of normalizeObserved(result.value?.raw_observed_files ?? result.value?.observed_files, context, { retainSymbolMap: true })) {
-          if (Array.isArray(file.symbol_map) && file.symbol_map.length) recordSourceMetadata(context, { path: file.path, sha256: file.sha256, symbol_map: file.symbol_map });
-        }
+    const results = await Promise.allSettled(tasks.map((task) => executeOne(task, context, signal)));
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue;
+      for (const file of normalizeObserved(result.value?.raw_observed_files ?? result.value?.observed_files, context, { retainSymbolMap: true })) {
+        if (Array.isArray(file.symbol_map) && file.symbol_map.length) recordSourceMetadata(context, { path: file.path, sha256: file.sha256, symbol_map: file.symbol_map });
       }
-      const observed = mergeObserved(results.filter((result) => result.status === "fulfilled").flatMap((result) => normalizeObserved(result.value?.observed_files, context)));
-      context.observed_files = mergeObserved([...(context.observed_files ?? []), ...observed]);
-      context.subagent_usage = mergeUsage([...(context.subagent_usage ?? []), ...results.filter((result) => result.status === "fulfilled").map((result) => result.value?.subagent_usage).filter(Boolean)]);
-    }).catch((error) => { context.projectLogger?.({ event_name: "subagent.batch_failed", level: "error", message: error.message, conversation_id: context.conversation_id, delegation_id: context.execution_id }); });
-    return { status: "started", workers, tasks_started: tasks.length, tasks_completed: 0, observed_files: [], subagent_usage: [] };
+    }
+    const taskResults = results.map((result, index) => {
+      if (result.status !== "fulfilled") {
+        return { id: tasks[index].id, status: "rejected", fallback_to_parent: true, error: classifyError(result.reason), summary: "", observed_files: [] };
+      }
+      const fallback = result.value?.status === "fallback_to_parent" || result.value?.fallback_to_parent === true;
+      return {
+        id: tasks[index].id,
+        status: fallback ? "fallback_to_parent" : "fulfilled",
+        ...(fallback ? { fallback_to_parent: true } : {}),
+        ...(result.value?.subagent_model ? { subagent_model: result.value.subagent_model } : {}),
+        ...(result.value?.subagent_provider ? { subagent_provider: result.value.subagent_provider } : {}),
+        summary: bound(result.value?.summary, maxSummaryChars),
+        observed_files: normalizeObserved(result.value?.observed_files, context),
+        subagent_usage: result.value?.subagent_usage ?? null
+      };
+    });
+    const observed = mergeObserved(taskResults.flatMap((item) => item.observed_files));
+    context.observed_files = mergeObserved([...(context.observed_files ?? []), ...observed]);
+    const usage = taskResults.map((item) => item.subagent_usage).filter(Boolean);
+    context.subagent_usage = mergeUsage([...(context.subagent_usage ?? []), ...usage]);
+    const allFallback = taskResults.length > 0 && taskResults.every((item) => item.status === "fallback_to_parent");
+    const allFulfilled = taskResults.every((item) => item.status === "fulfilled");
+    const status = allFallback ? "fallback_to_parent" : allFulfilled ? "completed" : "partial_success";
+    const workers = taskResults.map((item) => ({
+      id: item.id,
+      worker_id: `${context.agent_identity?.agent_id ?? "agent"}:sub:${item.id}`,
+      status: item.status === "fulfilled" ? "completed" : item.status === "fallback_to_parent" ? "fallback_to_parent" : "failed",
+      ...(item.fallback_to_parent ? { fallback_to_parent: true } : {})
+    }));
+    return {
+      status,
+      ...(allFallback ? { fallback_to_parent: true } : {}),
+      workers,
+      tasks: taskResults,
+      tasks_started: tasks.length,
+      tasks_completed: taskResults.filter((item) => item.status === "fulfilled").length,
+      observed_files: observed,
+      subagent_usage: usage
+    };
   }
 
   // Business purpose: executes one isolated read-only child and forwards only the parent abort signal.
@@ -90,9 +123,27 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
       }
     };
     if (childContext.subagent_depth > 1) throw Object.assign(new ConfigurationError("delegate_subagent nesting depth exceeded."), { code: "SUBAGENT_NESTING_FORBIDDEN" });
-    evidenceStore?.startWorker({ conversationId: context.evidence_scope?.conversationId ?? context.conversation_id, delegationId: context.evidence_scope?.delegationId ?? parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, objective: task.objective, eventSink: context.eventSink });
-    const result = await executeTask(task, childContext);
-    await evidenceStore?.complete({ conversationId: context.evidence_scope?.conversationId ?? context.conversation_id, delegationId: context.evidence_scope?.delegationId ?? parentExecutionId, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, summary: result?.summary ?? "", observedFiles: childContext.observed_files ?? result?.observed_files ?? [], usage: result?.subagent_usage ?? null, eventSink: context.eventSink });
+    const scopeInfo = {
+      projectId: context.evidence_scope?.projectId ?? context.project_id ?? null,
+      projectRoot: context.project_root ?? null,
+      role: context.evidence_scope?.role ?? parentIdentity.role ?? null,
+      conversationId: context.evidence_scope?.conversationId ?? context.conversation_id ?? context.task_id,
+      linkedConversationId: context.evidence_scope?.linkedConversationId ?? null,
+      handoffId: context.evidence_scope?.handoffId ?? null,
+      planId: context.evidence_scope?.planId ?? null,
+      ticketId: context.evidence_scope?.ticketId ?? context.task_id ?? null,
+      delegationId: context.evidence_scope?.delegationId ?? parentExecutionId
+    };
+    evidenceStore?.startWorker({ ...scopeInfo, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, objective: task.objective, eventSink: context.eventSink });
+    let result;
+    try {
+      result = await executeTask(task, childContext);
+    } catch (error) {
+      await evidenceStore?.complete({ ...scopeInfo, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, status: "fallback_to_parent", summary: String(error?.message ?? "Subagent execution failed."), observedFiles: childContext.observed_files ?? [], usage: null, eventSink: context.eventSink });
+      throw error;
+    }
+    const workerStatus = result?.status === "fallback_to_parent" || result?.fallback_to_parent === true ? "fallback_to_parent" : "completed";
+    await evidenceStore?.complete({ ...scopeInfo, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, status: workerStatus, summary: result?.summary ?? "", observedFiles: childContext.observed_files ?? result?.observed_files ?? [], usage: result?.subagent_usage ?? null, eventSink: context.eventSink });
     const rawObserved = childContext.observed_files ?? result?.observed_files;
     const observed = normalizeObserved(rawObserved, childContext).map((file) => ({
       ...file,

@@ -71,7 +71,8 @@ export function createCodexSdkGateway({
     let terminalFailure;
     let ended = false; let structuredFailure;
     let turnCompleted = false;
-    const terminal = createCodexSdkLog({ profile: { ...profile, model: options.model ?? profile.model }, context: options.forgeTools?.context, correlationId, credential, output: terminalOutput });
+    const resolvedModel = subagentId ? profile.subagent_model ?? options.subagentModel ?? options.model ?? "Claude-luna" : options.model ?? profile.model ?? undefined;
+    const terminal = createCodexSdkLog({ profile: { ...profile, model: resolvedModel }, context: options.forgeTools?.context, correlationId, credential, output: terminalOutput });
     active.set(controller, instanceKey);
     try {
       mcpSession = options.forgeTools ? await createCodexForgeMcpSession(options.forgeTools) : null;
@@ -139,7 +140,7 @@ export function createCodexSdkGateway({
         ...(Array.isArray(options.configOverrides) ? { configOverrides: options.configOverrides } : {})
       });
       const threadOptions = {
-        model: subagentId ? profile.subagent_model ?? options.model ?? profile.model ?? undefined : options.model ?? profile.model ?? undefined,
+        model: resolvedModel,
         workingDirectory,
         ...(options.usePermissionProfile ? {} : { sandboxMode: options.sandboxMode ?? "workspace-write" }),
         // Codex treats MCP calls as approval-gated actions. `never` makes the
