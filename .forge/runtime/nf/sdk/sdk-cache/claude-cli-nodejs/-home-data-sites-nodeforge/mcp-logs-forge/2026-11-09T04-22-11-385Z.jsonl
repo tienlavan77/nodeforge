@@ -160,3 +160,8 @@
 {"debug":"Calling MCP tool: git_status","timestamp":"2026-11-09T04:47:35.240Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}
 {"debug":"Tool 'git_status' completed successfully in 489ms","timestamp":"2026-11-09T04:47:35.730Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}
 {"debug":"Calling MCP tool: commit_changes","timestamp":"2026-11-09T04:47:47.737Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}
+{"debug":"Tool 'commit_changes' completed successfully in 1s","timestamp":"2026-11-09T04:47:49.577Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}
+{"debug":"Calling MCP tool: run_check","timestamp":"2026-11-09T04:48:03.745Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}
+{"debug":"Tool 'run_check' completed successfully in 6s","timestamp":"2026-11-09T04:48:10.099Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}
+{"debug":"Calling MCP tool: write_diff","timestamp":"2026-11-09T04:48:46.916Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}
+{"debug":"Tool 'write_diff' completed successfully in 260ms","timestamp":"2026-11-09T04:48:47.177Z","sessionId":"9cfe23f4-a914-46bb-8b0b-b396c180b8d1","cwd":"/home/data/sites/nodeforge"}

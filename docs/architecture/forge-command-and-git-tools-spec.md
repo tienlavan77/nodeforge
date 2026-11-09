@@ -34,7 +34,22 @@ Tài liệu này tổng hợp đầy đủ các quyết định kiến trúc đ�
 - `cwd`: Đường dẫn tương đối bên trong `projectRoot` (mặc định `"."`). Chặn tuyệt đối `..` thoát khỏi `projectRoot` và đường dẫn tuyệt đối.
 - `timeout_ms`: Mặc định `60_000` ms (tối đa `180_000` ms), hủy tức thì khi `context.abortSignal` kích hoạt.
 
-### 2.2. Quy tắc Thực thi & Chốt chặn tại Node cho từng `command`
+### 2.2. Quy tắc Thực thi & Chốt chặn Bảo mật tại Node cho từng `command`
+
+#### Các chốt chặn bảo mật bắt buộc (Hardened Security Invariants):
+1. **Ràng buộc `projectRoot` bằng Prefix Có Dấu Phân Cách (`rootAbs + sep`) — Chống Sibling Prefix Bypass:**
+   - Khi truyền `--allow-fs-read` / `--allow-fs-write` cho Node Permission Model hoặc `open_basedir` cho PHP, bắt buộc kết thúc bằng dấu phân cách thư mục (`${rootAbs}${sep}*` cho Node và `${rootAbs}${sep}` cho PHP) để chặn truy cập sang thư mục anh em cùng tiền tố (ví dụ `/home/data/sites/nodeforge-other`).
+2. **luôn bật Sandbox/Permission cho MỌI lệnh `node` và `php` (không chỉ `-e` / `-r`):**
+   - Trong `buildSandboxedInlineArgs` (`command-policy.js` dòng 87–96): không chỉ áp dụng `--permission` khi có `-e`/`-p`, mà phải kiểm tra đường dẫn cho **mọi** cờ nạp module/env của `node` (`--require`, `-r`, `--import`, `--loader`, `--experimental-loader`, `--env-file`, `--env-file-if-exists`, `--diagnostic-dir`, `--heapsnapshot-near-heap-limit`, `--prof-process`, `--redirect-warnings`, `--trace-event-file-pattern`, `--cpu-prof-dir`, `--cpu-prof-name`, `--heap-prof-dir`, `--heap-prof-name`) cả dạng tách rời lẫn dạng nối `=`.
+3. **Kiểm tra Symlink (`assertCommandArgSymlinkSafety`) cho mọi giá trị `key=value` của `php -d` và các cờ gắn liền (`-c<path>`, `-f<path>`, `-dkey=val`):**
+   - Trong `assertCommandArgSymlinkSafety` (`command-policy.js` dòng 106–114): khi tham số là `-dauto_prepend_file=src/evil-link.php` hoặc `["-d", "auto_prepend_file=/tmp/evil.php"]`, phải tách lấy phần giá trị sau dấu `=` của INI directive (thay vì lấy cả chuỗi `auto_prepend_file=...`), kiểm tra `resolveProjectContainedPath` và gọi `assertNoSymlinkEscape` cho cả đường dẫn tương đối và tuyệt đối!
+4. **Chặn tràn bộ nhớ (Memory DoS) trong `snapshotWorkingTree` và `unzip` Preflight:**
+   - Trong `archive-policy.js` (dòng 31): hỗ trợ cả dạng viết liền `-d<dir>` (ví dụ `-d/tmp` hoặc `-d../outside`) ngoài `-d` và `-d=`.
+   - Kiểm tra tổng dung lượng giải nén từ `unzip -Z -l` để chống Zip Bomb قبل khi giải nén.
+5. **Chặn `npm` / `pnpm` thực thi gói từ xa hoặc ghi cấu hình ngoài `projectRoot`:**
+   - Chặn các cờ cấu hình đường dẫn của `npm`/`pnpm`: `--userconfig`, `--globalconfig`, `--cache`, `--store-dir`, `--modules-dir`, `--virtual-store-dir`, `--lockfile-dir` nếu trỏ ra ngoài `projectRoot`, và chặn `npm exec` tải gói từ xa (bắt buộc `--no` / `--no-install` hoặc chỉ chạy script trong `package.json`).
+
+### 2.2.1. Bảng Quy tắc Thực thi theo từng `command`
 
 | `command` | Cơ chế thực thi tại Node | Các thao tác / tham số được phép | Các thao tác / tham số bị cấm |
 |---|---|---|---|

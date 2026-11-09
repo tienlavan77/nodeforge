@@ -1,7 +1,8 @@
-// Wraps chokidar to watch the project filesystem while filtering default and custom ignored paths.
+// Wraps chokidar to watch the project filesystem while filtering default, gitignore, project-configured, and custom ignored paths.
 import chokidar from "chokidar";
 import { EventEmitter } from "node:events";
-import { relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import picomatch from "picomatch";
 
 import { ConfigurationError } from "../../shared/errors.js";
@@ -13,20 +14,67 @@ export const DEFAULT_WATCHER_IGNORE = Object.freeze([
   // which grow the WAL and trigger another verification run.
   ".node-control/**",
   "node_modules/**",
+  "vendor/**",
   "agent-tool/**",
   ".pnpm-store/**",
   ".git/**",
   "dist/**",
+  "output/**",
+  "outputs/**",
   ".next/**",
   // Ignore Next.js stale build directories created during interrupted dev runs.
   "**/.next.stale-*/**",
   "coverage/**",
   "**/.DS_Store",
-  "**/._*",
   "**/*.tmp-*"
 ]);
 
 const RAW_EVENTS = ["add", "change", "unlink"];
+
+// Converts a single .gitignore rule into equivalent picomatch patterns relative to the project root.
+// Business purpose: prevents code indexing, comment normalization, and file watching from scanning build artifacts, release bundles, or runtime directories excluded by a project's `.gitignore`.
+// Technical description: strips comments and leading slashes, skips negation rules, and expands directory or path rules into both direct and `/**` subtree globs.
+function gitignoreLineToGlobs(rawLine) {
+  const line = rawLine.trim();
+  if (!line || line.startsWith("#") || line.startsWith("!")) return [];
+  const anchored = line.startsWith("/");
+  const directoryOnly = line.endsWith("/");
+  const body = line.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!body) return [];
+  if (directoryOnly) {
+    return anchored || body.includes("/") ? [body, `${body}/**`] : [body, `${body}/**`, `**/${body}`, `**/${body}/**`];
+  }
+  if (anchored || body.includes("/")) {
+    return [body, `${body}/**`];
+  }
+  return [body, `**/${body}`, `${body}/**`, `**/${body}/**`];
+}
+
+// Reads ignore globs from a project's `.gitignore` and `.forge/runtime/project.json` (`watch.ignore`).
+// Business purpose: automatically honors repository ignore rules and per-project watch settings during indexing and watching without requiring global environment variables.
+// Technical description: synchronously reads `.gitignore` and `.forge/runtime/project.json` when present on disk and returns normalized glob strings.
+function loadProjectIgnoreGlobs(root) {
+  if (typeof root !== "string" || !root) return [];
+  const extra = [];
+  try {
+    const gitignoreText = readFileSync(join(root, ".gitignore"), "utf8");
+    for (const line of gitignoreText.split(/\r?\n/)) {
+      extra.push(...gitignoreLineToGlobs(line));
+    }
+    // eslint-disable-next-line no-silent-catch -- Missing or unreadable .gitignore is optional for non-Git project roots.
+  } catch { /* Optional .gitignore */ }
+  try {
+    const projectMeta = JSON.parse(readFileSync(join(root, ".forge", "runtime", "project.json"), "utf8"));
+    const configured = projectMeta?.watch?.ignore;
+    if (Array.isArray(configured)) {
+      for (const item of configured) {
+        if (typeof item === "string" && item.trim()) extra.push(...gitignoreLineToGlobs(item));
+      }
+    }
+    // eslint-disable-next-line no-silent-catch -- Missing or partial project.json before admission completes is expected.
+  } catch { /* Optional project.json */ }
+  return extra;
+}
 
 // Creates a chokidar-backed watcher that emits add/change/unlink events after applying ignored-path filtering.
 export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {} } = {}) {
@@ -75,16 +123,17 @@ export function createFilesystemWatcher({ root, ignore = [], chokidarOptions = {
   });
 }
 
-// Builds a predicate that returns true for paths matching default or custom ignore globs relative to root.
+// Builds a predicate that returns true for paths matching default, gitignore, project-configured, or custom ignore globs relative to root.
 export function createProjectIgnoreMatcher(root, ignore = []) {
-  const patterns = [...DEFAULT_WATCHER_IGNORE, ...ignore];
+  const discoveredPatterns = loadProjectIgnoreGlobs(root);
+  const basePatterns = [...DEFAULT_WATCHER_IGNORE, ...ignore];
   // Match ignored directories at any depth (for example ui/nextjs/.next/**),
   // not only when they sit directly under the repository root.
-  const projectPatterns = patterns.flatMap((pattern) => {
+  const expandedBase = basePatterns.flatMap((pattern) => {
     const normalized = pattern.replace(/^\.\//, "");
     return normalized.startsWith("**/") ? [normalized] : [normalized, `**/${normalized}`];
   });
-  const isIgnored = picomatch(projectPatterns, { dot: true });
+  const isIgnored = picomatch([...new Set([...expandedBase, ...discoveredPatterns])], { dot: true });
 
   return (path) => {
     const relativePath = relative(root, path).split(sep).join("/");

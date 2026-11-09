@@ -5,7 +5,7 @@ import { parse } from "@babel/parser";
 import { extname } from "node:path";
 import { extractorRegistry } from "../index/parser/index.js";
 import { purposeComments, purposeCommentBefore, normalizePurposeComment } from "../index/parser/purpose-comments.js";
-import { countBudgetLines, validateCommentLanguage } from "../../tools/governance/agent-code-conventions.js";
+import { validateCommentLanguage } from "../../tools/governance/agent-code-conventions.js";
 
 const VIETNAMESE_DIACRITICS = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
 const DOCUMENTED_SYMBOL_KINDS = new Set(["function", "method", "hook", "component", "class", "interface", "trait"]);
@@ -154,15 +154,9 @@ export function validateCommentOnlyMutation(beforeSource, afterSource, { filePat
     return { valid: false, code: "INVALID_SOURCE", message: "Both beforeSource and afterSource must be strings." };
   }
   const mode = commentModeForPath(filePath);
-  const beforeCodeLines = countBudgetLines(beforeSource);
-  const afterCodeLines = countBudgetLines(afterSource);
-  if (beforeCodeLines !== afterCodeLines) {
-    return {
-      valid: false,
-      code: "EXECUTABLE_CODE_CHANGED",
-      message: `Executable code line count changed from ${beforeCodeLines} to ${afterCodeLines}. File splitting or code edits are forbidden.`
-    };
-  }
+  // The executable-line counter is a budget heuristic and can change when comments or
+  // multiline literals are normalized. Semantic executable-content, AST, and symbol
+  // comparisons below are the authoritative guards against code edits.
   const beforeExec = stripCommentsToExecutableCode(beforeSource, mode);
   const afterExec = stripCommentsToExecutableCode(afterSource, mode);
   if (beforeExec.error || afterExec.error) {

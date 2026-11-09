@@ -11,15 +11,17 @@ import { createProjectCreateAdmission, openProjectAdmissionStore, assertProjectC
 import { ProjectRegistry } from "./project-registry.js";
 import { createProjectCatalog } from "./project-catalog.js";
 import { startProjectRuntime } from "./project-runtime.js";
+import { createPendingProjectRuntime } from "./project-runtime-bridge.js";
 import { startRuntimeWithProgress, createLifecycleStreamResolver } from "./project-runtime-progress.js";
 import { createProjectRuntimeDisposal } from "./project-runtime-disposal.js";
 import { createProjectDirectoryState } from "./project-directory-state.js";
 import { createProjectAdmissionQueue } from "./project-admission-queue.js";
 
 // Restores independent project runtimes from global metadata without adding public transport routes.
-export async function createProjectLifecycle({ catalogPath, registry = new ProjectRegistry(), startRuntime = startProjectRuntime, runtimeOptions = {}, logger = console, operationStore } = {}) {
+export async function createProjectLifecycle({ catalogPath, registry = new ProjectRegistry(), startRuntime = startProjectRuntime, runtimeOptions = {}, logger = console, operationStore, restoreInBackground = false, admitInBackground = false } = {}) {
   const catalog = await createProjectCatalog({ catalogPath });
   const runtimes = new Map();
+  const backgroundActivations = new Map();
   const { registerCleanup, releaseRuntime, isAvailable } = createProjectRuntimeDisposal();
   const startupErrors = [];
   let tail = Promise.resolve();
@@ -29,13 +31,16 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   const operations = createProjectLifecycleOperations({ catalogPath, create, add: (root) => add(root), logger });
   // Shares pending Add attempts across canonical aliases while preserving admission preflight errors.
   const add = createProjectAdmissionQueue({ canonicalRoot: async (root) => (await captureAddRoot(root)).root, enqueue, admit });
+  const restoreReady = enqueue(async () => {
   for (const entry of catalog.list()) {
     try { await directoryState.run(entry.root, () => activate(entry.root, entry.projectId)); } catch (error) {
       logger.error?.("Unable to restore project runtime.", { root: entry.root, error });
       startupErrors.push({ root: entry.root, error: error.message, ...(error.code ? { code: error.code } : {}) });
     }
   }
-  return Object.freeze({ rest: createProjectRestService({ registry, catalog, directory: directoryState.directory, get, getRuntime: (root) => !closed ? runtimes.get(root) : undefined, enqueue, admit, create, remove }), operations, create, add, remove, list, directory: directoryState.directory, get, getStream: createLifecycleStreamResolver({ catalog, runtimes, isAvailable, isClosed: () => closed }), close, registerCleanup, startupErrors: Object.freeze(startupErrors) });
+  });
+  if (!restoreInBackground) await restoreReady;
+  return Object.freeze({ restoreReady, rest: createProjectRestService({ registry, catalog, directory: directoryState.directory, get, getRuntime: (root) => !closed ? runtimes.get(root) : undefined, enqueue, admit, create, remove }), operations, create, add, remove, list, directory: directoryState.directory, get, getStream: createLifecycleStreamResolver({ catalog, runtimes, isAvailable, isClosed: () => closed }), close, registerCleanup, get startupErrors() { return Object.freeze([...startupErrors]); } });
 
   // Fences Create through the durable operation store before exclusive directory creation.
   function create(root, options) {
@@ -45,7 +50,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
       try { store = operationStore ?? await openProjectAdmissionStore(catalogPath); } catch (error) {
         throw filesystemError("operation_store", "operation_store_unwritable", dirname(catalogPath), error);
       }
-      return createProjectCreateAdmission({ store, admit: (root, binding, progress) => admit(root, binding, progress, options?.config) })(root, options);
+      return createProjectCreateAdmission({ store, admit: (root, binding, progress) => admit(root, binding, progress, options?.config, options) })(root, options);
     });
   }
 
@@ -59,7 +64,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   }
 
   // Starts a project using its persisted identity and rejects copied identity collisions.
-  async function activate(root, expectedProjectId, progress) {
+  async function activate(root, expectedProjectId, progress, sharedStreamState = null) {
     const canonical = await canonicalRoot(root);
     if (canonical !== root) throw new Error("Stored project root is no longer canonical.");
     const binding = await captureRoot(canonical);
@@ -73,7 +78,8 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     await assertRoot(binding);
     await inspectProjectStorage(binding);
     let runtime;
-    try { runtime = await startRuntimeWithProgress(startRuntime, { ...runtimeOptions, projectRoot: canonical, projectId, logger, ...(progress ? { progress } : {}), onRuntimeCreated: (running) => runtimes.set(canonical, running) }); } catch (error) {
+    try { runtime = await startRuntimeWithProgress(startRuntime, { ...runtimeOptions, projectRoot: canonical, projectId, logger, ...(progress ? { progress } : {}), ...(sharedStreamState ? { sharedStreamState } : {}), onRuntimeCreated: (running) => runtimes.set(canonical, running) }); } catch (error) {
+      await sharedStreamState?.close?.();
       runtimes.delete(canonical); throw filesystemError("startup", "project_startup_failed", canonical, error, "Membership and identity are retained. Correct the startup failure and retry Add.");
     }
     runtimes.set(canonical, runtime);
@@ -81,7 +87,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   }
 
   // Commits verified project membership before opening any runtime, watcher, or index.
-  async function admit(root, ownedBinding, progress = createIndexProgress({ onProgress: runtimeOptions.onProgress }), config = {}) {
+  async function admit(root, ownedBinding, progress = createIndexProgress({ onProgress: runtimeOptions.onProgress }), config = {}, options = {}) {
     progress.stage("preflight");
     const binding = ownedBinding ?? await captureAddRoot(root);
     await assertRoot(binding);
@@ -110,6 +116,20 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
     const entry = { root: canonical, projectId };
     if (!persisted) await catalog.replace([...catalog.list(), entry], { guard: () => assertRoot(binding) });
     await assertRoot(binding);
+    const runInBackground = Boolean(options?.background ?? admitInBackground);
+    if (runInBackground) {
+      const pendingRuntime = createPendingProjectRuntime({ projectRoot: canonical, projectId, progress, logger });
+      runtimes.set(canonical, pendingRuntime);
+      const activationTask = directoryState.run(canonical, () => activate(canonical, projectId, progress, pendingRuntime))
+        .catch((error) => {
+          logger.error?.("Background project runtime activation failed.", { root: canonical, projectId, error });
+        })
+        .finally(() => {
+          if (backgroundActivations.get(canonical) === activationTask) backgroundActivations.delete(canonical);
+        });
+      backgroundActivations.set(canonical, activationTask);
+      return { ...entry, activationReady: activationTask };
+    }
     await directoryState.run(canonical, () => activate(canonical, projectId, progress));
     return entry;
   }
@@ -122,6 +142,8 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
         if (error.code !== "ENOENT") throw error;
         canonical = resolve(root);
       }
+      const pendingActivation = backgroundActivations.get(canonical);
+      if (pendingActivation) await pendingActivation;
       const runtime = runtimes.get(canonical);
       if (runtime) {
         await releaseRuntime(runtime);
@@ -156,6 +178,7 @@ export async function createProjectLifecycle({ catalogPath, registry = new Proje
   async function shutdown() {
     await operations.close();
     await tail;
+    await Promise.allSettled([...backgroundActivations.values()]);
     const results = await Promise.allSettled([...runtimes.values()].map(releaseRuntime));
     runtimes.clear();
     const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);

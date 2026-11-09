@@ -201,15 +201,18 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     }
     if (record.project_id !== projectId || !cp.plan_locked || !cp.workspace || !Array.isArray(cp.results)) fail("HANDOFF_CHECKPOINT_INVALID");
     if (["reconciliation_required", "unknown", "blocked"].includes(cp.execution_status)) fail("HANDOFF_RECONCILIATION_REQUIRED");
-    const { safeRound, safeMaxRounds, safeNextStep } = resolveSafeResumeState(record, cp);
+    const { safeRound, safeMaxRounds, safeNextStep, completed } = resolveSafeResumeState(record, cp);
     if (cp.execution_status !== "pending") fail("HANDOFF_TRANSITION_INVALID");
-    if (!["se", "rv", "am"].includes(cp.next_step) || cp.round > record.max_rounds || cp.next_step !== safeNextStep) {
+    if (completed || !["se", "rv", "am"].includes(cp.next_step) || cp.round > record.max_rounds || cp.next_step !== safeNextStep) {
+      const freshWorkspace = await workspace(Array.isArray(cp.workspace.scope_paths) ? cp.workspace.scope_paths : undefined).catch(() => null);
       record = await store.transition(handoffId, cp.generation, (current) => ({
         ...current,
+        status: completed ? "completed" : "running",
         round: safeRound,
         max_rounds: safeMaxRounds,
-        checkpoint: { ...current.checkpoint, round: safeRound, current_step: null, next_step: safeNextStep, execution_status: "pending", error_code: null, updated_at: now() }
+        checkpoint: { ...current.checkpoint, round: safeRound, ...(freshWorkspace ? { workspace: freshWorkspace } : {}), current_step: null, next_step: safeNextStep, execution_status: completed ? "completed" : "pending", error_code: null, updated_at: now() }
       }));
+      if (completed) return record;
       cp = record.checkpoint;
     }
     if (cp.next_step === "rv" && !cp.results.some((r) => r.round === cp.round && r.step === "se") || cp.next_step === "am" && !cp.results.some((r) => r.round === cp.round && r.step === "rv" && r.verdict === "PASS")) fail("HANDOFF_PREDECESSOR_REQUIRED");

@@ -1,5 +1,5 @@
-export function startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache, ticketWorkspaceService, projectLifecycle, workers = [], logger = console } = {}) {
-  const server = api.createServer().listen(port, host, () => {
+export function startControlApi({ api, port, host, transport, indexDb, controlDb, processLock, codeCache, ticketWorkspaceService, projectLifecycle, workers = [], logger = console } = {}) {
+  const server = transport?.attach(api) ?? api.createServer().listen(port, host, () => {
     process.stdout.write(`Node Control API listening on http://${host}:${port}\n`);
   });
   let closing;
