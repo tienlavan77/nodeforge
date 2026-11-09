@@ -10,5 +10,13 @@
   {
     "root": "/home/data/sites/books",
     "projectId": "books"
+  },
+  {
+    "root": "/home/data/sites/wp-static",
+    "projectId": "static-wordpress"
+  },
+  {
+    "root": "/home/data/sites/uniSteamAi",
+    "projectId": "unistreamai"
   }
 ]

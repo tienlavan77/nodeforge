@@ -11,8 +11,10 @@ export function createProjectRestService({ registry, catalog, directory, get, ge
   // Selects admission from actual host filesystem state, validating settings before membership changes.
   async function intake(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid("Project configuration must be an object.");
+    const background = input.background;
     const config = { ...input, comment_language: input.comment_language ?? "en" };
     delete config.root;
+    delete config.background;
     const state = await preflightProject(input.root);
     if (state.status === "invalid") throw Object.assign(new Error(state.message), state, { statusCode: 400 });
     buildProjectConfiguration({ ...config, project_id: "rest-validation", root: state.root });
@@ -23,9 +25,10 @@ export function createProjectRestService({ registry, catalog, directory, get, ge
       if (error.code !== "ENOENT") throw error;
       exists = false;
     }
+    const admissionOptions = background !== undefined ? { background: Boolean(background) } : undefined;
     const entry = exists
-      ? await enqueue(() => admit(state.root, undefined, undefined, config))
-      : await create(state.root, { config });
+      ? await enqueue(() => admit(state.root, undefined, undefined, config, admissionOptions))
+      : await create(state.root, { config, ...admissionOptions });
     const configuration = await registry.readConfiguration(entry.root);
     const dirEntry = typeof directory === "function"
       ? directory().find((item) => item.projectId === entry.projectId || item.root === entry.root)

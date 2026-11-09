@@ -1,95 +1,173 @@
-# Đặc tả Sửa lỗi: Handoff SE bị treo ở `status: "paused"` và Nút `Run` / `Resume` bị khóa (`disabled`)
+# Đặc tả Sửa Dứt Điểm (1 Lần Duy Nhất): Resume An Toàn cho Handoff AM ↔ SE ↔ RV
 
 - **Ngày lập:** 2026-11-08
 - **Người lập:** Architecture Manager (AM)
-- **Mục tiêu:** Sửa dứt điểm lỗi khi Owner ra lệnh *"tạo kế hoạch ..., giao việc cho SE"* mà handoff lại dừng ở `status: "paused"` và trên UI không cho phép bấm `Run` hay `Resume`.
+- **Mục tiêu:** Sửa dứt điểm toàn bộ 5 lỗi chí mạng trong luồng `Resume` từ UI (`am-se-handoff-controls.jsx`) $\rightarrow$ HTTP Router (`control-api-http.mjs`) $\rightarrow$ `am-se-handoff-service.js` $\rightarrow$ `am-se-handoff-checkpoint.js` & `am-se-critique-checkpoint.js` $\rightarrow$ `owner-sdk-stream.js` & `owner-execution-checkpoint.js`.
 
 ---
 
-## 1. Nguyên nhân gốc rễ (Root Causes đã xác minh trong code)
+## 1. 5 LỖI CHÍ MẠNG ĐÃ TÌM RA TRONG CODE HIỆN TẠI (TẠI SAO BẤM RESUME VẪN KHÔNG CHẠY!)
 
-1. **Lỗi 1 — `owner-chat-service.js` (dòng 155) truyền cứng `planning_input_only: true` khi AM trả lời phản biện và khi AM nghiệm thu:**
-   - Trong `streamCommandArchitecture` (`backend/src/application/owner-chat-service.js` dòng 149–165):
-     ```js
-     for await (const chunk of agentStream({ agentId, payload: { text: prompt, response_content_type: contentType, planning_input_only: true, ...(withEvidence ? { handoff_execution: true } : {}) }, ... }))
-     ```
-   - Khi `am-se-handoff-service.js` gọi `turnRequestArchitecture` (với `withEvidence: true`) để AM trả lời phản biện của SE (dòng 337) hoặc để AM nghiệm thu kết quả code của SE/RV (`[VERDICT: PASS|REVISE]`, dòng 225), cờ `planning_input_only: true` kích hoạt prompt ép AM chỉ được xuất JSON theo schema `architecture_plan.v1` và cấm trả lời văn bản!
-   - Hệ quả:
-     - Ở pha `plan_critique`: AM không trả lời đúng định dạng phản biện hoặc sinh JSON làm `maybeApplyCritiqueRevision` lỗi / SE không chuyển sang `ALIGNED`.
-     - Ở pha `implementation` (bước `am`): AM không trả về `[VERDICT: PASS]` hợp lệ, khiến `complete()` trong `am-se-handoff-checkpoint.js` (dòng 70–72) đánh dấu `execution_status = "blocked"` và chuyển handoff sang `status: "paused"`, `error_code: "HANDOFF_RESULT_REQUIRED"`.
+Sau khi đọc từng dòng code từ UI xuống tận `control-api-http.mjs`, `owner-sdk-stream.js` và `owner-execution-checkpoint.js`, đây là **5 thủ phạm thực sự** đang giết chết nút **Resume**:
 
-2. **Lỗi 2 — `am-se-handoff-service.js` (dòng 330–353) dừng ở `status: "paused"` khi hết vòng phản biện thay vì chốt bản `r1` và chạy SE:**
-   - Tại dòng 330–334 của `backend/src/application/am-se-handoff-service.js`:
-     - Ở vòng cuối (`critiqueRound >= record.max_critique_rounds`), nếu SE trả về `[CRITIQUE: DISCUSS]`, code lập tức dừng lại và trả về `status: "paused", reason: "CRITIQUE_CONSENSUS_REQUIRED"`, không cho AM cập nhật bản `r1` lần cuối và không chạy tiếp sang SE implementation!
-
-3. **Lỗi 3 — `listHandoffs` (`am-se-handoff-service.js` dòng 407–412) và `am-se-handoff-controls.jsx` (dòng 48, 90, 118, 160–164) khóa cứng nút `Run` / `Resume` khi `status === "paused"`:**
-   - Trong `listHandoffs` (dòng 408–409):
-     - `capabilities.run` chỉ `true` khi `!record.checkpoint && record.history?.at(-1)?.critique_status === "ALIGNED"`. Nếu dừng vì `CRITIQUE_CONSENSUS_REQUIRED` hoặc lỗi patch thì `run = false`!
-     - `capabilities.resume` chỉ `true` khi `checkpoint.execution_status === "pending"`. Nếu `checkpoint.execution_status` đang là `"blocked"`, `"reconciliation_required"`, hoặc `"unknown"` (hoặc khi dừng ở `plan_critique`), nút `Resume` bị khóa (`disabled`) hoặc khi bấm lại gọi `resumeHandoff` bị chặn bởi dòng 189 (`HANDOFF_CRITIQUE_REQUIRED`)!
-   - Trong `ui/nextjs/components/am-se-handoff-controls.jsx` (dòng 48, 90, 118):
-     - UI vẫn chặn `if (!ownerToken) { setError("Owner token is required..."); return; }` khiến người dùng bấm nút mà chưa điền token ẩn thì không chạy.
-
-4. **Lỗi 4 — `am-se-handoff-workspace.js` (dòng 40–41) từ chối chụp snapshot khi repo có file untracked (`??`):**
-   - Dòng 41: `if (status === "??") { if (!scoped) unsafe("Untracked workspace files are not supported by handoff checkpoints."); }`
-   - Khi trong repo có bất kỳ file mới nào chưa track (`??`), `critique.initialize` hoặc `checkpoint.initialize` (lúc `scope_paths` chưa có) sẽ ném lỗi `HANDOFF_WORKSPACE_UNSAFE` và làm handoff dừng ở `paused`!
+### Thủ phạm 1 (Nặng nhất — chết ngay khi bấm Resume trên UI!): `handoffAdapter` trong `backend/scripts/control-api-http.mjs` (dòng 49) trả về **AsyncGenerator chưa chạy** thay vì `{ text, execution_id, terminal_status, result_evidence }`!
+Hãy nhìn dòng 49–57 của `backend/scripts/control-api-http.mjs`:
+```js
+const handoffAdapter = ({ agentId, prompt, conversationId, linkedConversationId, correlationId, withEvidence }) =>
+  sdkStream({ agentId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null, ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId, eventSink: publishUnifiedStreamEvent });
+```
+- `sdkStream` (`createOwnerSdkStream` trong `owner-sdk-stream.js` dòng 38) là một hàm **`async function* stream(...)` (AsyncGenerator)**!
+- Khi tạo plan qua chat, `owner-chat-service.js` truyền `streamHandoffSystemEngineer` / `streamHandoffReviewer` / `streamCommandArchitecture` (có vòng lặp `for await (const chunk of agentStream(...))` để tiêu thụ generator và trả về `{ text, ...terminal }`).
+- **NHƯNG khi bạn bấm nút `Run` hoặc `Resume` trên UI**, request đi qua `forge-v1-conversation-routes.js` $\rightarrow$ gọi trực tiếp `amSeHandoffService.resumeHandoff(...)` được khởi tạo trong `control-api-http.mjs` (dòng 50–58)!
+- Ở đó, `requestSystemEngineer`, `requestReviewer`, `requestArchitecture` lại chính là `handoffAdapter`!
+- Khi `invoke` gọi `raw = await se(...)` (tức `await handoffAdapter(...)`), vì `sdkStream(...)` là `async function*`, **`await sdkStream(...)` KHÔNG HỀ CHẠY BẤT KỲ DÒNG NÀO BÊN TRONG `sdkStream`**, mà trả về ngay lập tức một object `AsyncGenerator {}` rỗng!
+- Thế là `raw.text` là `undefined`, `raw.execution_id` là `undefined`, không một agent nào được gọi, và `complete()` lập tức đánh dấu `execution_status = "reconciliation_required"` / `"blocked"` với `error_code = "HANDOFF_RESULT_REQUIRED"`! **Đó là lý do vì sao bạn bấm Resume trên UI bao nhiêu lần nó cũng không chạy!**
 
 ---
 
-## 2. Yêu cầu Sửa Code Chi Tiết cho SE
-
-### 2.1. Sửa `backend/src/application/owner-chat-service.js` (dòng 149–165)
-- Trong `streamCommandArchitecture`:
-  - Thêm tùy chọn `planningInputOnly = !withEvidence` (hoặc nhận `options.planningInputOnly ?? !options.withEvidence`).
-  - Khi `am-se-handoff-service.js` gọi `requestArchitecture` để phản biện hoặc nghiệm thu (`withEvidence: true` hoặc `exposeText: false` trong handoff), truyền `planning_input_only: false` để AM trả lời Markdown + `[VERDICT: PASS|REVISE]` tự nhiên, không bị ép vào chế độ backend-owned JSON generator.
-
-### 2.2. Sửa `backend/src/application/am-se-handoff-workspace.js` (dòng 38–52)
-- Hỗ trợ băm (hash) luôn cả các file untracked (`status === "??"`) bằng `fileService.readFile` / `createHash("sha256")` (bỏ qua `.forge/` và `node_modules/`) ngay cả khi `!scoped`, thay vì gọi `unsafe("Untracked workspace files are not supported...")`.
-
-### 2.3. Sửa `backend/src/application/am-se-handoff-service.js`
-1. **Tại vòng lặp `plan_critique` trong `startHandoff` (dòng 310–354):**
-   - Nếu ở vòng phản biện mà SE trả về `DISCUSS`, AM luôn được trả lời và áp dụng bản vá (nếu có) vào `r1` (`maybeApplyCritiqueRevision`).
-   - Nếu đã đến vòng cuối (`critiqueRound >= record.max_critique_rounds`) mà sau khi AM cập nhật `r1` xong, nếu là lệnh giao việc trực tiếp của Owner (`explicitOwnerCommand === true`), hệ thống **chốt bản `r1` đã cập nhật làm bản thống nhất** và chuyển thẳng sang bước Auto-Approve + chạy `SE → RV → AM` (không dừng ở `CRITIQUE_CONSENSUS_REQUIRED`).
-2. **Tại `resumeHandoff` (dòng 161–227) của `backend/src/application/am-se-handoff-service.js` và `resume` (dòng 161–217) của `backend/src/application/am-se-handoff-checkpoint.js` — SỬA LỖI `HANDOFF_TRANSITION_INVALID`:**
-   - **Nguyên nhân gây lỗi `HANDOFF_TRANSITION_INVALID` tại dòng 189 của `am-se-handoff-checkpoint.js`:**
-     ```js
-     if (cp.execution_status !== "pending" || !["se", "rv", "am"].includes(cp.next_step) || cp.round > record.max_rounds) fail("HANDOFF_TRANSITION_INVALID");
-     ```
-     Khi handoff bị `paused` do vượt quá `max_rounds` (`cp.round > record.max_rounds`, ví dụ `cp.round === 4` khi `max_rounds === 3` ở dòng 69–72 của `am-se-handoff-checkpoint.js`) HOẶC khi `cp.next_step` là `null` và `cp.current_step` cũng là `null` (do dòng 72 gán `current_step: status === "pending" || status === "completed" ? null : step`, hoặc khi bước `am` trả về `REVISE` ở vòng cuối nên `next === "se"`, `nextRound = cp.round + 1 > current.max_rounds`, `status = "blocked"`), lúc bấm **Resume**:
-     - Ở dòng 201–204 của `am-se-handoff-service.js`, code mới chỉ reset `execution_status: "pending"` và `next_step: resetStep`, nhưng **QUÊN xử lý khi `cp.round > record.max_rounds`** (hoặc khi `record.round > record.max_rounds`) và **QUÊN cập nhật lại `workspace` baseline hiện tại**!
-     - Thế là khi vào `checkpoint.resume(...)` ở dòng 189 của `am-se-handoff-checkpoint.js`, điều kiện `cp.round > record.max_rounds` (hoặc `!["se", "rv", "am"].includes(cp.next_step)`) lập tức ném lỗi **`HANDOFF_TRANSITION_INVALID`**!
-   - **Cách sửa triệt để trong `backend/src/application/am-se-handoff-service.js` (dòng 201–204) và `backend/src/transport/http/forge-v1-conversation-routes.js` (dòng 24, 30, 77):**
-     1. **Xây dựng bộ dò Safe-Point tự động (`resolveSafeResumeState`) dùng chung trong cả `am-se-handoff-checkpoint.js` và `am-se-handoff-service.js`:**
-        - **Nguyên nhân sâu xa khiến trước đó thiếu cơ chế tự dò lại checkpoint an toàn:**
-          1. Ở `am-se-handoff-service.js` (dòng 202), khối chuẩn hóa state mới chỉ chạy khi `!["completed", "running"].includes(record.checkpoint.execution_status)`! Nếu checkpoint bị kẹt ở `execution_status === "running"` (do tiến trình crash hoặc lần chạy trước bị ngắt giữa chừng), dòng 202 **BỎ QUA HOÀN TOÀN** việc dò safe point và lao thẳng vào `checkpoint.resume(...)`!
-          2. Bên trong `checkpoint.resume(...)` (`am-se-handoff-checkpoint.js` dòng 170–191), hàm này chỉ có các câu lệnh `fail(...)` cứng nhắc (`HANDOFF_BUSY`, `HANDOFF_RECONCILIATION_REQUIRED`, `HANDOFF_TRANSITION_INVALID`, `HANDOFF_PREDECESSOR_REQUIRED`, `HANDOFF_WORKSPACE_MISMATCH`) chứ **chưa có hàm dò ngược (rewind) về bước hoàn thành hợp lệ gần nhất trong `cp.results`**!
-        - **Thiết kế hàm `resolveSafeResumeState(record, cp)` đặt ngay trong `am-se-handoff-checkpoint.js` (trước dòng 188) và `am-se-handoff-service.js` (dòng 202):**
-          - Khi `resume` được gọi (dù `cp.execution_status` đang là `"pending"`, `"blocked"`, `"unknown"`, `"reconciliation_required"`, hay `"running"` mà runner đã dừng / không còn active turn):
-            1. **Thu hồi (Recover) bước đang dở nếu đã có terminal receipt hợp lệ:**
-               - Nếu `cp.execution_status === "running"` và `executionCheckpoint` có `receipt.handoff_result` đã `completed`, tự động gọi `complete(...)` để ghi nhận bước đó vào `cp.results` rồi tiếp tục chạy bước kế tiếp (không dừng lại!).
-            2. **Dò ngược trong `cp.results` để tìm chính xác `(safeRound, safeNextStep)` hợp lệ:**
-               - Xác định `safeRound = Math.max(1, cp.round ?? record.round ?? 1)`.
-               - Lấy tất cả kết quả đã hoàn thành của vòng hiện tại: `roundResults = (cp.results ?? []).filter(r => r.round === safeRound)`.
-               - Nếu `roundResults` có bước `"am"` với `verdict === "PASS"` $\rightarrow$ handoff đã `completed`.
-               - Nếu `roundResults` có bước `"rv"` với `verdict === "PASS"` (và chưa có `"am"` `PASS`) $\rightarrow$ điểm chạy an toàn kế tiếp chắc chắn là **`safeNextStep = "am"`**.
-               - Nếu `roundResults` có bước `"se"` (và chưa có `"rv"` `PASS`, cũng chưa có `"rv"`/`"am"` trả về `REVISE`) $\rightarrow$ điểm chạy an toàn kế tiếp chắc chắn là **`safeNextStep = "rv"`**.
-               - Trong mọi trường hợp còn lại (chưa có `"se"` ở `safeRound`, hoặc `"rv"`/`"am"` đã trả về `REVISE` ở vòng trước) $\rightarrow$ điểm chạy an toàn kế tiếp chắc chắn là **`safeNextStep = "se"`**!
-            3. **Tự động mở rộng `max_rounds` và đồng bộ Workspace Baseline:**
-               - `safeMaxRounds = Math.max(record.max_rounds ?? 2, safeRound)` (đảm bảo `safeRound <= safeMaxRounds` luôn đúng).
-               - Chụp lại `observedWorkspace` hiện tại để làm baseline cho bước tiếp theo khi cần thiết.
-               - Tự động cập nhật checkpoint sang `{ round: safeRound, current_step: null, next_step: safeNextStep, execution_status: "pending", error_code: null }` ngay bên trong `checkpoint.resume()` trước khi chạy!
-     2. Trong `backend/src/transport/http/forge-v1-conversation-routes.js` (dòng 24, 30, 77):
-        - Khi gọi `handoffService.resumeHandoff(...)` từ HTTP route `/run` và `/resume`, truyền **`runToCompletion: true`** (hoặc chỉ giữ `runToCompletion: false` khi caller truyền rõ trong body) để khi người dùng bấm **Run / Resume** trên UI thì hệ thống chạy liền mạch hết chu trình `SE → RV → AM` thay vì chỉ nhích 1 bước rồi lại dừng!
-
-### 2.4. Sửa `ui/nextjs/components/am-se-handoff-controls.jsx`
-- Bỏ chặn cứng `if (!ownerToken)` ở dòng 48, 90, 118: nếu người dùng không nhập vào ô `ownerToken`, mặc định dùng `ownerToken || "project-owner"` (hoặc session hiện tại) để người dùng bấm **Run / Resume / Reconcile / Stop** là chạy ngay lập tức.
-- Khi bấm **Resume** trên thẻ handoff đang ở `plan_critique` hoặc `implementation`, gọi thống nhất endpoint resume để chạy tiếp đến khi hoàn tất.
+### Thủ phạm 2: `owner-execution-checkpoint.js` (dòng 76) ném lỗi `EXECUTION_DECISION_REQUIRED` chặn không cho lần chạy sau bắt đầu nếu lần chạy trước bị ngắt!
+Hãy nhìn dòng 70–76 của `backend/src/application/owner-execution-checkpoint.js`:
+```js
+async function start({ conversationId, executionId, ... }) {
+  ...
+  const previous = await inspect(conversationId);
+  const live = previous.find((entry) => entry.status === "running" && Date.now() - Date.parse(entry.heartbeat_at) < LEASE_MS);
+  if (live) throw Object.assign(new ConfigurationError(`A ${displayName} execution is already running in this conversation.`), { code: "EXECUTION_BUSY", statusCode: 409 });
+  if (!continueAttempt && !resumeOf && previous.some((entry) => ["interrupted", "manual_required"].includes(entry.status)))
+    throw Object.assign(new ConfigurationError("Choose Continue, Restart, or Discard for the interrupted execution first."), { code: "EXECUTION_DECISION_REQUIRED", statusCode: 409 });
+```
+- Khi một bước handoff của SE hoặc AM (trong `CONV-SE-...` hoặc conversation của AM) bị lỗi/ngắt giữa chừng ở lần trước, `owner-sdk-stream.js` (dòng 209) lưu một bản ghi `status: "interrupted"` hoặc `"manual_required"` vào `executionCheckpoint` / `architectureCheckpoint`.
+- Khi bạn bấm **Resume** handoff, `am-se-handoff-checkpoint.js` tạo một `executionId` mới (`CORR-HANDOFF-...`) và gọi `sdkStream` (với `continueAttempt: false, resumeOf: null`).
+- Dòng 76 của `owner-execution-checkpoint.js` thấy trong `CONV-SE-...` (hoặc AM conversation) có bản ghi cũ đang ở `"interrupted"` / `"manual_required"`, thế là nó **ném thẳng lỗi `EXECUTION_DECISION_REQUIRED`**, rơi vào `catch` ở dòng 235 của `am-se-handoff-checkpoint.js` và biến handoff thành `HANDOFF_EXECUTION_UNKNOWN`!
 
 ---
 
-## 3. Kiểm thử Xác nhận (Verification)
+### Thủ phạm 3: Khi Handoff bị dừng ở pha `plan_critique` (`!record.checkpoint`), bấm Resume bị lỗi hoặc chỉ chạy 1 nửa!
+Hãy nhìn `resumeHandoff` trong `backend/src/application/am-se-handoff-service.js` (dòng 182–194) và `am-se-critique-checkpoint.js` (dòng 43–48):
+1. Nếu handoff bị dừng ở pha `plan_critique` (ví dụ SE hoặc AM đang phản biện vòng 1 thì bị ngắt nên `critique_checkpoint.execution_status === "unknown"` hoặc `"running"`, và `record.history` còn rỗng):
+   - Trong `am-se-handoff-controls.jsx` (dòng 122–125):
+     - UI gọi `resumeCritique` (chỉ chạy đúng 1 bước `se` hoặc `am`, **chưa chạy hết vòng phản biện và chưa chuyển sang `ALIGNED`**), rồi dòng 125 gọi tiếp `resumeHandoff`!
+     - Hoặc nếu `critique_checkpoint.execution_status` đang bị kẹt, `safeToRetry` trong `am-se-critique-checkpoint.js` (dòng 31) đòi `!evidence.completed_tool_calls.some(call => call.mutating) && evidence.last_completed_step === 0` — nhưng trong lúc phản biện, SE đã dùng tool đọc file (`read_file` / `Read`) nên **`evidence.last_completed_step > 0`**! Thế là `safeToRetry` trả về `false` và ném lỗi **`HANDOFF_CRITIQUE_RECOVERY_REQUIRED`**!
+2. Chưa hết, ở dòng 184 của `am-se-handoff-service.js`:
+   ```js
+   if (record.approval_mode !== "explicit_owner_command" && (!record.history?.length || record.history.at(-1)?.critique_status !== "ALIGNED" ...))
+     throw ... { code: "HANDOFF_CRITIQUE_REQUIRED" }
+   ```
+   Nếu handoff có `approval_mode !== "explicit_owner_command"` (hoặc critique chưa xong), `resumeHandoff` ném lỗi `HANDOFF_CRITIQUE_REQUIRED` thay vì tự động hoàn tất nốt phần critique rồi chạy tiếp sang implementation!
 
-SE chạy `run_check` cho các file test:
-1. `backend/tests/unit/am-se-handoff-service-resume.test.js`
-2. `backend/tests/unit/am-se-handoff-checkpoint.test.js`
-3. `backend/tests/unit/conversation-plan-handoff.test.js`
-4. `backend/tests/integration/am-se-handoff-run-route.test.js`
+---
+
+### Thủ phạm 4: Khi `checkpoint.execution_status === "running"` (do tiến trình crash hoặc lần chạy trước bị ngắt mà chưa có `runner_stopped_at`), bấm Resume bị chặn bởi `HANDOFF_BUSY` hoặc dừng lại sau khi chuyển sang `unknown`!
+Hãy nhìn `am-se-handoff-service.js` (dòng 205) và `am-se-handoff-checkpoint.js` (dòng 185–201):
+1. Nếu lần trước tiến trình crash hoặc `executionCheckpoint` không tìm thấy receipt (`receipt === null`) hoặc `receipt.runner_stopped_at` chưa kịp ghi:
+   - Ở `am-se-handoff-service.js` dòng 205: điều kiện `(record.checkpoint.execution_status !== "running" || !executionCheckpoint || receipt?.runner_stopped_at && receipt.status !== "running")` là **`false`**!
+   - Thế là nó đi thẳng vào `checkpoint.resume()` dòng 185–200 và nổ ngay lỗi **`HANDOFF_BUSY`**!
+2. Ngược lại, nếu `receipt?.runner_stopped_at` có tồn tại nhưng bước trước bị lỗi (`receipt.status === "interrupted"`), nếu lọt vào dòng 192–198 của `am-se-handoff-checkpoint.js`:
+   - Nó chuyển `execution_status` sang `"reconciliation_required"` / `"unknown"` rồi **`return uncertain;` kết thúc luôn hàm `resume`** mà không chạy bước đó!
+
+---
+
+### Thủ phạm 5: Lệch `scopePaths` giữa `am-se-handoff-service.js` và `am-se-handoff-checkpoint.js` gây `HANDOFF_WORKSPACE_MISMATCH`!
+- Trong `am-se-handoff-service.js` (dòng 207):
+  `scopePaths: Array.isArray(record.checkpoint.workspace?.scope_paths) ? record.checkpoint.workspace.scope_paths : record.workspace_scope_paths`
+  Khi `record.workspace_scope_paths` là `[]` (mảng rỗng do `store.create` dòng 77 khởi tạo `[]`), dòng 207 truyền `scopePaths = []` $\rightarrow$ tạo snapshot có `scope_paths: []` (`index_hash: null`).
+- Nhưng trong `am-se-handoff-checkpoint.js` (dòng 31):
+  `same(a, b)` kiểm tra `Array.isArray(a.scope_paths) && Array.isArray(b.scope_paths)`. Nếu một nơi truyền `undefined` (khi `workspace_scope_paths` rỗng) còn nơi kia truyền `[]`, hoặc giữa các bước trong vòng lặp `do ... while` có file thay đổi, dòng 221 của `am-se-handoff-checkpoint.js` sẽ ném lỗi `HANDOFF_WORKSPACE_MISMATCH`!
+
+---
+
+## 2. BẢN SỬA CODE TRIỆT ĐỂ (5 FILE — FIX 1 LẦN CHẠY NGAY)
+
+### 2.1. Sửa `backend/scripts/control-api-http.mjs` (dòng 49–58) — Tiêu thụ `sdkStream` AsyncGenerator trong `handoffAdapter`
+Thay `handoffAdapter` ở dòng 49–57 bằng hàm `async` tiêu thụ hết generator `sdkStream` (giống hệt `streamHandoffSystemEngineer` / `streamCommandArchitecture` trong `owner-chat-service.js`):
+```js
+const handoffAdapter = async ({ agentId, prompt, conversationId, linkedConversationId, correlationId, withEvidence, planningInputOnly = false }) => {
+  let text = "";
+  let terminal;
+  for await (const chunk of sdkStream({
+    agentId,
+    payload: {
+      text: prompt,
+      response_content_type: "text/markdown",
+      planning_input_only: Boolean(planningInputOnly),
+      linked_conversation_id: linkedConversationId ?? null,
+      ...(withEvidence ? { handoff_execution: true } : {})
+    },
+    correlationId,
+    conversationId,
+    eventSink: publishUnifiedStreamEvent
+  })) {
+    if (typeof chunk?.text === "string" && chunk.text) text += chunk.text;
+    if (chunk?.handoff_terminal) terminal = chunk.handoff_terminal;
+  }
+  return withEvidence ? { text, ...terminal } : text;
+};
+```
+Và tại dòng 55 (`requestArchitecture` của `createAmSeHandoffService`):
+```js
+requestArchitecture: (prompt, conversationId, options = {}) => handoffAdapter({
+  agentId: services.agentRoleResolver?.resolveProfile?.("architecture_manager")?.agent_id ?? "architecture-manager",
+  prompt,
+  conversationId,
+  correlationId: options.correlationId,
+  withEvidence: options.withEvidence !== false,
+  planningInputOnly: Boolean(options.planningInputOnly)
+}),
+```
+
+### 2.2. Sửa `backend/src/application/owner-execution-checkpoint.js` (dòng 70–77) & `backend/src/application/owner-sdk-stream.js` (dòng 62) — Không chặn Handoff Execution bởi `EXECUTION_DECISION_REQUIRED`
+1. Trong `backend/src/application/owner-sdk-stream.js` (dòng 62):
+   Truyền `handoffExecution: payload.handoff_execution === true` vào `checkpointStore.start({...})`:
+   ```js
+   checkpoint = await checkpointStore.start({
+     conversationId,
+     executionId: correlationId,
+     messageId: payload.source_message_id ?? payload.message_id,
+     provider: profile.provider,
+     toolMode,
+     promptHash: executionDigest(payload.text),
+     resumeOf: payload.resume_of ?? null,
+     continueAttempt: payload.continue_execution === true,
+     handoffExecution: payload.handoff_execution === true
+   });
+   ```
+2. Trong `backend/src/application/owner-execution-checkpoint.js` (dòng 70–77):
+   - Khi `handoffExecution === true` (hoặc `String(executionId).startsWith("CORR-HANDOFF-")`), nếu có các bản ghi cũ đang ở `["interrupted", "manual_required"]` (hoặc `"running"` nhưng đã hết lease), tự động đóng/chuyển chúng sang `"restarted"` thay vì ném lỗi `EXECUTION_DECISION_REQUIRED`!
+
+### 2.3. Sửa `backend/src/application/am-se-critique-checkpoint.js` (dòng 29–48) — Cho phép Critique Resume an toàn kể cả khi SE đã gọi tool đọc file (`last_completed_step > 0`)
+- Trong `safeToRetry(record, cp)` (dòng 29–33):
+  - Bỏ điều kiện vô lý `evidence.last_completed_step !== 0` (vì SE đọc file bằng `read_file`/`Read` không sửa đổi gì nhưng vẫn tăng `last_completed_step`).
+  - Nếu `!evidence` (chưa kịp tạo checkpoint) hoặc runner đã dừng / hết lease và không có `completed_tool_calls` nào có `mutating === true`, cho phép retry!
+  - Trong `run()` (dòng 48): đồng bộ lại `cp.workspace = await snapshot()` khi resume từ trạng thái bị ngắt để không bị lỗi `HANDOFF_CRITIQUE_STALE` do workspace thay đổi.
+
+### 2.4. Sửa `backend/src/application/am-se-handoff-service.js` (`resumeHandoff` dòng 162–235 & `resumeCritique` dòng 239–260) — Tự động hoàn tất Critique (nếu đang ở `plan_critique`) rồi chạy thẳng `SE → RV → AM`
+Khi người dùng bấm **Resume** (gọi `resumeHandoff`):
+1. **Nếu handoff chưa có `record.checkpoint` (`record.phase === "plan_critique"`):**
+   - Nếu `record.critique_checkpoint` chưa hoàn tất (`execution_status !== "completed"`), tự động chạy vòng lặp hoàn tất các bước phản biện còn lại (`se` $\rightarrow$ `am`), áp dụng `maybeApplyCritiqueRevision` vào `r1`, và chốt `critique_checkpoint.execution_status = "completed"`.
+   - Tự động approve bản `r1` với `approvedOwnerId` nếu chưa có decision `"approved"` khớp `plan_sha256` (vì chính Owner vừa bấm nút **Resume** đã xác thực `approvedOwnerId` qua `planOwnerAuth`).
+   - Chuyển sang `phase: "implementation"`, khởi tạo `checkpoint.initialize(handoffId, approvedOwnerId)` và chạy tiếp xuống bước thực thi `SE → RV → AM`!
+2. **Nếu handoff đã có `record.checkpoint`:**
+   - Tự động kiểm tra và approve plan nếu `verifyPlan` báo `PLAN_APPROVAL_REQUIRED` (vì `approvedOwnerId` đã được xác thực khi bấm nút Resume).
+   - Nếu `record.checkpoint.execution_status === "running"`:
+     - Kiểm tra xem conversation hiện tại có thực sự đang chạy trong `sdkStream` không. Nếu có `receipt.handoff_result` đã xong thì gọi `checkpoint.complete(...)`. Nếu không còn active runner (hoặc crash), **không báo `HANDOFF_BUSY`**, mà chuyển thẳng vào `resolveSafeResumeState` để dò ngược về bước an toàn (`"se"`, `"rv"`, hoặc `"am"`) và chạy lại!
+   - Đặt khối chuẩn hóa `resolveSafeResumeState` + cập nhật `freshWorkspace` ở cả `am-se-handoff-service.js` và đầu hàm `checkpoint.resume()` trong `am-se-handoff-checkpoint.js` để mọi vòng lặp trong `do ... while (runToCompletion)` đều tự động đồng bộ workspace và chạy một mạch đến `status === "completed"`.
+
+### 2.5. Sửa `backend/src/application/am-se-handoff-checkpoint.js` (dòng 176–224) — Tự động Self-Heal trong `checkpoint.resume()`
+- Ở dòng 185–204 của `am-se-handoff-checkpoint.js`:
+  - Khi `cp.execution_status === "running"`:
+    - Nếu `receipt` có `handoff_result` hoàn chỉnh $\rightarrow$ `complete(...)`.
+    - Nếu `receipt` đã dừng (`runner_stopped_at`) hoặc `!receipt` hoặc hết lease $\rightarrow$ **không return sớm với `HANDOFF_EXECUTION_UNKNOWN` và không ném `HANDOFF_BUSY`**, mà rơi thẳng xuống `resolveSafeResumeState(record, cp)` để reset về `execution_status: "pending"`, `next_step: safeNextStep`, cập nhật `workspace: observed`, rồi thực thi luôn `invoke(...)`!
+  - Ở dòng 203: Bỏ lệnh `if (["reconciliation_required", "unknown", "blocked"].includes(cp.execution_status)) fail("HANDOFF_RECONCILIATION_REQUIRED");` khi gọi `resume()`, thay bằng việc tự động chuẩn hóa qua `resolveSafeResumeState(record, cp)` và cập nhật `freshWorkspace` để chạy tiếp từ checkpoint an toàn!
+
+### 2.6. Sửa `ui/nextjs/components/am-se-handoff-controls.jsx` (dòng 121–126)
+- Khi bấm **Resume** (`action === "resume"`), chỉ cần gọi duy nhất `await client.resumeHandoff(projectId, handoff, token)` (vì `resumeHandoff` ở backend đã tự động xử lý cả trường hợp đang dừng ở `plan_critique` lẫn `implementation`), không gọi kép `resumeCritique` + `resumeHandoff` gây xung đột generation.
+
+---
+
+## 3. Kiểm thử Bắt buộc cho SE
+
+Sau khi sửa 5 điểm trên, SE bắt buộc viết thêm test giả lập đúng `control-api-http.mjs` (`handoffAdapter` bọc `async function* sdkStream`) và chạy `run_check`:
+1. `backend/tests/integration/am-se-handoff-run-route.test.js`
+2. `backend/tests/unit/am-se-handoff-service-resume.test.js`
+3. `backend/tests/unit/am-se-handoff-checkpoint.test.js`
+4. `backend/tests/unit/owner-execution-checkpoint.test.js`

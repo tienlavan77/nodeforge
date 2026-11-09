@@ -16,6 +16,7 @@ import { createProjectLogService } from "../src/core/project-log-service.js";
 import { readControlApiConfig } from "./control-api-config.mjs";
 import { createUnifiedStreamPublisher } from "./control-api-unified-stream.mjs";
 import { startControlApi } from "./control-api-lifecycle.mjs";
+import { createStartupTransport } from "./control-api-startup-transport.mjs";
 import { createProjectLifecycle } from "../src/modules/projects/project-lifecycle.js";
 import { createControlApiProjectRuntime, startControlApiWorkers } from "./control-api-project-runtime.mjs";
 import { createBuilderContext } from "./control-api-builder-context.mjs";
@@ -67,6 +68,8 @@ import { createNotebookProjectAuth } from "../src/modules/governance/notebook-pr
 export async function bootstrapControlApi() {
 const config = readControlApiConfig();
 const { port, host } = config;
+const startupTransport = createStartupTransport({ port, host });
+await startupTransport.listening;
 let testService;
 let defaultProjectWorkers;
 const storage = await createControlApiStorage({
@@ -254,9 +257,9 @@ return { services, storage, codeCache, ticketWorkspaceService, workers, projectW
 }
 const application = await createProjectApplication({ config, storage, startProjectWorkers: true, onTestService: (value) => { testService = value; } });
 defaultProjectWorkers = application.projectWorkers;
-projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ catalogPath: config.projectCatalogPath, logger: createRuntimeLogger({ logEvent: application.services.logEvent, source: "project-watcher" }), startRuntime: createControlApiProjectRuntime({ projectRoot: config.cwd, projectId: config.projectId, getDefaultWorkers: () => defaultProjectWorkers }) }) : undefined;
+projectLifecycle = config.projectCatalogPath ? await createProjectLifecycle({ restoreInBackground: true, admitInBackground: true, runtimeOptions: { useWorkerThread: true }, catalogPath: config.projectCatalogPath, logger: createRuntimeLogger({ logEvent: application.services.logEvent, source: "project-watcher" }), startRuntime: createControlApiProjectRuntime({ projectRoot: config.cwd, projectId: config.projectId, getDefaultWorkers: () => defaultProjectWorkers }) }) : undefined;
 const projectApplications = createProjectApplicationRegistry({ projectLifecycle, defaultApplication: application, defaultRoot: config.cwd, createApplication: createProjectApplication });
 const api = createControlApiHttp({ services: application.services, resolveProjectServices: projectLifecycle ? projectApplications.resolve : undefined });
-return startControlApi({ api, port, host, indexDb, controlDb, processLock, codeCache: application.codeCache, ticketWorkspaceService: application.ticketWorkspaceService, projectLifecycle, workers: [...application.workers, { stop: projectApplications.close }] });
+return startControlApi({ api, port, host, transport: startupTransport, indexDb, controlDb, processLock, codeCache: application.codeCache, ticketWorkspaceService: application.ticketWorkspaceService, projectLifecycle, workers: [...application.workers, { stop: projectApplications.close }] });
 }
 await bootstrapControlApi();
