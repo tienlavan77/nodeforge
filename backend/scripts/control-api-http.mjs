@@ -46,13 +46,20 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices, no
   const architectureCheckpoint = createOwnerExecutionCheckpoint({ fileService, role: "architecture_manager" });
   const sdkStream = createOwnerSdkStream({ executionCheckpoint, architectureCheckpoint, agentConfiguration, sdkGateways, fallbackStream: (input) => agentGateway.stream(input), conversationStateStore, conversationMessages: communications, fileService, codeCache, codeSearch: services.codeSearch, gitService, testService: services.testService, projectRoot, projectLogger: agentLoopLogger.emit });
   const planHandoff = services.planStore && services.database ? createPlanHandoffService({ projectId, database: services.database, planStore: services.planStore, markdownPlanStore: services.markdownPlanStore, sprintPlanLeader, sprintOrchestration, sprintRegistry: services.sprintRegistry, agentRoleResolver: services.agentRoleResolver }) : null;
-  const handoffAdapter = ({ agentId, prompt, conversationId, linkedConversationId, correlationId, withEvidence }) => sdkStream({ agentId, payload: { text: prompt, response_content_type: "text/markdown", linked_conversation_id: linkedConversationId ?? null, ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId, eventSink: publishUnifiedStreamEvent });
+  const handoffAdapter = async ({ agentId, prompt, conversationId, linkedConversationId, handoffId, planId, correlationId, withEvidence, planningInputOnly = false }) => {
+    let text = ""; let terminal;
+    for await (const chunk of sdkStream({ agentId, payload: { text: prompt, response_content_type: "text/markdown", planning_input_only: Boolean(planningInputOnly), linked_conversation_id: linkedConversationId ?? null, ...(handoffId ? { handoff_id: handoffId } : {}), ...(planId ? { plan_id: planId } : {}), ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId, eventSink: publishUnifiedStreamEvent })) {
+      if (typeof chunk?.text === "string") text += chunk.text;
+      if (chunk?.handoff_terminal) terminal = chunk.handoff_terminal;
+    }
+    return withEvidence ? { text, ...terminal } : text;
+  };
   const amSeHandoffService = fileService && services.markdownPlanStore ? createAmSeHandoffService({
     projectId, fileService, markdownPlanStore: services.markdownPlanStore, bus, gitService, executionCheckpoint,
     pauseExecution: (conversationId) => sdkStream.pause(conversationId), agentRoleResolver: services.agentRoleResolver,
     approvePlan: planHandoff ? ({ planId, conversationId, approvedOwnerId, approvalRevision, approvalSha256 }) => planHandoff.handoff({ plan: { plan_id: planId, revision: approvalRevision, sha256: approvalSha256 }, conversationId, approvedOwnerId }) : undefined,
     handoffApprovedPlan: planHandoff ? (input) => planHandoff.handoff(input) : undefined,
-    requestArchitecture: (prompt, conversationId, options = {}) => handoffAdapter({ agentId: services.agentRoleResolver?.resolveProfile?.("architecture_manager")?.agent_id ?? "architecture-manager", prompt, conversationId, correlationId: options.correlationId, withEvidence: options.withEvidence }),
+    requestArchitecture: (prompt, conversationId, options = {}) => handoffAdapter({ agentId: services.agentRoleResolver?.resolveProfile?.("architecture_manager")?.agent_id ?? "architecture-manager", prompt, conversationId, linkedConversationId: options.linkedConversationId, handoffId: options.handoffId, planId: options.planId, correlationId: options.correlationId, withEvidence: options.withEvidence, planningInputOnly: options.planningInputOnly }),
     requestSystemEngineer: handoffAdapter,
     requestReviewer: handoffAdapter
   }) : null;
