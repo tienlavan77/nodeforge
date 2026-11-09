@@ -28,7 +28,7 @@ export function createAmSeCritiqueCheckpoint({ store, fileService, executionChec
   // Technical description: checks stopped runner, empty pending calls, no handoff result, zero completed mutations and an unchanged snapshot; otherwise refuses automatic replay.
   async function safeToRetry(record, cp) {
     const evidence = executionCheckpoint && cp.execution_id ? await executionCheckpoint.load(key(record, cp.current_step), cp.execution_id) : null;
-    if (!evidence?.runner_stopped_at || evidence.status === "running" || evidence.handoff_result || !Array.isArray(evidence.pending_tool_calls) || evidence.pending_tool_calls.length || !Array.isArray(evidence.completed_tool_calls) || evidence.completed_tool_calls.some((call) => call.mutating) || evidence.last_completed_step !== 0) return false;
+    if (!evidence?.runner_stopped_at || evidence.status === "running" || evidence.handoff_result || !Array.isArray(evidence.pending_tool_calls) || evidence.pending_tool_calls.length || !Array.isArray(evidence.completed_tool_calls) || evidence.completed_tool_calls.some((call) => call.mutating)) return false;
     return same(cp.workspace, await snapshot());
   }
 

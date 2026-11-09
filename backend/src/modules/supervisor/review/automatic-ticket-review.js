@@ -102,7 +102,8 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
       const payload = await worker.review(current);
       if (isCompletedReviewReopened(current, ticketStatusStore)) throw fail("REVIEW_SOURCE_SUPERSEDED", "Review source was superseded while the provider was working.");
       assertReviewRequestOwnership(current, ticketStatusStore);
-      if (!["approved", "request_changes"].includes(payload?.verdict) || !payload.reviewer_id || payload.reviewer_id === current.agent_id || payload.source_revision !== current.decision_identity.source_revision || !Array.isArray(payload.findings)
+      if (!payload || typeof payload !== "object") throw fail("REVIEW_REPORT_MISSING", "Reviewer completed without a final review receipt.");
+      if (!["approved", "request_changes"].includes(payload.verdict) || !payload.reviewer_id || payload.reviewer_id === current.agent_id || payload.source_revision !== current.decision_identity.source_revision || !Array.isArray(payload.findings)
         || !Array.isArray(payload.adjudications ?? []) || payload.verdict === "request_changes" && !payload.findings.length && !(payload.adjudications ?? []).some((decision) => ["retain", "refine", "reopen"].includes(decision.decision))) throw fail("REVIEW_VERDICT_INVALID", "Reviewer verdict does not match the independent source revision or finding contract.");
       await recordAutomaticReviewFindings({ job: current, workspace: await resolveTicketWorkspace(current.task_id), payload });
       result = { type: payload.verdict === "approved" ? "review.approved" : "review.request_changes", payload };
@@ -117,7 +118,9 @@ export function createAutomaticTicketReview({ queueStore, queue, eventBus, fileS
         throw error;
       }
       const unavailable = ["REVIEWER_BUSY", "REVIEWER_NOT_AVAILABLE", "REVIEW_WORKER_UNAVAILABLE", "REVIEWER_PROVIDER_UNAVAILABLE"].includes(error.code);
-      result = { type: unavailable ? "review.unavailable" : "review.failed", payload: { outcome_label: unavailable ? "review_unavailable" : "review_failed", error: reviewOperationalFailure(error) ?? { code: error.code ?? "REVIEW_FAILED", message: error.message } } };
+      const missingReceipt = error.code === "REVIEW_REPORT_MISSING";
+      if (missingReceipt) projectLogger({ event_name: "review.receipt_requested", level: "warn", status: "retrying", message: "Reviewer completed inspection without a receipt; Node will request the final review_result again in the same review cycle.", task_id: current.task_id, correlation_id: current.correlation_id, source: "automatic-review", error_code: error.code, payload: { request_id: current.request_id, reviewer_id: current.reviewer_id ?? null } });
+      result = { type: unavailable ? "review.unavailable" : "review.failed", payload: { outcome_label: unavailable ? "review_unavailable" : missingReceipt ? "review_receipt_missing" : "review_failed", error: missingReceipt ? { code: error.code, message: error.message, retryable: true, receipt_required: true } : reviewOperationalFailure(error) ?? { code: error.code ?? "REVIEW_FAILED", message: error.message } } };
       if (!result.payload.error.agent_wait) projectLogger({ event_name: "review.automatic_failed", level: "error", status: "failed", message: error.message, task_id: current.task_id, source: "automatic-review", error_code: result.payload.error.code });
     }
     current = await locked(async () => {

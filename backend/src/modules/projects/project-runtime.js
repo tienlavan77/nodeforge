@@ -10,27 +10,24 @@ import { createEmbeddingWorker } from "../index/embedding-worker.js";
 import { createRetrievalDependencies } from "../index/retrieval-dependencies.js";
 import { createSubscriptionRegistry } from "../events/subscription-registry.js";
 import { createProjectStream } from "../../transport/sse/project-stream.js";
+import { createApplicationBridge } from "./project-runtime-bridge.js";
+import { startProjectWorkerRuntime } from "./project-worker-runtime.js";
 
 // Starts every per-project service without introducing an HTTP or CLI management contract.
-export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }), normalizeComments = true, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false, onRuntimeCreated = null, awaitInitialEmbeddings = false, embeddingPollMs = 1000 } = {}) {
-  const bus = new EventEmitter();
-  const subscriptions = createSubscriptionRegistry({ logger });
-  const connections = new Set();
+export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }), normalizeComments = true, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false, onRuntimeCreated = null, awaitInitialEmbeddings = false, embeddingPollMs = 1000, useWorkerThread = false, sharedStreamState = null } = {}) {
+  if (useWorkerThread && !watcherFactory && !coderNormalizer && !embeddingProvider) {
+    return startProjectWorkerRuntime({
+      projectRoot, projectId, logger, ollamaConfig, chokidarOptions,
+      onProgress, progress, normalizeComments, rejectOnViolation, fallbackOnViolation,
+      onRuntimeCreated, awaitInitialEmbeddings, embeddingPollMs, sharedStreamState
+    });
+  }
+  const bus = sharedStreamState?.bus ?? new EventEmitter();
+  const subscriptions = sharedStreamState?.subscriptions ?? createSubscriptionRegistry({ logger });
+  const connections = sharedStreamState?.connections ?? new Set();
   const conversationListeners = new Set();
-  let boundServices = null;
-  let unbindServices = null;
-  let database;
-  let controlDb;
-  let notebook;
-  let retrieval;
-  let worker;
-  let embeddingJobs;
-  let workerTask;
-  let watch;
-  let closing;
-  let closed = false;
-  let embeddingError = null;
-  let providerRetained = false;
+  let database, controlDb, notebook, retrieval, worker, embeddingJobs, workerTask, watch, closing;
+  let closed = false, embeddingError = null, providerRetained = false;
   const baseProgress = progress;
   const trackedProgress = Object.freeze({
     ...baseProgress,
@@ -58,60 +55,44 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
       return snap;
     }
   });
+  const bridge = createApplicationBridge({ projectId, bus, subscriptions, conversationListeners, isClosed: () => closed });
+  const { bindApplication } = bridge;
   const conversationBusProxy = {
     // Subscribes an active SSE connection listener to the project-bound communication bus.
-    subscribeAll(listener) {
-      conversationListeners.add(listener);
-      boundServices?.bus?.subscribeAll?.(listener);
-    },
+    subscribeAll(listener) { conversationListeners.add(listener); bridge.getBoundServices()?.bus?.subscribeAll?.(listener); },
     // Unsubscribes an SSE connection listener from the project-bound communication bus on disconnect.
-    unsubscribeAll(listener) {
-      conversationListeners.delete(listener);
-      boundServices?.bus?.unsubscribeAll?.(listener);
-    }
+    unsubscribeAll(listener) { conversationListeners.delete(listener); bridge.getBoundServices()?.bus?.unsubscribeAll?.(listener); }
   };
   const stream = createProjectStream({
-    projectId,
-    indexDb: { all: (...args) => database ? database.all(...args) : [] },
+    projectId, indexDb: { all: (...args) => database ? database.all(...args) : [] },
     runtimeSnapshot: () => {
       syncEmbeddingProgress();
       const snap = trackedProgress.snapshot();
       return { readiness: closed || snap.status === "failed" ? "unavailable" : snap.status === "succeeded" ? "ready" : "running", stage: snap.stage, status: snap.status, progress: snap };
     },
-    subscriptions,
-    eventBus: bus,
-    bus: conversationBusProxy,
-    agentActivitySnapshot: (args) => boundServices?.executionActivity?.snapshot?.(args) ?? []
+    subscriptions, eventBus: bus, bus: conversationBusProxy,
+    agentActivitySnapshot: (args) => bridge.getBoundServices()?.executionActivity?.snapshot?.(args) ?? []
   });
   // Synchronizes durable embedding job counts into the index progress collector.
   function syncEmbeddingProgress(job, outcome) {
     if (outcome?.status === "completed") workerLogger.clearEmbeddingError();
     const counts = closed || !embeddingJobs ? null : embeddingJobs.counts();
-    if (counts) {
-      const unresolvedError = !closed && database ? database.all("SELECT last_error FROM embedding_jobs WHERE status IN ('failed', 'retry_wait') AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1")[0]?.last_error ?? null : null;
-      if (unresolvedError) embeddingError ??= unresolvedError;
-      else if (!counts.failed && !counts.retry_wait && outcome?.status !== "failed") embeddingError = null;
-      const hasFailure = Boolean(embeddingError || counts.failed || counts.retry_wait);
-      trackedProgress.embedding({
-        projectId,
-        status: hasFailure ? "failed" : counts.pending || counts.processing ? "running" : "succeeded",
-        error: embeddingError ? String(embeddingError) : null,
-        pending: (counts.pending ?? 0) + (counts.retry_wait ?? 0),
-        processing: counts.processing ?? 0,
-        succeeded: counts.completed ?? 0,
-        failed: counts.failed ?? 0
-      });
-    }
+    if (!counts) return;
+    const unresolvedError = !closed && database ? database.all("SELECT last_error FROM embedding_jobs WHERE status IN ('failed', 'retry_wait') AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1")[0]?.last_error ?? null : null;
+    if (unresolvedError) embeddingError ??= unresolvedError;
+    else if (!counts.failed && !counts.retry_wait && outcome?.status !== "failed") embeddingError = null;
+    const hasFailure = Boolean(embeddingError || counts.failed || counts.retry_wait);
+    trackedProgress.embedding({
+      projectId, status: hasFailure ? "failed" : counts.pending || counts.processing ? "running" : "succeeded",
+      error: embeddingError ? String(embeddingError) : null, pending: (counts.pending ?? 0) + (counts.retry_wait ?? 0),
+      processing: counts.processing ?? 0, succeeded: counts.completed ?? 0, failed: counts.failed ?? 0
+    });
   }
   // Exposes affected-worker diagnostics and Option B readiness without changing public stream schemas.
   function status() {
     syncEmbeddingProgress();
     const snap = trackedProgress.snapshot();
-    return {
-      projectId, projectRoot, embeddingError, closed,
-      readiness: closed || snap.status === "failed" ? "unavailable" : snap.status === "succeeded" ? "ready" : "running",
-      progress: snap
-    };
+    return { projectId, projectRoot, embeddingError, closed, readiness: closed || snap.status === "failed" ? "unavailable" : snap.status === "succeeded" ? "ready" : "running", progress: snap };
   }
   const workerLogger = {
     // Reports Ollama failure for this project while its watcher and other projects keep running.
@@ -220,65 +201,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
     throw error;
   }
 
-  /**
-   * Business purpose: bridges this project's runtime stream and internal event bus with its composed Control API application services without mixing other projects' events.
-   * Technical description: forwards matching project-scoped subscription, internalBus, and communication bus events between the runtime and application service bundle and returns an unbind cleanup callback.
-   */
-  function bindApplication(services) {
-    if (!services || closed) return () => {};
-    if (services.projectId && services.projectId !== projectId) {
-      throw new Error("Project runtime and application identity differ.");
-    }
-    unbindServices?.();
-    boundServices = services;
-    for (const listener of conversationListeners) services.bus?.subscribeAll?.(listener);
-    let forwarding = false;
-    // Relays application subscription events belonging to this project into the runtime SSE subscription registry.
-    const onAppSubscription = (event) => {
-      if (forwarding || closed || (event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
-      forwarding = true;
-      try { subscriptions.publish(event); } finally { forwarding = false; }
-    };
-    const appSubId = services.subscriptions?.subscribe ? services.subscriptions.subscribe("*", onAppSubscription) : null;
-    const bridgedEvents = ["watcher.indexed", "agent.text_stream", "agent.message.delta", "agent.message.received", "agent.status_changed", "agent.checkpoint.updated", "agent.activity"];
-    const appBusListeners = [];
-    const runtimeBusListeners = [];
-    if (services.internalBus && services.internalBus !== bus) {
-      for (const eventType of bridgedEvents) {
-        // Relays internal application events for this project onto the runtime event bus.
-        const fromApp = (event) => {
-          if (forwarding || closed || (event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
-          forwarding = true;
-          try { bus.emit(eventType, event); } finally { forwarding = false; }
-        };
-        // Relays runtime watcher and indexing progress events onto the application internal bus.
-        const fromRuntime = (event) => {
-          if (forwarding || closed || (event?.project_id ?? event?.metadata?.project_id) !== projectId) return;
-          if (eventType === "watcher.indexed" && typeof event?.payload?.path === "string" && event.payload.path) {
-            services.codeCache?.invalidate?.({ path: event.payload.path });
-          }
-          forwarding = true;
-          try { services.internalBus.emit(eventType, event); } finally { forwarding = false; }
-        };
-        services.internalBus.on?.(eventType, fromApp);
-        bus.on(eventType, fromRuntime);
-        appBusListeners.push({ eventType, fn: fromApp });
-        runtimeBusListeners.push({ eventType, fn: fromRuntime });
-      }
-    }
-    // Detaches all bridged application listeners when the application bundle or runtime closes.
-    const detach = () => {
-      if (boundServices !== services) return;
-      for (const listener of conversationListeners) services.bus?.unsubscribeAll?.(listener);
-      if (appSubId !== null) services.subscriptions?.unsubscribe?.(appSubId);
-      for (const { eventType, fn } of appBusListeners) services.internalBus?.off?.(eventType, fn);
-      for (const { eventType, fn } of runtimeBusListeners) bus.off(eventType, fn);
-      boundServices = null;
-      unbindServices = null;
-    };
-    unbindServices = detach;
-    return detach;
-  }
+
 
   // Upgrades unchanged legacy indexes and changed embedding models without rebuilding project identity.
   function queueMissingEmbeddings() {
@@ -337,7 +260,7 @@ export async function startProjectRuntime({ projectRoot, projectId, logger = con
   // Attempts all project-owned cleanup even if a stream or watcher fails to close.
   async function release() {
     const errors = [];
-    try { unbindServices?.(); } catch (error) { errors.push(error); }
+    try { bridge.unbind(); } catch (error) { errors.push(error); }
     for (const connection of [...connections]) {
       try { connection.close(); } catch (error) { errors.push(error); }
     }

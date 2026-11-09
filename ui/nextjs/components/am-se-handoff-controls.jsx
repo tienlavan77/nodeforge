@@ -118,7 +118,9 @@ export function AmSeHandoffControls({ client, projectId, refreshSignal = 0, embe
     setBusyId(`${handoff.handoff_id}:${action}`);
     setError("");
     try {
-      if (action === "resume") await client.resumeHandoff(projectId, handoff, token);
+      if (action === "resume") {
+        await client.resumeHandoff(projectId, handoff, token);
+      }
       else if (action === "adopt") {
         if (!window.confirm("Accept the CURRENT workspace as this handoff's baseline? This does not restore or delete files. Only a stopped, tool-free first SE attempt is eligible.")) return;
         await client.adoptHandoffWorkspace(projectId, handoff, token);

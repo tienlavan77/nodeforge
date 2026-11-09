@@ -167,3 +167,27 @@ test("resume recovers a blocked handoff with stale current_step rv in a new roun
   assert.equal(resumed.status, "completed");
   assert.deepEqual(steps, ["se4", "rv4", "am"]);
 });
+
+test("resume recovers an interrupted running handoff after runner stopped and rewinds to safeNextStep", async (t) => {
+  const f = await fixture(t);
+  await f.service.resumeHandoff({ handoffId: f.id, approvedOwnerId: "OWNER", requestSystemEngineer: async ({ correlationId }) => ({ text: "SE r1", execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed" } }) });
+  const current = await f.store.get(f.id);
+  await f.store.transition(f.id, current.checkpoint.generation, (rec) => ({
+    ...rec,
+    status: "running",
+    round: 1,
+    max_rounds: 2,
+    checkpoint: { ...rec.checkpoint, round: 1, current_step: "rv", next_step: null, execution_status: "running", execution_id: "CORR-INTERRUPTED-RV", error_code: null }
+  }));
+  const steps = [];
+  const resumed = await f.service.resumeHandoff({
+    handoffId: f.id,
+    approvedOwnerId: "OWNER",
+    runToCompletion: true,
+    requestSystemEngineer: async ({ round, correlationId }) => { steps.push(`se${round}`); return { text: "SE", execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed" } }; },
+    requestReviewer: async ({ round, correlationId }) => { steps.push(`rv${round}`); return { text: "RV PASS\n[VERDICT: PASS]", execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed" }, read_only_enforced: true }; },
+    requestArchitecture: async (prompt, conv, options) => { steps.push("am"); return { text: "AM PASS\n[VERDICT: PASS]", execution_id: options.correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed" } }; }
+  });
+  assert.equal(resumed.status, "completed");
+  assert.deepEqual(steps, ["rv1", "am"]);
+});
