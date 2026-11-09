@@ -74,7 +74,7 @@ export function createClaudeSdkGateway({
     const { canUseTool, onBuiltinToolEvent, onTextDelta, hooks, ...cloneableOptions } = options;
     delete cloneableOptions.mcpServers;
     delete cloneableOptions.forgeTools;
-    const model = subagentId ? config.subagent_model ?? options.model ?? config.model : options.model ?? config.model;
+    const model = subagentId ? config.subagent_model ?? options.subagentModel ?? options.model ?? "claude-haiku-4-5" : options.model ?? config.model;
     const effort = subagentId ? options.effort ?? "low" : options.effort ?? config.reasoning?.effort;
     if (effort !== undefined && !["none", "low", "medium", "high", "xhigh", "max"].includes(effort)) throw new ConfigurationError("Claude SDK reasoning effort is invalid.");
     const maxOutputTokens = options.maxOutputTokens ?? options.max_output_tokens ?? config.max_output_tokens;
@@ -102,7 +102,7 @@ export function createClaudeSdkGateway({
     let notified = false;
     const builtinSearchCalls = new Map();
     let terminalFailure;
-    const terminal = createSdkTerminalLog({ profile: { ...config, provider: config.provider ?? "anthropic", model: options.model ?? config.model }, context: options.forgeTools?.context, correlationId, credential, output: terminalOutput });
+    const terminal = createSdkTerminalLog({ profile: { ...config, provider: config.provider ?? "anthropic", model }, context: options.forgeTools?.context, correlationId, credential, output: terminalOutput });
     // Defines notify function behavior for claude-sdk-gateway.js.
     const notify = (id) => {
       if (notified || !id || typeof onSessionReady !== "function") return;

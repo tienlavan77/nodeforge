@@ -108,9 +108,27 @@ Thay vì phụ thuộc vào built-in tool `Agent` của riêng Claude SDK, kiế
    - Subagent sử dụng chính instance `scopedFiles` (`createRoleFileService({ fileService, role, projectRoot })`) và `allowed_file_paths` / `allowed_prefixes` của Agent cha.
    - Đảm bảo Subagent của AM/SL/Coder/Reviewer không thể vượt rào đọc `.forge/` hoặc các đường dẫn ngoài phạm vi cho phép, trong khi Subagent của System Engineer vẫn đọc được `.forge/` và `node_modules/`.
 
-6. **Tiered Model & Low Reasoning Effort cho Subagent:**
-   - Mặc định đặt `effort: "low"` (hoặc `"medium"`) cho Subagent để giảm độ trễ và chi phí token.
-   - Cho phép cấu hình tùy chọn `subagent_model` nhẹ hơn (ví dụ Sonnet/Haiku khi Agent cha chạy Opus) trên cùng credential/gateway, mặc định fallback về model của Agent cha.
+6. **Chính sách 2 Model Subagent Cố định, Cross-Provider Failover & Kho Chung (`read_subagent_evidence`):**
+   - **2 Model chuẩn dành riêng cho Subagent (Read-Only Explorer):**
+     1. **`claude-haiku-4-5`** (Claude Haiku 4.5 — chạy qua `claudeSdkGateway`).
+     2. **`Claude-luna`** (GPT-6 Luna — chạy qua `codexSdkGateway`).
+   - **Chuỗi Ưu tiên & Fallback tự động (3 tầng):**
+     - **Trường hợp 1 — Parent có provider là `anthropic` / `claude`:**
+       1. **Ưu tiên 1:** Gọi **`claude-haiku-4-5`** (qua `claudeSdkGateway`).
+       2. **Fallback 2 (nếu Ưu tiên 1 trả về lỗi):** Tự động chuyển sang gọi **`Claude-luna`** (qua `codexSdkGateway`).
+       3. **Fallback 3 (nếu cả 2 model đều lỗi):** Không ném exception làm gãy turn của Parent; đánh dấu worker `status: "fallback_to_parent"` (hoặc `"failed"`) trong kho `subagent-evidence-store.js` và trả thông báo để **Parent tự trực tiếp dùng các Forge read tools (`search_text`, `read_file`, `Read`) khảo sát tiếp**.
+     - **Trường hợp 2 — Parent có provider là `openai` / `codex`:**
+       1. **Ưu tiên 1:** Gọi **`Claude-luna`** (qua `codexSdkGateway`).
+       2. **Fallback 2 (nếu Ưu tiên 1 trả về lỗi):** Tự động chuyển sang gọi **`claude-haiku-4-5`** (qua `claudeSdkGateway`).
+       3. **Fallback 3 (nếu cả 2 model đều lỗi):** Đánh dấu `status: "fallback_to_parent"` và trả quyền về để **Parent tự trực tiếp khảo sát**.
+   - **Quy tắc bắt buộc với Parent — Luôn đọc Kho (`read_subagent_evidence`) trước khi tìm kiếm thêm:**
+     - Trước khi gọi `search_text`, `search_tree`, `list_files`, `read_file` hoặc `Read` để tìm thêm thông tin trên đĩa, Parent bắt buộc kiểm tra kho evidence chung (`read_subagent_evidence` / `subagent-evidence-store.js`).
+     - Nếu file/symbol cần tìm đã có trong kho với `sha256` hiện hành, Parent tái sử dụng ngay kết quả và biên lai (`recordSourceMetadata`) mà không đọc/tìm kiếm lại từ đầu.
+     - Nếu Subagent vừa hoàn tất hoặc rơi vào `fallback_to_parent`, Parent đọc kho để biết phần nào Subagent đã thu thập được, phần nào còn thiếu để tự khảo sát nốt.
+   - **Điểm cần sửa trong code (`owner-sdk-stream.js`, `nodeforge-task-executors.js`, `claude-sdk-gateway.js`, `codex-sdk-gateway.js`, `delegate-subagent-tool.js`):**
+     - Trong `claude-sdk-gateway.js` (dòng 77 & 105): khi `subagentId` có mặt, mặc định model là `"claude-haiku-4-5"` (`effort: "low"`).
+     - Trong `codex-sdk-gateway.js` (dòng 74 & 142): khi `subagentId` có mặt, mặc định model là `"Claude-luna"` (`effort: "low"`).
+     - Trong `owner-sdk-stream.js` (dòng 107–119) và `nodeforge-task-executors.js` (dòng 63–71, 152–159): xây dựng hàm điều phối `executeSubagentWithFallback` thử lần lượt `[primaryCandidate, secondaryCandidate]` theo provider của Parent; nếu cả 2 cùng lỗi thì trả về `{ status: "fallback_to_parent", fallback_to_parent: true, summary: "Both subagent models failed; parent must inspect directly.", observed_files: childContext.observed_files ?? [] }` và ghi nhận vào `evidenceStore`.
 
 7. **Giới hạn kích thước tóm tắt trả về (`max_summary_chars`):**
    - Giới hạn văn bản trả về của mỗi Subagent (ví dụ tối đa `4.000–6.000` ký tự) để buộc Subagent trả về báo cáo cô đọng (file, symbol, dòng/anchor, phân tích chính), ngăn việc dump nguyên file code dài làm phình context của Agent cha.

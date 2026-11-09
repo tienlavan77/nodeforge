@@ -7,6 +7,7 @@ import { authorizeTool, isAgentPathAllowed } from "./governance/tool-authorizati
 import { assertExecutionFileAccess } from "./execution-file-access.js";
 import { assertRoleFileAccess } from "../infrastructure/filesystem/file-service-role-policy.js";
 import { ENGINEERING_CATALOG_VERSION, coderToolDefinitions, engineeringToolReadiness } from "./engineering-tool-catalog.js";
+import { sharedSubagentEvidenceStore, syncToolResultToEvidenceStore } from "./discovery/subagent-evidence-sync.js";
 
 // Advertises locked tools explicitly and validates every call against the same schema before scoped dispatch.
 export function bindEngineeringTools({ registry, context }) {
@@ -37,6 +38,12 @@ export function bindEngineeringTools({ registry, context }) {
       await assertMutationOrRead(definition.name, input, bound);
     }
     const result = await scopedRegistry[definition.name].execute(input, bound);
+    if (!bound.read_only_enforced) {
+      syncToolResultToEvidenceStore({ toolName: definition.name, input, result, context: bound, evidenceStore: sharedSubagentEvidenceStore, projectRoot: bound.project_root });
+    }
+    if (definition.name === "read_subagent_evidence" && bound.active_file_checksums) {
+      context.active_file_checksums = bound.active_file_checksums;
+    }
     if (definition.name === "delegate_subagent" && Array.isArray(result?.observed_files) && Array.isArray(context.observed_files)) {
       for (const file of result.observed_files) {
         if (file?.path && !context.observed_files.some((entry) => entry.path === file.path && entry.sha256 === file.sha256)) {
