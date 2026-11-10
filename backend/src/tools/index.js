@@ -66,7 +66,7 @@ export const gitDiffDefinition = Object.freeze({ name: "git_diff", description: 
 export function createForgeToolRegistry({ protocolStorage, fileService, projectRoot, maxChars, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, enableReadCode = false, testService, gitService, changeLedger, executionContexts, reviewFindings, reportService, onEvalCase, governance, projectLogger = () => {} } = {}) {
   fileService = fileService?.forRole?.("coder") ?? fileService;
   const transcriptTool = createReadTranscriptBlocksTool({ protocolStorage, fileService, maxChars });
-  const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker });
+  const graphTool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker, fileService, codeCache, projectRoot });
   const retrievalBudgets = new Map();
   const lifecycle = {};
   Object.assign(lifecycle, createAgentCommandTools({ projectRoot, fileService, codeSearch, codeCache, projectLogger: terminalAuditLogger(projectLogger), wrap }));

@@ -36,6 +36,7 @@ export function createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkG
     const priorCompletedTools = [...resumeState.completedTools];
     const manifestPaths = Object.keys(request.execution_context?.approved_baseline?.file_checksums ?? {}).sort();
     const immutableScope = manifestPaths.length > 0;
+    const candidateDiscoveryEnabled = !immutableScope && request.payload?.direct_code !== true;
     const allowedPrefixes = immutableScope ? manifestPaths : [...new Set([...ticketAllowedPrefixes(ticket), "backend/", "ui/", "schemas/", "web/"])];
     const restoredPaths = request.payload?.resume_from && request.execution_context?.task_id === request.task_id
       ? (request.execution_context.manifest_paths ?? []).filter(path => typeof path === "string"
@@ -47,7 +48,7 @@ export function createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkG
     const context = runtimeGovernance.createExecutionContext({ task_id: request.task_id, execution_id: `${request.task_id}:${request.request_id}`,
       project_root: projectRoot, execution_context: request.execution_context, resume_checkpoint: Boolean(request.payload?.resume_from),
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider },
-      capabilities: [...CODER_TOOL_NAMES], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes,
+      capabilities: CODER_TOOL_NAMES.filter((name) => candidateDiscoveryEnabled || name !== "select_code_graph_candidates"), allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes,
       changed_paths: [...resumeState.changedPaths],
       discovery_budget: complexity.discovery_budget, allow_discovery_escalation: true,
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id } });
@@ -58,7 +59,7 @@ export function createFunctionCallingTaskExecutor({ openaiSdkGateway, ollamaSdkG
     const registry = checkpointedRegistry({ store: checkpoints, registry: toolRegistry, taskId: request.task_id,
       allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, projectLogger });
     const binding = bindEngineeringTools({ registry, context: toolContext });
-    const definitions = coderToolDefinitions();
+    const definitions = coderToolDefinitions().filter((definition) => candidateDiscoveryEnabled || definition.name !== "select_code_graph_candidates");
     const events = [];
     let history;
     const observed = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (args) => {
