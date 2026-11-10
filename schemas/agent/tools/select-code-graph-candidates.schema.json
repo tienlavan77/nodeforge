@@ -4,11 +4,14 @@
   "title": "Forge select Code Graph candidates tool input",
   "type": "object",
   "additionalProperties": false,
-  "required": ["query"],
   "properties": {
-    "query": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "title": { "type": "string", "maxLength": 500 },
+    "objective": { "type": "string", "maxLength": 2000 },
+    "acceptance_criteria": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 1000 } },
+    "guardrails": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 1000 } },
     "context": { "type": "string", "maxLength": 1000 },
-    "limit": { "type": "integer", "minimum": 1, "maximum": 8 }
+    "limit": { "type": "integer", "minimum": 1, "maximum": 12 }
   },
   "not": {
     "required": ["path"]

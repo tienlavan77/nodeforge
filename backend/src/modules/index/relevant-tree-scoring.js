@@ -8,9 +8,10 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
   // Defines isIgnored function behavior for relevant-tree-scoring.js.
   const isIgnored = (path) => ignoredPaths.some((prefix) => path === prefix || path.startsWith(prefix));
   // Defines select function behavior for relevant-tree-scoring.js.
-  function select({ title = "", objective = "", acceptanceCriteria = [], acceptance_criteria = [], style, depth = defaultDepth, limit = maxFiles, scope = "all", allowed_prefixes, allowedPrefixes, priorFiles = [], prior_files = [], dependencyFiles = [], dependency_files = [] } = {}) {
+  function select({ title = "", objective = "", query = "", acceptanceCriteria = [], acceptance_criteria = [], guardrails = [], style, depth = defaultDepth, limit = maxFiles, scope = "all", allowed_prefixes, allowedPrefixes, priorFiles = [], prior_files = [], dependencyFiles = [], dependency_files = [] } = {}) {
     const criteria = acceptanceCriteria.length ? acceptanceCriteria : acceptance_criteria;
-    const text = [title, objective, ...(Array.isArray(criteria) ? criteria : [])].filter((value) => typeof value === "string" && value.trim()).join(" ");
+    const guardrailList = Array.isArray(guardrails) ? guardrails : [];
+    const text = [title, objective, query, ...(Array.isArray(criteria) ? criteria : []), ...guardrailList].filter((value) => typeof value === "string" && value.trim()).join(" ");
     if (!text) throw new ConfigurationError("Relevant Tree requires ticket title, objective, or acceptance criteria.");
     if (!Number.isInteger(depth) || depth < 0 || depth > 3) throw new ConfigurationError("Relevant Tree depth must be an integer between 0 and 3.");
     if (!Number.isInteger(limit) || limit < 1 || limit > maxFiles) throw new ConfigurationError(`Relevant Tree limit must be between 1 and ${maxFiles}.`);
