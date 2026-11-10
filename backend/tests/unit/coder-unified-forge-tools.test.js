@@ -31,6 +31,21 @@ function fixture(governance) {
   return { executors, requests };
 }
 
+for (const policy of ["direct_code", "immutable"]) {
+  test(`Claude and Codex keep candidate discovery disabled for ${policy}`, async () => {
+    const issued = [];
+    const { executors, requests } = fixture({ createExecutionContext: (context) => { issued.push(context); return context; } });
+    const request = { task_id: "T", request_id: "R", correlation_id: "C", ticket: { title: "Fix source", objective: "Fix behavior", acceptance_criteria: ["Works"] },
+      payload: policy === "direct_code" ? { direct_code: true } : {},
+      ...(policy === "immutable" ? { execution_context: { approved_baseline: { file_checksums: { "backend/example.js": null } } } } : {}) };
+    await executors.runToolTicket({ agent_id: "A", role: "coder", provider: "claude" }, request);
+    await executors.runCodexTask({ agent_id: "A", role: "coder", provider: "codex" }, request);
+    assert.equal(issued.every((context) => !context.capabilities.includes("select_code_graph_candidates")), true);
+    assert.equal(requests.claude.options.allowedTools.includes("mcp__forge__select_code_graph_candidates"), false);
+    assert.equal(requests.codex.options.forgeTools.definitions.some((definition) => definition.name === "select_code_graph_candidates"), false);
+  });
+}
+
 test("Claude and Codex ticket executors expose the System Engineer catalog with identical canonical names", async () => {
   const { executors, requests } = fixture();
   const request = { task_id: "T", request_id: "R", correlation_id: "C", payload: {}, ticket: { title: "Fix backend behavior", objective: "Correct backend response", acceptance_criteria: ["Returns the correct response"] } };

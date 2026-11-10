@@ -38,10 +38,34 @@ function fixture(provider, run, resume) {
   return { calls, saved, serviceCalls, request, run: () => executors.runFunctionCallingTask(profile, request) };
 }
 
+for (const provider of ["openai", "ollama"]) {
+  test(`${provider} exposes governed candidate retrieval only for mutable discovery`, async () => {
+    const enabled = fixture(provider, async ({ invoke, agent }) => {
+      assert.ok(agent.options.tools.some(tool => tool.name === "select_code_graph_candidates"));
+      await invoke("select_code_graph_candidates", { query: "repair backend behavior" });
+      throw new Error("candidate transport observed");
+    });
+    delete enabled.request.execution_context.approved_baseline;
+    await assert.rejects(enabled.run(), /candidate transport observed/);
+    const call = enabled.serviceCalls.find(value => value.name === "select_code_graph_candidates");
+    assert.ok(call.context.capabilities.includes("select_code_graph_candidates"));
+
+    const direct = fixture(provider, async ({ agent }) => {
+      assert.ok(!agent.options.tools.some(tool => tool.name === "select_code_graph_candidates"));
+      throw new Error("direct transport observed");
+    });
+    delete direct.request.execution_context.approved_baseline;
+    direct.request.payload.direct_code = true;
+    await assert.rejects(direct.run(), /direct transport observed/);
+    assert.ok(!direct.serviceCalls.some(value => value.name === "select_code_graph_candidates"));
+  });
+}
+
+
 for (const provider of ["ollama", "openai"]) {
   test(`${provider} Coder receives 15 tools and continues with history through real calls`, async () => {
     const f = fixture(provider, async ({ invoke, call, agent, input }) => {
-      assert.deepEqual(agent.options.tools.map(tool => tool.name), CODER_TOOL_NAMES);
+      assert.deepEqual(agent.options.tools.map(tool => tool.name), CODER_TOOL_NAMES.filter(name => name !== "select_code_graph_candidates"));
       assert.ok(agent.options.tools.every(tool => tool.type === "function"));
       if (call === 1) {
         await invoke("read_file", { path: "workflows/agents/coder/README.md" });

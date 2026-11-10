@@ -2,6 +2,7 @@
 // Technical description: extracts file path, sha256, line count, symbol map, code graph, and read symbols from tool inputs and results, updating the shared evidence store.
 import { extractOwnerResultChecksum, extractOwnerToolPathMeta } from "../../application/owner-context-compaction.js";
 import { createSubagentEvidenceStore } from "./subagent-evidence-store.js";
+import { candidateSourceMetadata } from "./candidate-source-receipts.js";
 
 export const sharedSubagentEvidenceStore = createSubagentEvidenceStore();
 
@@ -9,7 +10,7 @@ export const sharedSubagentEvidenceStore = createSubagentEvidenceStore();
 // Technical description: normalizes scope metadata from the tool execution context and updates or removes the file entry in the evidence store.
 export function syncToolResultToEvidenceStore({ toolName, input = {}, result = {}, context = {}, evidenceStore = sharedSubagentEvidenceStore, projectRoot = null } = {}) {
   if (!evidenceStore || typeof evidenceStore.recordDirectEvidence !== "function") return null;
-  if (!["read_file", "Read", "write_diff", "edit_diff", "delete_file", "move_file"].includes(toolName)) return null;
+  if (!["read_file", "Read", "select_code_graph_candidates", "write_diff", "edit_diff", "delete_file", "move_file"].includes(toolName)) return null;
   const scope = context?.evidence_scope ?? {};
   const scopeContext = {
     projectId: scope.projectId ?? context?.project_id ?? null,
@@ -23,6 +24,25 @@ export function syncToolResultToEvidenceStore({ toolName, input = {}, result = {
     delegationId: scope.delegationId ?? context?.execution_id ?? context?.task_id ?? null,
     workerId: context?.agent_identity?.agent_id ? `parent:${context.agent_identity.agent_id}` : undefined
   };
+  if (toolName === "select_code_graph_candidates") {
+    return (result.selected ?? []).map((entry) => {
+      const metadata = candidateSourceMetadata(entry);
+      if (!metadata || entry.evidence?.status !== "not_recorded") return null;
+      try {
+        const stored = evidenceStore.recordDirectEvidence({ ...scopeContext, ...metadata, symbols_read: [], source_tool: toolName,
+          workerId: scopeContext.workerId ?? `parent:${scopeContext.role ?? "candidate"}` });
+        entry.evidence = stored?.durable === true
+          ? { status: "recorded", durable: true }
+          : { status: "failed", durable: false, error: stored?.durability_error ?? "Evidence persistence is unavailable." };
+        if (!entry.evidence.durable) console.warn("Candidate evidence persistence failed.", { path: metadata.path, error: entry.evidence.error });
+        return stored;
+      } catch (error) {
+        entry.evidence = { status: "failed", durable: false, error: String(error.message ?? error) };
+        console.warn("Candidate evidence persistence failed.", { path: metadata.path, error: entry.evidence.error });
+        return null;
+      }
+    });
+  }
   const stepMeta = extractOwnerToolPathMeta(toolName, input);
   if (toolName === "delete_file") {
     return evidenceStore.recordDirectEvidence({ ...scopeContext, path: stepMeta.path ?? input?.path, deleted: true, source_tool: toolName });

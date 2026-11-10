@@ -66,7 +66,7 @@ test("Supervisor dispatch runs a Codex ticket through the SDK Forge MCP path", a
   assert.match(prompts[0], /Read backend\/scripts\/validate-schemas\.mjs/);
   assert.doesNotMatch(prompts[0], /fixed six-tool/i);
   assert.deepEqual(forgeTools.definitions.map((tool) => tool.name), ["search_tree", "list_files", "search_text", "read_file", "read_lines", "write_diff", "edit_diff", "git_status", "git_diff", "run_check", "commit_changes", "push_commit", "search_code", "run_test", "check_test", "report_done"]);
-  assert.doesNotMatch(prompts[0], /select_code_graph_candidates/);
+  assert.match(prompts[0], /select_code_graph_candidates/);
   assert.equal(agentGatewayCalls, 0);
 });
 
@@ -204,7 +204,7 @@ test("immutable baseline manifest controls all Coder paths and disables prepass 
   assert.deepEqual(received.options.forgeTools.context.allowed_file_paths, ["backend/src/allowed.js", "backend/tests/allowed.test.js", "workflows/agents/coder/README.md", "workflows/agents/reviewer/README.md", "AGENTS.md", "CLAUDE.md", "package.json", "vocabulary/glossary.md"]);
   assert.deepEqual(received.options.forgeTools.context.allowed_prefixes, ["backend/src/allowed.js", "backend/tests/allowed.test.js"]);
   assert.equal(received.options.forgeTools.definitions.some((tool) => tool.name === "select_code_graph_candidates"), false);
-  assert.doesNotMatch(received.prompt, /select_code_graph_candidates/);
+  assert.match(received.prompt, /immutable evidence baseline/);
 });
 
 test("Codex resume keeps its checkpoint target when candidate discovery is unavailable", async () => {

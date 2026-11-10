@@ -17,7 +17,7 @@ import { prepareReviewExchange, saveReviewExchange } from "./review-agent-exchan
 import { readReviewPromptPatch } from "./review-prompt-patch.js";
 
 // Creates a reviewer that receives bounded source evidence through Forge File Service.
-export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, contractFileService, rulesFileService, gitService, codeSearch, codeCache, projectRoot, executionContexts, verificationService, reviewFindings, checkpoints, projectLogger = () => {} } = {}) {
+export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkGateway, codexSdkGateway, fileService, contractFileService, rulesFileService, gitService, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, projectRoot, executionContexts, verificationService, reviewFindings, checkpoints, projectLogger = () => {} } = {}) {
   if (typeof agentResolver?.resolveAvailable !== "function" || typeof fileService?.readForIndex !== "function" || typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new ConfigurationError("Review Worker requires profiles, File Service, and an absolute project root.");
   return Object.freeze({ review });
 
@@ -119,7 +119,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
     let forgeTools;
     let claudeTools;
     try {
-      forgeTools = createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, gitService, ticketEvidence, projectLogger });
+      forgeTools = createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeSearch, codeCache, relevantTreeSelector, freshnessChecker, gitService, ticketEvidence, projectLogger });
       forgeTools = attachReviewExchangeTools(forgeTools, exchangeEvidence, { job, reviewer, projectLogger });
       if (forgeTools?.registry) forgeTools = { ...forgeTools, registry: checkpointedReviewRegistry(forgeTools.registry, reviewState, saveReviewProgress, transport) };
       if (["claude", "anthropic"].includes(reviewer.provider)) claudeTools = createOwnerClaudeMcpTools(forgeTools);

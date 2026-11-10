@@ -4,13 +4,13 @@ import { authorizeTool } from "../governance/tool-authorization.js";
 import { assertRoleFileAccess, roleWritePrefixes } from "../../infrastructure/filesystem/file-service-role-policy.js";
 import { isProjectGitkeepPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 
-const READ_TOOLS = Object.freeze(["search_tree", "list_files", "search_text", "read_file", "Read", "lookup_schema"]);
+const READ_TOOLS = Object.freeze(["select_code_graph_candidates", "search_tree", "list_files", "search_text", "read_file", "Read", "lookup_schema"]);
 const DELEGATE_TOOLS = Object.freeze(["delegate_subagent", "read_subagent_evidence"]);
 const GIT_READ_TOOLS = Object.freeze(["git_status", "git_diff", "git_log", "git_show", "git_blame"]);
 const ROLE_TOOLS = Object.freeze({
-  architecture_manager: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch", "write_diff", "edit_diff", "delete_file"]),
-  system_engineer: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, "write_diff", "edit_diff", "delete_file", "move_file", ...GIT_READ_TOOLS, "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit"]),
-  sprint_leader: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch"]),
+  architecture_manager: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch", "write_diff", "edit_diff", "delete_file", "send_execution_directive"]),
+  system_engineer: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, "write_diff", "edit_diff", "delete_file", "move_file", ...GIT_READ_TOOLS, "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit", "send_execution_directive"]),
+  sprint_leader: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch", "send_execution_directive"]),
   coder: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS]),
   reviewer: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch"]),
   linguist: Object.freeze(["read_file", "Read", "lookup_schema"]),

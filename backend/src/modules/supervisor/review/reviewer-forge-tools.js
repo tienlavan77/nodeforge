@@ -18,6 +18,7 @@ import { extractorRegistry } from "../../index/parser/index.js";
 import { createSourceReadTool } from "../../../tools/discovery/source-read.js";
 import { createCommittedReviewSource } from "./reviewer-committed-source.js";
 import { createReviewerSnapshotTools } from "./reviewer-snapshot-tools.js";
+import { createSnapshotCandidateSelector } from "./reviewer-snapshot-candidate-selector.js";
 import { createVerificationReviewSource } from "../ticket/ticket-verification-review-source.js";
 import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../../../infrastructure/filesystem/dependency-read.js";
 import { listAgentFileTree } from "../../../infrastructure/filesystem/agent-file-tree.js";
@@ -47,7 +48,9 @@ export async function assertReviewerReadPath(projectRoot, path) {
 }
 
 // Creates per-review wrappers around existing read_file, search_tree, review_diff, and run_review_check implementations.
-export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeCache, gitService, ticketEvidence, projectLogger = () => {} }) {
+import { createSelectCodeGraphCandidatesTool } from "../../../tools/discovery/select-code-graph-candidates.js";
+
+export function createReviewerForgeTools({ fileService, projectRoot, job, reviewer, codeCache, relevantTreeSelector, freshnessChecker, gitService, ticketEvidence, projectLogger = () => {} }) {
   if (typeof fileService?.readForIndex !== "function" || !isAbsolute(projectRoot ?? "")) throw new ConfigurationError("Reviewer Forge tools require File Service and an absolute project root.");
   if (ticketEvidence && !fileService.committedReview) fileService = createVerificationReviewSource({ projectRoot,
     source: createCommittedReviewSource({ projectRoot, commit: ticketEvidence.context.review_commit_sha, baseCommit: ticketEvidence.context.base_sha }),
@@ -83,7 +86,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
       code_index: { ...(cached?.code_index ?? {}), path, symbols }, code_graph: cached?.sha256 === file.sha256 ? cached.code_graph ?? {} : {} };
   } } : snapshot ? { read: (input) => scopedFiles.readForIndex(input) } : codeCache;
   // Review discovery covers project source and instructions; the delta is not a read permission boundary.
-  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }, capabilities: ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "review_diff", "run_review_check"], project_root: projectRoot };
+  const toolContext = { task_id: job.task_id, correlation_id: job.correlation_id, request_id: job.request_id, agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }, task_context: job.payload?.ticket ?? {}, execution_id: job.request_id ?? job.task_id, capabilities: ["select_code_graph_candidates", "search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "review_diff", "run_review_check"], project_root: projectRoot };
   // Keeps text search under the same project, protected-path and symlink rules as direct reads.
   const searchCache = { read: async ({ path }) => {
     await assertReviewerReadPath(projectRoot, path);
@@ -92,8 +95,14 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     return file;
   } };
   const gitWorkflow = !snapshot && gitService ? createGitWorkflowTools({ gitService, projectRoot }) : {};
+  const candidateSelector = snapshot && relevantTreeSelector ? createSnapshotCandidateSelector({ relevantTreeSelector, source: fileService }) : relevantTreeSelector;
   const implementations = {
     lookup_schema: createLookupSchemaTool({ role: "reviewer" }),
+    select_code_graph_candidates: createSelectCodeGraphCandidatesTool({
+      relevantTreeSelector: candidateSelector, freshnessChecker: snapshot ? undefined : freshnessChecker, projectRoot,
+      fileService: { readForIndex: (input) => reviewCache?.read ? reviewCache.read(input) : scopedFiles.readForIndex(input) },
+      assertReadPath: (path) => snapshot ? assertRoleFileAccess("reviewer", "read", path) : assertReviewerReadPath(projectRoot, path)
+    }),
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: { read: (input) => (input.path === ".forge" || input.path.startsWith(".forge/")) ? (codeCache?.read ? codeCache.read(input).catch(() => scopedFiles.readForIndex(input)) : scopedFiles.readForIndex(input)) : reviewCache?.read ? reviewCache.read(input) : scopedFiles.readForIndex(input) }, projectRoot, ...(snapshot ? { dependencyReader: (input) => scopedFiles.readForIndex(input) } : {}), maxChars: MAX_RESULT_BYTES }),
     search_text: createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }),
     ...(!snapshot && gitService?.status && gitService?.diffWorkingTree ? createGitReadTools({ gitService, logger: { emit: terminalAuditLogger(projectLogger) } }) : {}),
@@ -109,7 +118,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
   if (typeof fileService.listFiles === "function" && typeof fileService.listDirectories === "function") implementations.search_tree = createOwnerSearchTreeTool({ fileService: scopedFiles });
   const extraDefinitions = [reviewDiffDefinition, runReviewCheckDefinition].filter(({ name }) => typeof implementations[name]?.execute === "function");
   const definitions = [...engineeringToolDefinitions().filter(({ name }) => typeof implementations[name]?.execute === "function"), ...extraDefinitions];
-  const context = { ...toolContext, capabilities: definitions.map(({ name }) => name), max_output_bytes: maxOutputBytes };
+  const context = { ...toolContext, active_file_checksums: {}, capabilities: definitions.map(({ name }) => name), max_output_bytes: maxOutputBytes };
   let outputBytes = 0;
   const registry = Object.fromEntries(definitions.map(({ name }) => [name, { execute: async (input) => {
     const started = Date.now();
@@ -133,6 +142,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
         : name === "search_text" && toolInput.paths?.some((path) => path === ".forge" || path.startsWith(".forge/"))
           ? await createRgSearchTool({ projectRoot, codeCache: searchCache, toolName: "search_text", logger: { emit: terminalAuditLogger(projectLogger) } }).execute(toolInput, readContext)
           : await implementations[name].execute(toolInput, readContext);
+      if (name === "select_code_graph_candidates" && readContext.active_file_checksums) Object.assign(context.active_file_checksums, readContext.active_file_checksums);
       if (name === "list_files") {
         const paths = await filterPaths(result.stdout.split("\n").filter(Boolean));
         result = { ...result, stdout: paths.length ? `${paths.join("\n")}\n` : "" };

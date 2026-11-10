@@ -89,6 +89,9 @@ function engineeringInputShape(inputSchema) {
   // Zod cannot convert allOf/if/then/else; removing this transport-only branch does not change Node validation.
   delete transport.allOf;
   delete transport.oneOf;
+  // Candidate schemas forbid an undeclared path twice; remove only the redundant transport constraint.
+  if (transport.additionalProperties === false && !Object.hasOwn(transport.properties ?? {}, "path")
+    && transport.not?.required?.length === 1 && transport.not.required[0] === "path") delete transport.not;
   for (const prop of Object.values(transport?.properties ?? {})) {
     if (typeof prop?.pattern === "string" && prop.pattern.includes("(?!")) delete prop.pattern;
     if (typeof prop?.items?.pattern === "string" && prop.items.pattern.includes("(?!")) delete prop.items.pattern;

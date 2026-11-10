@@ -1,41 +1,50 @@
 // Summary: Resolves up to eight Code Graph candidates from an Agent search intent.
 
 import { ConfigurationError } from "../../shared/errors.js";
+import { registerCandidateSources } from "./candidate-source-receipts.js";
+import { syncToolResultToEvidenceStore } from "./subagent-evidence-sync.js";
+import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { assertExecutionScope } from "../governance/retrieval-governance.js";
 import { discoveryNotice } from "./exploration-state.js";
 import { extractExplicitPaths, isLegacyBackfillCandidate } from "../../modules/index/ticket-scope.js";
 import { assertExecutionFileAccess, executionReadScope } from "../execution-file-access.js";
 import { isAgentPathAllowed } from "../governance/tool-authorization.js";
 
-export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker } = {}) {
+export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker, fileService, codeCache, assertReadPath, evidenceStore, projectRoot, logger = console } = {}) {
   return Object.freeze({ name: "select_code_graph_candidates", execute });
 
   async function execute(input = {}, context = {}) {
     assertDelegatedDiscoveryRequired(context, "select_code_graph_candidates", input);
     assertExecutionFileAccess(context);
-    const taskId = context.task_id ?? context.taskId;
-    if (typeof taskId !== "string" || !taskId) throw scopedError("TOOL_SCOPE_INVALID", "Candidate selection requires the current task_id.");
+    const taskId = context.task_id ?? context.taskId ?? context.conversation_id;
+    if (typeof taskId !== "string" || !taskId) throw scopedError("TOOL_SCOPE_INVALID", "Candidate selection requires the current task or conversation identity.");
     assertExecutionScope(context, taskId);
+    if (Object.keys(input).some((key) => !["query", "limit", "context", "title", "objective", "acceptance_criteria", "guardrails"].includes(key))) throw scopedError("TOOL_INPUT_INVALID", "Candidate input cannot supply paths, identity or execution authority.");
     if (!new Set(context.capabilities ?? []).has("select_code_graph_candidates")) throw scopedError("TOOL_FORBIDDEN", "Agent is not authorized to select Code Graph candidates.");
-    if (typeof input.query !== "string" || !input.query.trim()) throw scopedError("GRAPH_QUERY_REQUIRED", "Candidate retrieval requires a non-empty query.");
+    const query = input.query === undefined ? [input.title, input.objective].filter((value) => typeof value === "string").join(" ").trim() : typeof input.query === "string" ? input.query.trim() : "";
+    if (!query) throw scopedError("GRAPH_QUERY_REQUIRED", "Candidate retrieval requires a non-empty query.");
     const limit = input.limit === undefined ? 8 : input.limit;
     const maximum = context.eval_harness === true ? 30 : 8;
     if (!Number.isInteger(limit) || limit < 1 || limit > maximum) throw scopedError("GRAPH_CANDIDATE_LIMIT", `Candidate retrieval limit must be between one and ${maximum}.`);
     if (typeof relevantTreeSelector?.selectFreshWithEmbeddings !== "function" && typeof relevantTreeSelector?.select !== "function") throw scopedError("GRAPH_INDEX_UNAVAILABLE", "Code Graph retrieval is not configured.");
-    const task = context.task_context ?? {};
-    const allowCandidate = (path) => context.file_access_version !== 2 || isAgentPathAllowed(path, context);
+    const task = { title: input.title, objective: input.objective, acceptance_criteria: input.acceptance_criteria, guardrails: input.guardrails, ...(context.task_context ?? {}) };
+    const allowCandidate = (path) => typeof path === "string" && !path.startsWith("/") && !path.split("/").some((part) => !part || part === "." || part === "..")
+      && isAgentPathAllowed(path, context) && (context.file_access_version === 2
+        || (!Array.isArray(context.allowed_file_paths) && !Array.isArray(context.allowed_prefixes))
+        || context.allowed_file_paths?.includes(path)
+        || context.allowed_prefixes?.some((prefix) => path === prefix.replace(/\/$/, "") || path.startsWith(`${prefix.replace(/\/$/, "")}/`)));
     // Sprint-leader cache: a ticket that already carries manually-traced
     // candidate_files is served directly instead of re-running retrieval.
     // Stale entries (file no longer indexed) fall through to normal retrieval.
     const cached = await cachedTicketCandidates(task, limit, freshnessChecker, allowCandidate);
     if (cached) {
       assertExecutionFileAccess(context);
-      return { task_id: taskId, query: input.query.trim(), index_version: cached.index_version ?? null, selected: cached.selected, candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+      return { task_id: taskId, query: query, index_version: cached.index_version ?? null, selected: await receive(cached.selected, context, allowCandidate), candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
     }
     const allowedPrefixes = context.file_access_version === 2 ? executionReadScope(context).prefixes : context.allowed_prefixes;
     const args = context.eval_harness === true
-      ? { title: task.title ?? "", objective: task.objective ?? "", acceptance_criteria: task.acceptance_criteria ?? [], style: task.implementation_type ?? task.style, limit, depth: 1 }
-      : { title: task.title ?? "", objective: [task.objective ?? "", input.query.trim(), input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], style: task.implementation_type ?? task.style, limit, scope: context.scope ?? "all", allowed_prefixes: allowedPrefixes, priorFiles: extractExplicitPaths(task).filter(allowCandidate), dependencyFiles: (Array.isArray(task.dependency_files) ? task.dependency_files : []).filter(allowCandidate) };
+      ? { title: task.title ?? "", objective: task.objective ?? "", acceptance_criteria: task.acceptance_criteria ?? [], guardrails: task.guardrails ?? [], style: task.implementation_type ?? task.style, limit, depth: 1 }
+      : { title: task.title ?? "", objective: [task.objective ?? "", query, input.context ?? ""].filter(Boolean).join(" "), acceptance_criteria: task.acceptance_criteria ?? [], guardrails: task.guardrails ?? [], style: task.implementation_type ?? task.style, limit, scope: context.scope ?? "all", allowed_prefixes: allowedPrefixes, priorFiles: extractExplicitPaths(task).filter(allowCandidate), dependencyFiles: (Array.isArray(task.dependency_files) ? task.dependency_files : []).filter(allowCandidate) };
     // Prefer semantic retrieval with freshness validation; fall back for older test doubles.
     const result = typeof relevantTreeSelector.selectFreshWithEmbeddings === "function"
       ? await relevantTreeSelector.selectFreshWithEmbeddings(args)
@@ -43,19 +52,16 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     assertExecutionFileAccess(context);
     const selected = (result.tree ?? []).filter((entry) => allowCandidate(entry?.path)).slice(0, limit);
     const stalePaths = Array.isArray(result.stale_paths) ? result.stale_paths.filter(allowCandidate) : undefined;
-    // Explicitly record source metadata for discovered candidates to ensure durable evidence.
-    if (typeof recordSourceMetadata === "function") {
-      for (const entry of selected) {
-        if (entry?.path) {
-          try {
-            recordSourceMetadata({ path: entry.path });
-          } catch (e) {
-            // Non-blocking: evidence synchronization error should not crash retrieval.
-          }
-        }
-      }
-    }
-    return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected, ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+    return { task_id: taskId, query: query, index_version: result.index_version ?? null, selected: await receive(selected.map((entry) => stalePaths?.includes(entry.path) ? { ...entry, stale: true } : entry), context, allowCandidate), ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+  }
+  // Business purpose: keeps receipt registration and durable evidence reporting consistent across both retrieval sources.
+  // Technical description: validates live metadata first, then synchronizes only privately verified entries to the scoped evidence store.
+  async function receive(selected, context, allowCandidate) {
+    const entries = await registerCandidateSources(selected, context, { fileService, codeCache, assertReadPath, allowPath: allowCandidate, logger });
+    assertExecutionFileAccess(context);
+    const authorized = entries.filter((entry) => allowCandidate(entry.path));
+    syncToolResultToEvidenceStore({ toolName: "select_code_graph_candidates", result: { selected: authorized }, context, evidenceStore, projectRoot });
+    return authorized;
   }
 }
 
