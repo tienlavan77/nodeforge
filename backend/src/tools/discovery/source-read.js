@@ -21,6 +21,7 @@ export const sourceReadDefinition = Object.freeze({ name: "Read",
 // rechecks scope after asynchronous reads so revoked authority cannot deliver code.
 export function createSourceReadTool({ fileService, projectRoot, codeCache }) {
   return { execute: async (input = {}, context = {}) => {
+    assertDelegatedDiscoveryRequired(context, "Read", input);
     assertExecutionFileAccess(context);
     if (Object.keys(input).some((key) => !["file_path", "symbol", "start_line", "end_line"].includes(key))) throw invalid("Read accepts file_path and either symbol or start_line/end_line.");
     const value = input.file_path;

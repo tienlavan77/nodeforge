@@ -29,14 +29,19 @@ export function ownerWritePaths(candidateFiles = []) { return candidateFiles.fil
 export function ownerWritePrefixes(role) { return roleWritePrefixes(role); }
 
 // Enforces owner role, path, and authorization policy before tool execution.
+import { assertDelegatedDiscoveryRequired } from "../discovery/delegated-discovery-policy.js";
+
 export async function authorizeOwnerTool(name, input, context, projectRoot) {
   authorizeTool(name, context);
+  assertDelegatedDiscoveryRequired(context, name, input);
+  const isAsyncSubagentTool = context.async_subagents === true && ["get_subagent_status", "collect_subagent_results"].includes(name);
   if (context.planning_input_only === true) {
-    if (![...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch"].includes(name)) throw forbidden("Planning input permits discovery and Git reads only.");
+    if (!isAsyncSubagentTool && ![...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch"].includes(name)) throw forbidden("Planning input permits discovery and Git reads only.");
     if (name === "git_branch" && !["list", "current"].includes(input?.action)) throw forbidden("Planning input permits read-only git_branch (list, current) only.");
   }
   const role = context.agent_identity?.role;
-  if (!ownerRoleTools(role).includes(name)) throw forbidden("Tool is not permitted for this role.");
+  const permittedRoleTools = ownerRoleTools(role);
+  if (!permittedRoleTools.includes(name) && !(isAsyncSubagentTool && permittedRoleTools.includes("delegate_subagent"))) throw forbidden("Tool is not permitted for this role.");
   if (name === "git_branch" && role !== "system_engineer" && !["list", "current"].includes(input?.action)) {
     throw forbidden("Only System Engineer may execute mutating git_branch actions in owner conversations.");
   }

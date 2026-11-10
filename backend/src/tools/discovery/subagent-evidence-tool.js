@@ -6,6 +6,36 @@ import { resolve } from "node:path";
 import { updateActiveFileChecksums } from "../../application/owner-context-compaction.js";
 import { extractorRegistry } from "../../modules/index/parser/index.js";
 import { recordSourceMetadata } from "./source-metadata-receipts.js";
+import { emitDelegatedDiscoveryTelemetry, recordDelegationReceipt } from "./delegated-discovery-policy.js";
+
+const COMPACT_EVIDENCE_THRESHOLD = 12;
+const MAX_COMPACT_EVIDENCE_ITEMS = 16;
+
+// Business purpose: compacts symbol_map and code_graph entries when the evidence store contains many files to prevent token bloat.
+// Technical description: strips verbose summaries from symbol_map and bounds code_graph arrays when compactMode is enabled.
+function compactEvidenceEntry(entry, compactMode = false) {
+  if (!compactMode) return entry;
+  const compactSymbols = Array.isArray(entry.symbols)
+    ? entry.symbols.slice(0, 30)
+    : Array.isArray(entry.symbol_map)
+      ? [...new Set(entry.symbol_map.map((s) => s?.name).filter(Boolean))].slice(0, 30)
+      : undefined;
+  const compactSymbolMap = Array.isArray(entry.symbol_map)
+    ? entry.symbol_map.slice(0, 20).map(({ name, kind, start_line, end_line }) => ({ name, kind, start_line, end_line }))
+    : undefined;
+  const compactGraph = entry.code_graph && typeof entry.code_graph === "object"
+    ? {
+        ...(Array.isArray(entry.code_graph.imports) ? { imports: entry.code_graph.imports.slice(0, 8) } : {}),
+        ...(Array.isArray(entry.code_graph.imported_by) ? { imported_by: entry.code_graph.imported_by.slice(0, 8) } : {})
+      }
+    : undefined;
+  return {
+    ...entry,
+    ...(compactSymbols ? { symbols: compactSymbols } : {}),
+    ...(compactSymbolMap ? { symbol_map: compactSymbolMap } : {}),
+    ...(compactGraph ? { code_graph: compactGraph } : {})
+  };
+}
 
 export const subagentEvidenceDefinition = Object.freeze({
   name: "read_subagent_evidence",
