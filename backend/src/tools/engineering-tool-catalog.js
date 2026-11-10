@@ -2,7 +2,7 @@
 import { sourceReadDefinition } from "./discovery/source-read.js";
 import { queryReviewDefinition } from "./reporting/query-review-tool.js";
 import { lookupSchemaDefinition } from "./discovery/lookup-schema-tool.js";
-import { readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, gitLogDefinition, gitShowDefinition, gitBlameDefinition, gitBranchDefinition, gitRestoreDefinition, gitStashDefinition, runCommandDefinition, reportDoneDefinition, respondToReviewDefinition } from "./index.js";
+import { selectCodeGraphCandidatesDefinition, readFileDefinition, writeDiffDefinition, editDiffDefinition, gitStatusDefinition, gitDiffDefinition, gitLogDefinition, gitShowDefinition, gitBlameDefinition, gitBranchDefinition, gitRestoreDefinition, gitStashDefinition, runCommandDefinition, reportDoneDefinition, respondToReviewDefinition } from "./index.js";
 import { rgFilesDefinition, rgSearchDefinition } from "./governance/agent-command-tools.js";
 import { ownerSearchTreeDefinition } from "./roles/owner-search-tree.js";
 import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./roles/owner-engineer-tools.js";
@@ -28,7 +28,7 @@ export function engineeringToolDefinitions() {
     { ...rgFilesDefinition, name: "list_files", description: "List non-ignored project files with safe filters." },
     { ...rgSearchDefinition, name: "search_text", description: "Search project file contents with safe paths and filters." },
     readFileDefinition,
-    sourceReadDefinition, delegateSubagentDefinition, subagentEvidenceDefinition,
+    sourceReadDefinition, selectCodeGraphCandidatesDefinition, delegateSubagentDefinition, subagentEvidenceDefinition,
     writeDiffDefinition, editDiffDefinition, ownerDeleteFileDefinition, ownerMoveFileDefinition,
     gitStatusDefinition, gitDiffDefinition, gitLogDefinition, gitShowDefinition, gitBlameDefinition,
     gitBranchDefinition, gitRestoreDefinition, gitStashDefinition,

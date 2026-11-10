@@ -37,10 +37,12 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
       if (!activeJob) return false;
       onJobClaimed?.(activeJob);
       const symbol = database.all(
-        `SELECT summary FROM symbols WHERE symbol_id = ?`,
+        `SELECT s.summary, s.name, s.kind, f.path FROM symbols s LEFT JOIN files f ON f.file_id = s.file_id WHERE s.symbol_id = ?`,
         [activeJob.symbol_id]
       )[0];
-      const input = purposeSummaryInput(symbol?.summary);
+      const richInput = purposeSummaryInput({ summary: symbol?.summary, path: symbol?.path, name: symbol?.name, kind: symbol?.kind });
+      const plainInput = purposeSummaryInput(symbol?.summary);
+      const input = activeJob.content_checksum === plainInput?.checksum ? plainInput : richInput;
       if (!input) {
         jobs.supersede(activeJob.job_id);
         return true;
@@ -54,9 +56,11 @@ export function createEmbeddingWorker({ database, jobs, embeddingStore, embeddin
       // Publishes only while both the summary and claimed job remain current.
       // The synchronous transaction closes the cross-process check/write race.
       const publish = () => {
-        const current = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [activeJob.symbol_id])[0];
+        const current = database.all("SELECT s.summary, s.name, s.kind, f.path FROM symbols s LEFT JOIN files f ON f.file_id = s.file_id WHERE s.symbol_id = ?", [activeJob.symbol_id])[0];
         const job = database.all("SELECT status FROM embedding_jobs WHERE job_id = ?", [activeJob.job_id])[0];
-        if (purposeSummaryInput(current?.summary)?.checksum !== checksum || job?.status !== "processing") {
+        const currentRich = purposeSummaryInput({ summary: current?.summary, path: current?.path, name: current?.name, kind: current?.kind })?.checksum;
+        const currentPlain = purposeSummaryInput(current?.summary)?.checksum;
+        if ((currentRich !== checksum && currentPlain !== checksum) || job?.status !== "processing") {
           jobs.supersede(activeJob.job_id);
           return;
         }

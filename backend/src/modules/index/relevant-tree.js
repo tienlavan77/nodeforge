@@ -30,11 +30,21 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
     const limitedBase = () => Object.freeze({ ...base, tree: Object.freeze(base.tree.slice(0, requestedLimit)), limits: { ...base.limits, max_files: requestedLimit } });
     if (!embeddingStore || !embeddingProvider) return limitedBase();
     try {
-      const queryText = [args.title, args.objective].filter((value) => typeof value === "string" && value.trim()).join("\n").slice(0, 2000);
+      const criteria = Array.isArray(args.acceptanceCriteria) && args.acceptanceCriteria.length ? args.acceptanceCriteria : Array.isArray(args.acceptance_criteria) ? args.acceptance_criteria : [];
+      const guardrails = Array.isArray(args.guardrails) ? args.guardrails : [];
+      const queryText = [args.title, args.objective, args.query, ...criteria, ...guardrails].filter((value) => typeof value === "string" && value.trim()).join("\n").slice(0, 2000);
       if (!queryText.trim()) return limitedBase();
       const prefixes = base.allowed_prefixes ? [...base.allowed_prefixes] : undefined;
       const queryVector = await embeddingProvider.embed(queryText, { purpose: "query" });
-      const hits = embeddingStore.search(queryVector, { limit: maxFiles * 2, allowedPrefixes: prefixes, model: embeddingProvider.model });
+      const acQueryTexts = criteria.filter((value) => typeof value === "string" && value.trim()).slice(0, 4).map((ac) => [args.title, ac].filter(Boolean).join("\n").slice(0, 1000));
+      const queryVectors = [queryVector];
+      for (const acText of acQueryTexts) {
+        if (acText && acText !== queryText) {
+          const acVec = await embeddingProvider.embed(acText, { purpose: "query" });
+          if (Array.isArray(acVec) && acVec.length === queryVector.length) queryVectors.push(acVec);
+        }
+      }
+      const hits = embeddingStore.search(queryVector, { limit: maxFiles * 2, allowedPrefixes: prefixes, model: embeddingProvider.model, includeMatchedSymbols: true, queryVectors });
       if (!hits.length) return limitedBase();
       const lexicalWeight = readWeight(process.env.RETRIEVAL_LEXICAL_WEIGHT, 0.65);
       const semanticWeight = readWeight(process.env.RETRIEVAL_SEMANTIC_WEIGHT, 0.35);
@@ -50,8 +60,15 @@ export function createRelevantTreeSelector({ search, fileGraph, embeddingStore =
       for (const hit of hits) {
         const current = merged.get(hit.path);
         const semanticScore = normalize(Number(hit.score) || 0, semanticMin, semanticMax);
-        if (current) { current.score = current.score * lexicalWeight + semanticScore * semanticWeight; current.reasons.push("tier-semantic:embedding"); current.reason = current.reasons; }
-        else merged.set(hit.path, { path: hit.path, score: semanticScore * semanticWeight, reason: ["tier-semantic:embedding"], reasons: ["tier-semantic:embedding"], relations: [], node: { path: hit.path }, confidence: "static" });
+        const matchedSymbols = Array.isArray(hit.matched_symbols) ? hit.matched_symbols : [];
+        if (current) {
+          current.score = current.score * lexicalWeight + semanticScore * semanticWeight;
+          current.reasons.push("tier-semantic:embedding");
+          current.reason = current.reasons;
+          if (matchedSymbols.length) current.matched_symbols = matchedSymbols;
+        } else {
+          merged.set(hit.path, { path: hit.path, score: semanticScore * semanticWeight, reason: ["tier-semantic:embedding"], reasons: ["tier-semantic:embedding"], relations: [], node: { path: hit.path }, confidence: "static", ...(matchedSymbols.length ? { matched_symbols: matchedSymbols } : {}) });
+        }
       }
       const sorted = [...merged.values()].sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
       const tree = sorted.slice(0, requestedLimit);

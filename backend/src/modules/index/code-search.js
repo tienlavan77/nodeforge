@@ -7,7 +7,7 @@ import { tokenizeSearchText } from "./search-vocabulary.js";
 /** Minimal lexical search over indexed paths, metadata, and symbol names. */
 export function createCodeSearch({ database } = {}) {
   if (!database || typeof database.all !== "function") throw new ConfigurationError("Code Search requires an index database.");
-  return Object.freeze({ search, symbolsForFile, fileMetadata });
+  return Object.freeze({ search, symbolsForFile, fileMetadata, database });
 
   // Looks up one exact indexed file for cache freshness and agent file maps.
   function fileMetadata(path) {
