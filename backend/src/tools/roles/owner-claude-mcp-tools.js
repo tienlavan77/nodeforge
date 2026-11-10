@@ -25,6 +25,9 @@ export function claudeToolInputSchema(schema) {
   const input = structuredClone(schema);
   // Conditional selectors remain enforced by Forge; MCP requires an object field shape.
   delete input.oneOf;
+  // Candidate schemas forbid an undeclared path twice; remove only the redundant transport constraint.
+  if (input.additionalProperties === false && !Object.hasOwn(input.properties ?? {}, "path")
+    && input.not?.required?.length === 1 && input.not.required[0] === "path") delete input.not;
   for (const prop of Object.values(input?.properties ?? {})) {
     if (typeof prop?.pattern === "string" && prop.pattern.includes("(?!")) {
       delete prop.pattern;

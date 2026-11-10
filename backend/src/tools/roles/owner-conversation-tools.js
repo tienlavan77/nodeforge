@@ -12,17 +12,20 @@ import { createGitReadTools } from "../discovery/git-read-tools.js";
 import { createGitWorkflowTools } from "./git-workflow-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 import { createSourceReadTool } from "../discovery/source-read.js";
+import { createSelectCodeGraphCandidatesTool } from "../discovery/select-code-graph-candidates.js";
 import { createDelegateSubagentTool } from "../discovery/delegate-subagent-tool.js";
 import { createSubagentEvidenceTool } from "../discovery/subagent-evidence-tool.js";
 import { sharedSubagentEvidenceStore, syncToolResultToEvidenceStore } from "../discovery/subagent-evidence-sync.js";
 import { createLookupSchemaTool } from "../discovery/lookup-schema-tool.js";
+import { createTicketDirectiveInbox } from "../../modules/supervisor/ticket/ticket-directive-inbox.js";
+import { createSendExecutionDirectiveTool } from "../../modules/governance/conversation-directive-trigger.js";
 import { formatForgeToolActivitySummary } from "../../application/system-engineer-sdk-transcript.js";
 import { extractOwnerToolPathMeta, recordDiscoveryCompactStep, updateActiveFileChecksums } from "../../application/owner-context-compaction.js";
 
 // Creates the role-scoped Forge tool registry used by owner SDK conversations.
-export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, gitService, testService, commandService, conversationStateStore, conversationId, projectLogger, eventSink, context, delegateSubagentExecutor, evidenceStore = sharedSubagentEvidenceStore, readOnlyExplorer = false }) {
-  const explorerTools = ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame"];
-  const planningTools = ["search_tree", "list_files", "search_text", "read_file", "read_subagent_evidence", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "lookup_schema"];
+export function createOwnerConversationTools({ role, projectRoot, fileService, codeCache, codeSearch, relevantTreeSelector, freshnessChecker, gitService, testService, commandService, conversationStateStore, conversationId, projectLogger, eventSink, context, delegateSubagentExecutor, evidenceStore = sharedSubagentEvidenceStore, readOnlyExplorer = false }) {
+  const explorerTools = ["select_code_graph_candidates", "search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame"];
+  const planningTools = ["select_code_graph_candidates", "search_tree", "list_files", "search_text", "read_file", "read_subagent_evidence", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "lookup_schema"];
   const allowed = ownerRoleTools(role).filter((name) => (readOnlyExplorer ? explorerTools.includes(name) : true) && (!context?.planning_input_only || planningTools.includes(name)));
   const scopedFiles = createRoleFileService({ fileService, role, projectRoot });
   const scopedCache = codeCache && { ...codeCache, read: async ({ path }) => {
@@ -34,6 +37,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   const implementations = {
     read_subagent_evidence: createSubagentEvidenceTool({ evidenceStore, fileService: scopedFiles, codeCache: scopedCache, projectRoot }),
     lookup_schema: createLookupSchemaTool({ role }),
+    select_code_graph_candidates: createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker, fileService: scopedFiles, codeCache: scopedCache, projectRoot, evidenceStore }),
     ...base,
     search_tree: createOwnerSearchTreeTool({ fileService: scopedFiles, role }),
     read_file: createReadFileTool({ fileService: scopedFiles, codeCache: scopedCache, projectRoot, symbolLookup: codeSearch?.symbolsForFile?.bind(codeSearch) }),
@@ -95,10 +99,12 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
           ? result.observed_files.reduce((checksums, file) => updateActiveFileChecksums(checksums, { toolName: "read_file", step: { tool_name: "read_file", path: file.path }, result: { path: file.path, sha256: file.sha256, total_lines: file.total_lines } }), currentState.active_file_checksums)
           : definition.name === "read_subagent_evidence" && Array.isArray(result?.evidence)
             ? result.evidence.filter((file) => file.fresh).reduce((checksums, file) => updateActiveFileChecksums(checksums, { toolName: "read_file", step: { tool_name: "read_file", path: file.path }, result: { path: file.path, sha256: file.sha256, total_lines: file.total_lines } }), currentState.active_file_checksums)
-            : currentState.active_file_checksums;
+            : definition.name === "select_code_graph_candidates"
+              ? (result.selected ?? []).filter((file) => file.receipt?.status === "verified").reduce((checksums, file) => updateActiveFileChecksums(checksums, { toolName: "read_file", step: { tool_name: "read_file", path: file.path }, result: file }), currentState.active_file_checksums)
+              : currentState.active_file_checksums;
         const activeFileChecksums = discoveryUpdate?.active_file_checksums
           ?? (isMutating ? updateActiveFileChecksums(currentState.active_file_checksums, { toolName: definition.name, step: { tool_name: definition.name, ...stepMeta }, result }) : delegatedChecksums);
-        if (isMutating || discoveryUpdate || definition.name === "read_subagent_evidence" || definition.name === "collect_subagent_results") {
+        if (isMutating || discoveryUpdate || definition.name === "select_code_graph_candidates" || definition.name === "read_subagent_evidence" || definition.name === "collect_subagent_results") {
           const previous = currentState.owner_changed_paths ?? [];
           await conversationStateStore.update?.(conversationId, {
             ...(isMutating ? { owner_changed_paths: [...new Set([...previous, ...(toolContext.changed_paths ?? [])])], owner_last_commit_sha: null } : {}),

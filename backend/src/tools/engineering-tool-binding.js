@@ -41,7 +41,7 @@ export function bindEngineeringTools({ registry, context }) {
     if (!bound.read_only_enforced) {
       syncToolResultToEvidenceStore({ toolName: definition.name, input, result, context: bound, evidenceStore: sharedSubagentEvidenceStore, projectRoot: bound.project_root });
     }
-    if (definition.name === "read_subagent_evidence" && bound.active_file_checksums) {
+    if (["read_subagent_evidence", "select_code_graph_candidates"].includes(definition.name) && bound.active_file_checksums) {
       context.active_file_checksums = bound.active_file_checksums;
     }
     if (Array.isArray(bound.delegation_receipts)) {

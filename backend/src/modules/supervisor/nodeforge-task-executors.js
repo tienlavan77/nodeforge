@@ -39,7 +39,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const directCode = request.payload?.direct_code === true;
     const manifestPaths = immutableManifestPaths(request.execution_context);
     const immutableScope = manifestPaths.length > 0;
-    const candidateDiscoveryEnabled = selected.role !== "coder" && !directCode && !immutableScope;
+    const candidateDiscoveryEnabled = !directCode && !immutableScope;
     const targetPath = labMode?.target_path ?? null;
     const allowedPrefixes = immutableScope ? manifestPaths : [...new Set([...(labMode?.allowed_prefixes ?? []), ...ticketAllowedPrefixes(ticket), "backend/", "ui/", "schemas/", "web/"])];
     const allowedFilePaths = [...new Set([...(immutableScope ? manifestPaths : ["backend/package.json", ...resumeLedgerPaths(request)]), "workflows/agents/coder/README.md", "workflows/agents/reviewer/README.md", "AGENTS.md", "CLAUDE.md", "package.json", "vocabulary/glossary.md"])];
@@ -52,7 +52,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id, execution_id: executionId, project_root: projectRoot, execution_context: request.execution_context, resume_checkpoint: Boolean(request.payload?.resume_from),
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
-      capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "Read", "Glob", "Grep", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
+      capabilities: selected.role === "coder" && !labMode ? CODER_TOOL_NAMES.filter((name) => candidateDiscoveryEnabled || name !== "select_code_graph_candidates") : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "Read", "Glob", "Grep", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
       context_budget: selected.role === "coder" ? undefined : { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
       discovery_candidate_calls: selected.role === "coder" && !labMode ? undefined : complexity.candidate_calls,
@@ -121,7 +121,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const directCode = request.payload?.direct_code === true;
     const manifestPaths = immutableManifestPaths(request.execution_context);
     const immutableScope = manifestPaths.length > 0;
-    const candidateDiscoveryEnabled = selected.role !== "coder" && !directCode && !immutableScope;
+    const candidateDiscoveryEnabled = !directCode && !immutableScope;
     const targetPath = labMode?.target_path ?? null;
     const allowedPrefixes = immutableScope ? manifestPaths : [...new Set([...(labMode?.allowed_prefixes ?? []), ...ticketAllowedPrefixes(ticket), "backend/", "ui/", "schemas/", "web/"])];
     const allowedFilePaths = [...new Set([...(immutableScope ? manifestPaths : ["backend/package.json", ...resumeLedgerPaths(request)]), "workflows/agents/coder/README.md", "workflows/agents/reviewer/README.md", "AGENTS.md", "CLAUDE.md", "package.json", "vocabulary/glossary.md"])];
@@ -134,7 +134,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const context = runtimeGovernance.createExecutionContext({
       task_id: request.task_id, execution_id: executionId, project_root: projectRoot, execution_context: request.execution_context, resume_checkpoint: Boolean(request.payload?.resume_from),
       agent_identity: { agent_id: selected.agent_id, agent_name: selected.agent_name, role: selected.role, provider: selected.provider ?? null },
-      capabilities: selected.role === "coder" && !labMode ? [...CODER_TOOL_NAMES] : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
+      capabilities: selected.role === "coder" && !labMode ? CODER_TOOL_NAMES.filter((name) => candidateDiscoveryEnabled || name !== "select_code_graph_candidates") : [...(candidateDiscoveryEnabled ? ["select_code_graph_candidates"] : []), "search_code", "read_file", "rg_files", "rg_search", "sed_lines", "write_diff", "edit_diff", "run_test", "check_test", "git_status", "git_diff", "commit_changes", "report_done"],
       allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, changed_paths: [...resumeState.changedPaths],
       context_budget: selected.role === "coder" ? undefined : { max_bytes: 1000000, max_calls: 12 }, discovery_budget: complexity.discovery_budget,
       discovery_candidate_calls: selected.role === "coder" && !labMode ? undefined : complexity.candidate_calls,
@@ -153,7 +153,7 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
     const boundRegistry = binding.registry;
     const boundContext = binding.context;
     const definitions = selected.role === "coder" && !labMode
-      ? [...coderToolDefinitions()]
+      ? coderToolDefinitions().filter((definition) => candidateDiscoveryEnabled || definition.name !== "select_code_graph_candidates")
       : [...(candidateDiscoveryEnabled ? [selectCodeGraphCandidatesDefinition] : []), searchCodeDefinition, readFileDefinition, rgFilesDefinition, rgSearchDefinition, sedLinesDefinition, writeDiffDefinition, editDiffDefinition, runTestDefinition, checkTestDefinition, gitStatusDefinition, gitDiffDefinition, commitChangesDefinition, reportDoneDefinition];
     const forgeToolNames = new Set(definitions.map((definition) => definition.name));
     const codexToolEvents = [];

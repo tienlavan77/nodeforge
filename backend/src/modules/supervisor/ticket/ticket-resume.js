@@ -115,6 +115,11 @@ export function checkpointedRegistry({ store, registry, taskId, targetPath, allo
             : await tool.execute(input, context);
           if (selected?.role === "coder" && ["read_file", "Read", "sed_lines"].includes(name) && (input?.path === "workflows/agents/coder/README.md" || input?.file_path === "workflows/agents/coder/README.md" || input?.file_path?.endsWith("/workflows/agents/coder/README.md")) && (name === "sed_lines" ? result?.exit_code === 0 : typeof result?.content === "string")) state.coderRulesRead = true;
           if (["read_file", "Read", "sed_lines"].includes(name)) rememberRead(state.readCache, input, result);
+          if (name === "select_code_graph_candidates") {
+            for (const file of result?.selected ?? []) {
+              if (file.receipt?.status === "verified") rememberRead(state.readCache, { path: file.path }, file);
+            }
+          }
           if (name === "delegate_subagent" && Array.isArray(result?.observed_files)) {
             for (const file of result.observed_files) rememberRead(state.readCache, { path: file.path }, file);
           }
