@@ -174,13 +174,17 @@ test("Unified Agents Activity resolver formats multiple agents, missing optional
   const seDirectory = [...directory, { agent_id: "se-1", agent_name: "System Engineer", role: "system_engineer", project_id: "PROJ-A" }];
   const seActivities = resolveCodingAgentActivities([
     { event_id: "se-tool", event_type: "agent.activity", project_id: "PROJ-A", payload: { agent_id: "se-1", activity_type: "tool_completed", status: "success", summary: "Forge tool edit_diff success", tool_name: "edit_diff" } },
+    { event_id: "se-sub-tool", event_type: "agent.activity", project_id: "PROJ-A", payload: { agent_id: "se-1:sub:explore-1", parent_agent_id: "se-1", activity_type: "tool_completed", status: "success", summary: "[subagent:explore-1] read_file src/a.js (index/full)", tool_name: "read_file" } },
     { event_id: "se-turn", event_type: "agent.activity", project_id: "PROJ-A", payload: { agent_id: "se-1", agent_role: "system_engineer", activity_type: "progress", status: "working", summary: "System Engineer reply", sdk_event: { type: "conversation_turn", entries: [] } } }
   ], seDirectory, "PROJ-A");
-  assert.equal(seActivities.length, 1);
+  assert.equal(seActivities.length, 2);
   assert.equal(seActivities[0].agentName, "System Engineer");
   assert.equal(seActivities[0].role, "system_engineer");
   assert.equal(seActivities[0].activityType, "tool completed");
   assert.equal(seActivities[0].status, "success");
+  assert.equal(seActivities[1].agentName, "System Engineer [sub:explore-1]");
+  assert.equal(seActivities[1].role, "system_engineer");
+  assert.equal(seActivities[1].tone, seActivities[0].tone);
 
   assert.match(monitor, /latestWatcherKey/);
   assert.match(monitor, /latestActivityKey/);

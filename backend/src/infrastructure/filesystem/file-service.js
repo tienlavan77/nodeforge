@@ -22,7 +22,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
   const secretMatch = picomatch(secretPatterns, { dot: true });
   const ignoreMatch = picomatch(watcherIgnore, { dot: true });
   let queue = Promise.resolve();
-  return Object.freeze({ forRole, writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, moveFile: renameFile, listFiles, listDirectories });
+  return Object.freeze({ forRole, resolveStoragePath: (path) => runtimeStoragePath(root, path), writeFile, atomicCreate, atomicWrite, atomicWriteSync, appendFile, appendFileSync, createLock, createLockSync, readFile, readFileSync, readFileRangeSync, readForIndex, deleteFile, removeEmptyDirectory, renameFile, moveFile: renameFile, listFiles, listDirectories });
   /** Retains Node's project root, event hooks and storage mapping while giving
    * ticket file services the configured role's filesystem authority. The role
    * is chosen by Node wiring, never by an agent tool argument. */
@@ -256,7 +256,7 @@ export function createFileService({ projectRoot, secretPatterns = DEFAULT_SECRET
     const absolute = resolve(root, path);
     const rel = relative(root, absolute).split(sep).join("/");
     const forgeAccess = (role === "system_engineer" || ["reviewer", "architecture_manager"].includes(role) && !write) && (rel === ".forge" || rel.startsWith(".forge/") || isProjectGitkeepPath(rel)) || role === "coder"; const runtimePath = rel === FORGE_STATE_DIR || rel.startsWith(STATE_DIR_PREFIX);
-    const planPath = allowPlanStorage && /^\.forge\/runtime\/nf\/(?:planning\/)?plans\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:[1-9][0-9]*\.(?:json|md)|ke-hoach-r[1-9][0-9]*\.md|(?:revision|decision|markdown|markdown-decision)\.lock)$/.test(rel);
+    const planPath = allowPlanStorage && /^\.forge\/runtime\/nf\/(?:planning\/)?plans\/[A-Za-z0-9][A-Za-z0-9._-]*\/(?:[1-9][0-9]*\.(?:json|md)|plan-source-r[1-9][0-9]*\.json|conversation-intake\.json|ke-hoach-r[1-9][0-9]*\.md|(?:revision|decision|markdown|markdown-decision)\.lock)$/.test(rel);
     const summaryPath = allowPlanStorage && /^workflows\/\.nodeforge-summary-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(rel);
     if (isAbsolute(path) || !rel || rel.startsWith("..") || (!planPath && !summaryPath && isProtectedPath(rel, { operation: write ? "write" : "read", role })) || (!forgeAccess && secretMatch(rel)) || (ignoreMatch(rel) && !forgeAccess && !runtimePath && !planPath && !summaryPath)) {
       throw new ConfigurationError("Refusing unsafe, ignored, or secret project path.");

@@ -70,7 +70,8 @@ export function createRoleFileService({ fileService, role, projectRoot }) {
     }
   }
   return Object.freeze({
-    listTree: (input) => listAgentFileTree({ ...input, projectRoot, assertReadPath: (path) => checkPath("read", path) }),
+    resolveStoragePath: (path) => (forgeFiles ?? fileService)?.resolveStoragePath ? (forgeFiles ?? fileService).resolveStoragePath(path) : path,
+    listTree: (input) => listAgentFileTree({ ...input, projectRoot, assertReadPath: (path) => checkPath("read", path), resolvePath: (path) => typeof path === "string" && path.startsWith(".forge/runtime/") && (forgeFiles ?? fileService)?.resolveStoragePath ? (forgeFiles ?? fileService).resolveStoragePath(path) : path }),
     assertReadPath: async (path) => checkPath("read", path),
     readFile: async (input) => { await checkPath("read", input?.path); return role !== "coder" && isDependencyPath(input?.path) ? (await readDependencyFile({ projectRoot, ...input })).content : serviceFor(input?.path).readFile(input); },
     readForIndex: async (input) => {

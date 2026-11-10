@@ -16,6 +16,8 @@ test("filters project agent activities by configured role", () => {
   assert.deepEqual(monitorAgentActivities(activities, agents, "system_engineer"), [activities[1]]);
   assert.deepEqual(monitorAgentActivities(activities, agents, ["coder", "reviewer", "sprint_leader"]), [activities[2]]);
   assert.deepEqual(monitorAgentActivities(activities, [], "system_engineer"), []);
+  const subagentEvent = { payload: { agent_id: "engineer:sub:worker-1", parent_agent_id: "engineer" } };
+  assert.deepEqual(monitorAgentActivities([subagentEvent], agents, "system_engineer", "engineer"), [subagentEvent]);
 });
 
 // Shows only the selected agent, including when switching between agents sharing the same role.

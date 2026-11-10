@@ -23,7 +23,7 @@ export function formatHumanReadableHandoffBrief(planJson, { planId, revision = 1
     `**Phương thức kiểm thử & nghiệm thu:** ${planJson?.verification ?? "Chạy kiểm thử đơn vị và kiểm tra tĩnh cho các file thay đổi."}`, "",
     "### 5. Mời System Engineer phản biện kế hoạch",
     "Mời **System Engineer (SE)** khảo sát nhanh các file mã nguồn liên quan và cho ý kiến phản biện kỹ thuật (tính khả thi, điểm xung đột với code hiện tại, rủi ro hoặc đề xuất cải thiện cấu trúc `outcomes`/`guardrails`) trước khi chốt phương án giao việc. Kết thúc phản hồi bằng `[CRITIQUE: ALIGNED]` nếu đã đồng thuận hoặc `[CRITIQUE: DISCUSS]` nếu cần điều chỉnh.",
-    ...(planSourcePath ? ["", `_Hồ sơ kế hoạch gốc: ${planSourcePath}_`] : [])
+    ...(planSourcePath ? ["", `Hồ sơ kế hoạch gốc: \`${planSourcePath}\``] : [])
   ].join("\n");
 }
 

@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { isDependencyPath } from "./dependency-read.js";
 
 // Stops traversal at the requested depth or result budget, checking cancellation between directory entries.
-export async function listAgentFileTree({ projectRoot, path = ".", maxDepth, limit, signal, assertReadPath }) {
+export async function listAgentFileTree({ projectRoot, path = ".", maxDepth, limit, signal, assertReadPath, resolvePath }) {
   signal?.throwIfAborted();
-  if (path !== ".") await assertReadPath(path);
+  const effectivePath = path === "." || typeof resolvePath !== "function" ? path : resolvePath(path);
+  if (effectivePath !== ".") await assertReadPath(effectivePath);
   const entries = [];
-  await scan(path === "." ? "" : path, 1);
+  await scan(effectivePath === "." ? "" : effectivePath, 1);
   const truncated = entries.length > limit;
   return { root: path, entries: entries.slice(0, limit).sort((a, b) => a.path.localeCompare(b.path)), total: entries.length, truncated, ...(truncated ? { total_is_lower_bound: true } : {}) };
 
