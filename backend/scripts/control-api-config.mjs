@@ -16,7 +16,8 @@ function resolveProjectCatalogPath(raw) {
 export function readControlApiConfig({ cwd = process.cwd(), env = process.env } = {}) {
   const runtimeRoot = join(cwd, ".forge", "runtime");
   const dataDir = env.NODE_CONTROL_DATA_DIR ?? join(runtimeRoot, "nf");
-  const projectCatalogPath = resolveProjectCatalogPath(env.NODEFORGE_PROJECT_CATALOG_PATH);
+  const configuredCatalogPath = env.NODEFORGE_PROJECT_CATALOG_PATH ?? join(cwd, ".nodeforge", "catalog", "projects.json");
+  const projectCatalogPath = resolveProjectCatalogPath(configuredCatalogPath);
   return Object.freeze({
     projectCatalogPath,
     catalogPath: projectCatalogPath,

@@ -107,7 +107,8 @@ export function createAmSeHandoffService({
     if (!record || !cp || record.phase !== "plan_critique") throw Object.assign(new ConfigurationError("Critique checkpoint is unavailable."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
     const planJson = parseArchitecturePlanJSON(await fileService.readFile({ path: record.plan_source_path }));
     const previousSe = cp.results.find((item) => item.step === "se" && item.round === cp.round);
-    const brief = formatHumanReadableHandoffBrief(planJson, { planId: record.plan_id, revision: record.plan_revision, planSourcePath: record.plan_source_path, deliveryTarget: record.delivery_target });
+    const displaySourcePath = typeof fileService?.resolveStoragePath === "function" ? fileService.resolveStoragePath(record.plan_source_path) : record.plan_source_path;
+    const brief = formatHumanReadableHandoffBrief(planJson, { planId: record.plan_id, revision: record.plan_revision, planSourcePath: displaySourcePath, deliveryTarget: record.delivery_target });
     const step = cp.next_step ?? cp.current_step;
     const prompt = step === "se"
       ? `${brief}\n\n[Giai đoạn 1 - Resume phản biện kế hoạch, vòng ${cp.round}/${record.max_critique_rounds}]: Hãy phản biện kỹ thuật kế hoạch và kết thúc bằng [CRITIQUE: ALIGNED] hoặc [CRITIQUE: DISCUSS].`
@@ -149,7 +150,8 @@ export function createAmSeHandoffService({
     const rvConversationId = `CONV-RV-${currentPlan.plan_id}`;
 
     let record = await store.create({ handoffId: `HANDOFF-${currentPlan.plan_id}-R${currentPlan.revision}`, planId: currentPlan.plan_id, planRevision: currentPlan.revision, planSha256: currentPlan.sha256, planSourcePath: currentPlan.source_path, deliveryTarget: target, sourceKind: intake.source_kind ?? "conversation", sourceFilePath: intake.source_file_path ?? null, workspaceScopePaths: intake.workspace_scope_paths, approvalMode, amAgentId: amProfile.agent_id, seAgentId: seProfile.agent_id, rvAgentId: rvProfile.agent_id, amConversationId: conversationId, seConversationId, rvConversationId, phase: "plan_critique", status: "critiquing", maxCritiqueRounds, maxRounds });
-    const brief = formatHumanReadableHandoffBrief(currentPlanJson, { planId: currentPlan.plan_id, revision: currentPlan.revision, sourceKind: record.source_kind, sourceFilePath: record.source_file_path, planSourcePath: currentPlan.source_path, deliveryTarget: target });
+    const displaySourcePath = typeof fileService?.resolveStoragePath === "function" ? fileService.resolveStoragePath(currentPlan.source_path) : currentPlan.source_path;
+    const brief = formatHumanReadableHandoffBrief(currentPlanJson, { planId: currentPlan.plan_id, revision: currentPlan.revision, sourceKind: record.source_kind, sourceFilePath: record.source_file_path, planSourcePath: displaySourcePath, deliveryTarget: target });
     const correlationBase = `CORR-HANDOFF-${currentPlan.plan_id}`;
     publishDualConversationMessage({ sender: { id: amProfile.agent_id, role: "architecture_manager" }, recipient: { id: seProfile.agent_id, role: "system_engineer" }, messageType: "architecture.message.received", amConversationId: conversationId, seConversationId, correlationId: `${correlationBase}-BRIEF`, text: brief, extraPayload: { handoff_id: record.handoff_id, plan_id: currentPlan.plan_id, phase: "plan_critique" } });
 

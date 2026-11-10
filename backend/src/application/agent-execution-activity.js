@@ -84,15 +84,19 @@ export function createAgentExecutionActivity({ projectId, eventBus, logger = con
     const toolName = entry.payload?.tool;
     const phase = { started: "tool_started", success: "tool_completed", failed: "tool_failed" }[entry.status];
     if (typeof agentId !== "string" || typeof toolName !== "string" || !phase) return;
-    const running = [...active.values()].filter((event) => event.payload.agent_id === agentId);
-    const suppliedCorrelation = entry.correlation_id ?? entry.payload?.execution_id;
-    const run = running.find((event) => event.correlation_id === suppliedCorrelation) ?? (running.length === 1 ? running[0] : null);
-    const correlationId = run?.correlation_id ?? suppliedCorrelation;
+    const baseAgentId = agentId.includes(":sub:") ? agentId.split(":sub:")[0] : agentId;
+    const subagentLabel = agentId.includes(":sub:") ? agentId.split(":sub:").at(-1) : null;
+    const running = [...active.values()].filter((event) => event.payload.agent_id === agentId || event.payload.agent_id === baseAgentId);
+    const rawCorrelation = entry.correlation_id ?? entry.payload?.execution_id;
+    const baseCorrelation = typeof rawCorrelation === "string" && rawCorrelation.includes(":sub:") ? rawCorrelation.split(":sub:")[0] : rawCorrelation;
+    const run = running.find((event) => event.correlation_id === rawCorrelation || event.correlation_id === baseCorrelation) ?? (running.length === 1 ? running[0] : null);
+    const correlationId = run?.correlation_id ?? baseCorrelation ?? rawCorrelation;
     const code = entry.error_code ?? entry.payload?.error_code ?? entry.payload?.error?.code;
     const errorCode = entry.status === "failed" && typeof code === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : null;
     const pending = toolName === "report_done" && errorCode === "VERIFY_RECOVERY_PENDING";
-    const summary = pending ? "Node verification is still running; wait for Node to return the result."
+    const baseSummary = pending ? "Node verification is still running; wait for Node to return the result."
       : formatCodingToolSummary(toolName, entry.status, entry.payload, errorCode);
+    const summary = subagentLabel ? `[subagent:${subagentLabel}] ${baseSummary}` : baseSummary;
     publish({ agentId, correlationId, phase: pending ? "tool_started" : phase, toolName, summary });
   };
   return publish;

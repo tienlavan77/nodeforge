@@ -60,3 +60,42 @@ test("delegate_subagent validates before spawning and enforces the per-turn quot
   assert.equal(spawned, 0);
   await assert.rejects(() => tool.execute({ tasks: [{ id: "../escape", objective: "unsafe" }] }, {}), /unique safe identifiers/);
 });
+
+test("asynchronous delegate_subagent returns delegation_id immediately, reports progress, and collects at barrier", async () => {
+  const gates = new Map();
+  const tool = createDelegateSubagentTool({
+    asynchronous: true,
+    executeTask: async (task) => {
+      await new Promise((resolve) => { gates.set(task.id, resolve); });
+      return {
+        summary: `done-${task.id}`,
+        observed_files: [{ path: `src/${task.id}.js`, sha256: "sha256:" + "c".repeat(64), symbols_read: [task.id] }],
+        subagent_usage: { input_tokens: 10 }
+      };
+    }
+  });
+  const context = { conversation_id: "conv-1", execution_id: "exec-1", agent_identity: { agent_id: "se-1" } };
+  const accepted = await tool.execute({ tasks: [{ id: "fast", objective: "explore fast" }, { id: "slow", objective: "explore slow" }] }, context);
+  assert.equal(accepted.status, "accepted");
+  assert.equal(accepted.delegation_id, "exec-1:delegation:1");
+  assert.equal(accepted.tasks_started, 2);
+
+  gates.get("fast")();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  const midStatus = await tool.statusTool.execute({ delegation_id: accepted.delegation_id }, context);
+  assert.equal(midStatus.status, "running");
+  assert.equal(midStatus.tasks_completed, 1);
+
+  const partial = await tool.collectTool.execute({ delegation_id: accepted.delegation_id, wait: false }, context);
+  assert.equal(partial.status, "partial");
+  assert.equal(partial.tasks_completed, 1);
+
+  setTimeout(() => gates.get("slow")(), 10);
+  const collected = await tool.collectTool.execute({ delegation_id: accepted.delegation_id, wait: true, timeout_ms: 1000 }, context);
+  assert.equal(collected.status, "completed");
+  assert.equal(collected.tasks_completed, 2);
+  assert.equal(collected.observed_files.length, 2);
+  assert.equal(context.observed_files.length, 2);
+  assert.equal(context.subagent_usage, 20);
+});

@@ -50,18 +50,32 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   }
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId, logger: { emit: (ev) => projectLogger?.({ timestamp: new Date().toISOString(), ...ev }) } }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
-  if (typeof delegateSubagentExecutor === "function") implementations.delegate_subagent = createDelegateSubagentTool({ executeTask: delegateSubagentExecutor, evidenceStore });
-  const baseDefinitions = engineeringToolDefinitions();
+  // Keeps the delegation contract available for resumed and legacy conversations.
+  // Business purpose: an older conversation must retain the same subagent capability after
+  // API restart; technical fallback reports unavailable execution instead of hiding the tool.
+  const effectiveDelegateExecutor = typeof delegateSubagentExecutor === "function"
+    ? delegateSubagentExecutor
+    : async () => ({ status: "fallback_to_parent", fallback_to_parent: true, reason: "SUBAGENT_EXECUTOR_UNAVAILABLE" });
+  const delegateTool = createDelegateSubagentTool({ executeTask: effectiveDelegateExecutor, evidenceStore, asynchronous: Boolean(context?.async_subagents) });
+  implementations.delegate_subagent = delegateTool;
+  implementations.get_subagent_status = delegateTool.statusTool;
+  implementations.collect_subagent_results = delegateTool.collectTool;
+  const asyncDefinitions = context?.async_subagents && allowed.includes("delegate_subagent")
+    ? [delegateTool.statusTool.definition, delegateTool.collectTool.definition]
+    : [];
+  const baseDefinitions = [...engineeringToolDefinitions(), ...asyncDefinitions];
   const definitions = baseDefinitions.map((definition) => role === "system_engineer" && definition.name === "search_text" ? { ...definition, input_schema: { ...definition.input_schema, properties: { ...definition.input_schema.properties, paths: { type: "array", minItems: 1, items: { type: "string", pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*|\\.forge(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*)$" } } } } } : definition)
-    .filter(({ name }) => allowed.includes(name) && typeof implementations[name]?.execute === "function");
+    .filter(({ name }) => (allowed.includes(name) || asyncDefinitions.some((item) => item.name === name)) && typeof implementations[name]?.execute === "function");
   const registry = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input, toolContext = context) => {
     const started = Date.now();
     const log = (status, error, result) => {
       const timestamp = new Date().toISOString();
       projectLogger?.({ timestamp, event_name: "owner.tool_call", level: error ? "error" : "info", status, message: `Owner Forge tool ${definition.name} ${status}.`, task_id: toolContext.task_id, correlation_id: toolContext.correlation_id, conversation_id: toolContext.conversation_id ?? conversationId, source: "owner-conversation-tools", ...(error ? { error_code: error.code ?? "TOOL_EXECUTION_FAILED" } : {}), payload: { tool: definition.name, agent_id: toolContext.agent_identity?.agent_id, agent_name: toolContext.agent_identity?.agent_name, agent_role: role, provider: toolContext.agent_identity?.provider, ...(status !== "started" ? { duration_ms: Date.now() - started } : {}), ...(typeof input?.path === "string" ? { path: input.path } : {}), ...(error ? { error_message: String(error.message ?? "").slice(0, 240), input_keys: Object.keys(input ?? {}), offset: Number.isInteger(input?.offset) ? input.offset : null, limit: Number.isInteger(input?.limit) ? input.limit : null, symbol_state: input?.symbol == null ? "absent" : input.symbol === "" ? "empty" : "named" } : {}), ...(result ? { result: summarizeResult(result) } : {}) } });
       const summarized = result ? summarizeResult(result) : undefined;
-      const summaryText = formatForgeToolActivitySummary(definition.name, input, status, summarized, status !== "started" ? Date.now() - started : undefined, error?.code);
-      if (typeof toolContext.agent_identity?.agent_id === "string") eventSink?.({ event_type: "agent.activity", task_id: toolContext.task_id, conversation_id: toolContext.conversation_id ?? conversationId, timestamp, payload: { agent_id: toolContext.agent_identity.agent_id, conversation_id: toolContext.conversation_id ?? conversationId, correlation_id: toolContext.correlation_id, activity_type: status === "started" ? "tool_started" : error ? "tool_failed" : "tool_completed", status: status === "started" ? "working" : error ? "failed" : "success", summary: summaryText, tool_name: definition.name } });
+      const subagentLabel = toolContext.subagentId ?? (typeof toolContext.agent_identity?.agent_id === "string" && toolContext.agent_identity.agent_id.includes(":sub:") ? toolContext.agent_identity.agent_id.split(":sub:").at(-1) : null);
+      const baseSummary = formatForgeToolActivitySummary(definition.name, input, status, summarized, status !== "started" ? Date.now() - started : undefined, error?.code);
+      const summaryText = subagentLabel ? `[subagent:${subagentLabel}] ${baseSummary}` : baseSummary;
+      if (typeof toolContext.agent_identity?.agent_id === "string") eventSink?.({ event_type: "agent.activity", task_id: toolContext.task_id, conversation_id: toolContext.conversation_id ?? conversationId, timestamp, payload: { agent_id: toolContext.agent_identity.agent_id, ...(toolContext.agent_identity.parent_agent_id ? { parent_agent_id: toolContext.agent_identity.parent_agent_id, subagent_id: toolContext.agent_identity.agent_id } : {}), conversation_id: toolContext.conversation_id ?? conversationId, correlation_id: toolContext.correlation_id, activity_type: status === "started" ? "tool_started" : error ? "tool_failed" : "tool_completed", status: status === "started" ? "working" : error ? "failed" : "success", summary: summaryText, tool_name: definition.name } });
     };
     try {
       log("started");
@@ -76,19 +90,20 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
         const isMutating = ["write_diff", "edit_diff", "delete_file", "move_file"].includes(definition.name);
         const discoveryUpdate = recordDiscoveryCompactStep(currentState, { toolName: definition.name, input, result });
         const stepMeta = extractOwnerToolPathMeta(definition.name, input);
-        const delegatedChecksums = definition.name === "delegate_subagent" && Array.isArray(result?.observed_files)
+        const isDelegationResult = definition.name === "delegate_subagent" || definition.name === "collect_subagent_results";
+        const delegatedChecksums = isDelegationResult && Array.isArray(result?.observed_files)
           ? result.observed_files.reduce((checksums, file) => updateActiveFileChecksums(checksums, { toolName: "read_file", step: { tool_name: "read_file", path: file.path }, result: { path: file.path, sha256: file.sha256, total_lines: file.total_lines } }), currentState.active_file_checksums)
           : definition.name === "read_subagent_evidence" && Array.isArray(result?.evidence)
             ? result.evidence.filter((file) => file.fresh).reduce((checksums, file) => updateActiveFileChecksums(checksums, { toolName: "read_file", step: { tool_name: "read_file", path: file.path }, result: { path: file.path, sha256: file.sha256, total_lines: file.total_lines } }), currentState.active_file_checksums)
             : currentState.active_file_checksums;
         const activeFileChecksums = discoveryUpdate?.active_file_checksums
           ?? (isMutating ? updateActiveFileChecksums(currentState.active_file_checksums, { toolName: definition.name, step: { tool_name: definition.name, ...stepMeta }, result }) : delegatedChecksums);
-        if (isMutating || discoveryUpdate || definition.name === "read_subagent_evidence") {
+        if (isMutating || discoveryUpdate || definition.name === "read_subagent_evidence" || definition.name === "collect_subagent_results") {
           const previous = currentState.owner_changed_paths ?? [];
           await conversationStateStore.update?.(conversationId, {
             ...(isMutating ? { owner_changed_paths: [...new Set([...previous, ...(toolContext.changed_paths ?? [])])], owner_last_commit_sha: null } : {}),
             ...(activeFileChecksums ? { active_file_checksums: activeFileChecksums } : {}),
-            ...(definition.name === "delegate_subagent" ? { subagent_usage: result?.subagent_usage ?? 0 } : {}),
+            ...(isDelegationResult && result?.subagent_usage !== undefined ? { subagent_usage: result?.subagent_usage ?? 0 } : {}),
             ...(discoveryUpdate?.discovery_receipts ? { discovery_receipts: discoveryUpdate.discovery_receipts } : {})
           });
         }
