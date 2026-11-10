@@ -48,9 +48,12 @@ export function resolveCodingAgentActivities(agentActivities = [], agentDirector
   }).map((event, index) => {
     const payload = event.payload ?? {};
     const agentId = payload.agent_id ?? event.agent_id ?? payload.agentId;
-    const profile = (projectId && agentId ? codingAgentProfile(agents, agentId, projectId) : null) ?? agents.find((agent) => (agent?.agent_id ?? agent?.id) === agentId) ?? null;
-    const resolvedName = profile?.agent_name ?? profile?.name ?? profile?.label ?? event.agent_name ?? payload.agent_name ?? agentDisplayName(agentId, agents);
-    const identityKey = String(agentId ?? profile?.role ?? resolvedName ?? "agent");
+    const baseAgentId = typeof agentId === "string" && agentId.includes(":sub:") ? agentId.split(":sub:")[0] : agentId;
+    const subagentSuffix = typeof agentId === "string" && agentId.includes(":sub:") ? agentId.split(":sub:").at(-1) : "";
+    const profile = (projectId && agentId ? codingAgentProfile(agents, agentId, projectId) : null) ?? agents.find((agent) => (agent?.agent_id ?? agent?.id) === agentId || (agent?.agent_id ?? agent?.id) === baseAgentId) ?? null;
+    const baseName = profile?.agent_name ?? profile?.name ?? profile?.label ?? event.agent_name ?? payload.agent_name ?? agentDisplayName(baseAgentId, agents);
+    const resolvedName = subagentSuffix ? `${baseName} [sub:${subagentSuffix}]` : baseName;
+    const identityKey = String(baseAgentId ?? profile?.role ?? baseName ?? "agent");
     const tone = resolveCodingAgentTone(identityKey, profile?.color ?? profile?.agent_color);
     const activityType = String(payload.activity_type ?? event.activity_type ?? "activity").replaceAll("_", " ");
     const status = String(payload.status ?? event.status ?? "working");

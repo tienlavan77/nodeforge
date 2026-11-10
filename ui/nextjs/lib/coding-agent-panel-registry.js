@@ -13,7 +13,8 @@ export function codingAgentPanelKey(projectId, agentId) {
 
 // Resolve only a unique directory profile with consistent existing agent identity evidence.
 export function codingAgentProfile(agents, agentId, projectId) {
-  const matches = agents.filter((agent) => agent && (agent.agent_id === agentId || agent.id === agentId));
+  const baseId = typeof agentId === "string" && agentId.includes(":sub:") ? agentId.split(":sub:")[0] : agentId;
+  const matches = agents.filter((agent) => agent && (agent.agent_id === agentId || agent.id === agentId || agent.agent_id === baseId || agent.id === baseId));
   if (matches.length !== 1) return null;
   const profile = matches[0];
   if (!validId(agentId) || (profile.agent_id !== undefined && profile.id !== undefined && profile.agent_id !== profile.id)) return null;

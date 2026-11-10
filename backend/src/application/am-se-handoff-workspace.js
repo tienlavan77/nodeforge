@@ -29,12 +29,13 @@ export async function handoffWorkspaceSnapshot({ gitService, fileService, projec
     const state = item.slice(0, 2);
     const path = item.slice(3);
     if (!path || path.startsWith("/") || path.split("/").includes("..") || path.includes("\\")) unsafe();
-    const ignored = path === ".forge" || path.startsWith(".forge/") || path === "node_modules" || path.startsWith("node_modules/");
+    const isIgnoredPath = (p) => p === ".forge" || p.startsWith(".forge/") || p === "node_modules" || p.startsWith("node_modules/") || p.split("/").some((part) => part === ".next" || part === "dist" || part === "build" || part === "coverage" || part === ".claude");
+    const ignored = isIgnoredPath(path);
     if (!ignored && !path.endsWith("/")) paths.push({ path, deleted: state.includes("D") && !state.includes("M") && !state.includes("A") });
     if (state.includes("R") || state.includes("C")) {
       const oldPath = entries[++i];
       if (!oldPath || oldPath.startsWith("/") || oldPath.split("/").includes("..")) unsafe();
-      const oldIgnored = oldPath === ".forge" || oldPath.startsWith(".forge/") || oldPath === "node_modules" || oldPath.startsWith("node_modules/");
+      const oldIgnored = isIgnoredPath(oldPath);
       if (!oldIgnored && !oldPath.endsWith("/")) paths.push({ path: oldPath, deleted: true });
     }
   }
