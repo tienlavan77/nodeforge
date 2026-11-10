@@ -133,10 +133,7 @@ function roleStateFor(scope = {}) {
 // Business purpose: persists the current role store snapshot to disk under .forge/runtime/nf/evidence-stores/<projectId>/.
 // Technical description: serializes workers, evidence, and linked scopes into JSON when a project file path is available.
 function persistRoleState(state, scope = {}) {
-  if (!state?.filePath) {
-    if (state?.last_durability_error) return false;
-    return false;
-  }
+  if (!state?.filePath) return false;
   try {
     writeFileSync(state.filePath, JSON.stringify({ project_id: state.project_id, role: state.role, version: state.version, updated_at: new Date().toISOString(), scopes: [...state.scopes], workers: [...state.workers.values()], evidence: [...state.evidence.values()] }, null, 2), "utf8");
     return true;
@@ -191,7 +188,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       roleState.workers.set(workerId, worker);
       for (const token of scopeTokens(input)) roleState.scopes.add(token);
       persistRoleState(roleState, input);
-      eventSink?.({ event_type: "agent.activity", conversation_id: conversationId, payload: { activity_type: "subagent_started", agent_type: "subagent", status: "working", subagent_id: workerId, parent_agent_id: parentAgentId, delegation_id: delegationId } });
+      eventSink?.({ event_type: "agent.activity", conversation_id: conversationId, payload: { agent_id: workerId, activity_type: "tool_started", agent_type: "subagent", status: "working", summary: `[subagent:${String(workerId ?? "subagent").split(":sub:").at(-1)}] ${String(objective ?? "Exploring repository").slice(0, 240)}`, tool_name: "delegate_subagent", subagent_id: workerId, parent_agent_id: parentAgentId, delegation_id: delegationId } });
     },
     heartbeat({ conversationId, delegationId, workerId } = {}) {
       const worker = stateFor(conversationId, delegationId).workers.get(workerId);
@@ -206,6 +203,8 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
         const worker = state.workers.get(workerId) ?? roleState.workers.get(workerId) ?? { worker_id: workerId, parent_agent_id: parentAgentId, role: roleState.role, agent_type: "subagent" };
         const nextVersion = Math.max(state.version, roleState.version) + 1;
         const { planId, handoffId } = inferPlanAndHandoff(input);
+        const nowIso = new Date().toISOString();
+        const isFallback = status === "fallback_to_parent";
         const evidence = observedFiles.filter((file) => file?.path && file?.sha256).map((file) => ({
           path: file.path, sha256: file.sha256,
           ...(Number.isInteger(file.total_lines) ? { total_lines: file.total_lines } : {}),
@@ -213,21 +212,85 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
           ...(Array.isArray(file.symbol_map) ? { symbol_map: file.symbol_map } : {}),
           ...(file.code_graph ? { code_graph: file.code_graph } : {}),
           symbols_read: [...new Set(file.symbols_read ?? [])],
-          source_worker_id: workerId, source_role: roleState.role, conversation_id: conversationId ?? null, delegation_id: delegationId ?? null, plan_id: planId, handoff_id: handoffId, updated_at: new Date().toISOString(), version: nextVersion
+          parent_execution_id: file.parent_execution_id ?? input.parentExecutionId ?? delegationId ?? null,
+          child_execution_id: file.child_execution_id ?? `${delegationId ?? "delegation"}:sub:${workerId}`,
+          child_agent_id: file.child_agent_id ?? workerId,
+          source_tool: file.source_tool ?? "read_file",
+          observed_at: file.observed_at ?? nowIso,
+          read_only_enforced: true,
+          provenance: {
+            delegation_id: delegationId ?? null,
+            parent_execution_id: file.parent_execution_id ?? input.parentExecutionId ?? delegationId ?? null,
+            child_execution_id: file.child_execution_id ?? `${delegationId ?? "delegation"}:sub:${workerId}`,
+            child_agent_id: file.child_agent_id ?? workerId,
+            source_worker_id: workerId,
+            source_role: roleState.role,
+            source_tools: [file.source_tool ?? "read_file"],
+            observed_at: file.observed_at ?? nowIso,
+            read_only_enforced: true,
+            ...(isFallback ? { fallback_to_parent: true } : {})
+          },
+          source_worker_id: workerId, source_role: roleState.role, conversation_id: conversationId ?? null, delegation_id: delegationId ?? null, plan_id: planId, handoff_id: handoffId, updated_at: nowIso, version: nextVersion
         }));
         for (const item of evidence) {
-          state.evidence.set(item.path, item);
-          const prev = roleState.evidence.get(item.path);
-          roleState.evidence.set(item.path, { ...prev, ...item, symbols_read: [...new Set([...(prev?.symbols_read ?? []), ...(item.symbols_read ?? [])])], ...(item.symbol_map ? { symbol_map: item.symbol_map } : prev?.symbol_map ? { symbol_map: prev.symbol_map } : {}) });
+          const prev = roleState.evidence.get(item.path) ?? state.evidence.get(item.path);
+          const shaChanged = prev && prev.sha256 !== item.sha256;
+          const mergedEntry = {
+            ...(shaChanged ? {} : prev),
+            ...item,
+            symbols_read: [...new Set([...(shaChanged ? [] : prev?.symbols_read ?? []), ...(item.symbols_read ?? [])])],
+            ...(item.symbol_map ? { symbol_map: item.symbol_map } : (!shaChanged && prev?.symbol_map ? { symbol_map: prev.symbol_map } : {})),
+            ...(!shaChanged && prev?.relevance ? { relevance: prev.relevance } : {})
+          };
+          state.evidence.set(item.path, mergedEntry);
+          roleState.evidence.set(item.path, mergedEntry);
         }
         state.version = nextVersion; roleState.version = nextVersion;
         worker.status = status; worker.heartbeat_at = new Date().toISOString();
         const durable = persistRoleState(roleState, input);
         worker.result = { status, fallback_to_parent: status === "fallback_to_parent", summary, usage, evidence_count: evidence.length, version: nextVersion, checksum: checksum(evidence), durable, ...(roleState.last_durability_error && !durable ? { durability_error: roleState.last_durability_error } : {}) };
         state.workers.set(workerId, worker); roleState.workers.set(workerId, worker);
-        eventSink?.({ event_type: "agent.activity", conversation_id: conversationId, payload: { activity_type: "subagent_completed", agent_type: "subagent", status: status === "fallback_to_parent" ? "fallback_to_parent" : "success", subagent_id: workerId, parent_agent_id: parentAgentId, delegation_id: delegationId, evidence_count: evidence.length, durable } });
+        eventSink?.({ event_type: "agent.activity", conversation_id: conversationId, payload: { agent_id: workerId, activity_type: isFallback ? "tool_failed" : "tool_completed", agent_type: "subagent", status: isFallback ? "failed" : "success", summary: `[subagent:${String(workerId ?? "subagent").split(":sub:").at(-1)}] ${isFallback ? "fallback_to_parent" : `completed (${evidence.length} files observed)`}`, tool_name: "delegate_subagent", subagent_id: workerId, parent_agent_id: parentAgentId, delegation_id: delegationId, evidence_count: evidence.length, durable } });
         return worker.result;
       });
+    },
+    recordCandidateReceipt(input = {}) {
+      const { path, sha256 = null, retrieval_id: retrievalId = null, source = "ticket", matched_ac: matchedAc = [], matched_intents: matchedIntents = [], matched_symbols: matchedSymbols = [], score = null, confidence = null, reasons = [] } = input;
+      if (!path || typeof path !== "string") return null;
+      const state = stateFor(input.conversationId, input.delegationId);
+      const roleState = roleStateFor({ ...input, projectRoot: input.projectRoot ?? defaultProjectRoot, projectId: input.projectId ?? defaultProjectId });
+      for (const token of scopeTokens(input)) roleState.scopes.add(token);
+      const nextVersion = Math.max(state.version, roleState.version) + 1;
+      state.version = nextVersion; roleState.version = nextVersion;
+      const prev = roleState.evidence.get(path) ?? state.evidence.get(path);
+      const shaChanged = Boolean(sha256 && prev?.sha256 && prev.sha256 !== sha256);
+      const { planId, handoffId } = inferPlanAndHandoff(input);
+      const relevance = {
+        retrieval_id: retrievalId ?? `RETRIEVAL-${nextVersion}`,
+        source,
+        matched_ac: [...new Set(Array.isArray(matchedAc) ? matchedAc : [])],
+        matched_intents: [...new Set(Array.isArray(matchedIntents) ? matchedIntents : [])],
+        matched_symbols: Array.isArray(matchedSymbols) ? matchedSymbols : [],
+        ...(typeof score === "number" ? { score } : {}),
+        ...(confidence ? { confidence } : {}),
+        reasons: [...new Set(Array.isArray(reasons) ? reasons : [])],
+        recorded_at: new Date().toISOString()
+      };
+      const entry = {
+        ...(shaChanged ? { path } : prev ?? { path }),
+        path,
+        ...(sha256 ? { sha256 } : prev?.sha256 ? { sha256: prev.sha256 } : {}),
+        relevance,
+        conversation_id: input.conversationId ?? prev?.conversation_id ?? null,
+        delegation_id: input.delegationId ?? prev?.delegation_id ?? null,
+        plan_id: planId ?? prev?.plan_id ?? null,
+        handoff_id: handoffId ?? prev?.handoff_id ?? null,
+        updated_at: new Date().toISOString(),
+        version: nextVersion
+      };
+      state.evidence.set(path, entry); roleState.evidence.set(path, entry);
+      const durable = persistRoleState(roleState, input);
+      return { ...entry, durable, ...(roleState.last_durability_error && !durable ? { durability_error: roleState.last_durability_error } : {}) };
     },
     recordDirectEvidence(input = {}) {
       const { path, sha256, total_lines: totalLines, symbol_map: symbolMap, code_graph: codeGraph, symbols_read: symbolsRead = [], source_tool: sourceTool = "read_file", deleted = false, from_path: fromPath = null } = input;
@@ -244,15 +307,32 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       const resolvedSymbolMap = Array.isArray(symbolMap) ? symbolMap : (!shaChanged ? prev?.symbol_map : undefined);
       const symbolNames = Array.isArray(resolvedSymbolMap) ? [...new Set(resolvedSymbolMap.map((s) => s?.name).filter(Boolean))] : (!shaChanged ? prev?.symbols : undefined);
       const { planId, handoffId } = inferPlanAndHandoff(input);
+      const nowIso = new Date().toISOString();
+      const workerId = input.workerId ?? prev?.source_worker_id ?? `parent:${roleState.role}`;
+      const prevTools = !shaChanged && Array.isArray(prev?.provenance?.source_tools) ? prev.provenance.source_tools : [];
       const entry = {
-        ...prev, path, sha256,
+        ...(shaChanged ? {} : prev),
+        path, sha256,
         ...(Number.isInteger(totalLines ?? prev?.total_lines) ? { total_lines: totalLines ?? prev?.total_lines } : {}),
         ...(symbolNames?.length ? { symbols: symbolNames } : {}),
         ...(Array.isArray(resolvedSymbolMap) ? { symbol_map: resolvedSymbolMap } : {}),
         ...(codeGraph ? { code_graph: codeGraph } : !shaChanged && prev?.code_graph ? { code_graph: prev.code_graph } : {}),
         symbols_read: [...new Set([...(shaChanged ? [] : prev?.symbols_read ?? []), ...symbolsRead])],
-        source_worker_id: input.workerId ?? prev?.source_worker_id ?? `parent:${roleState.role}`,
-        source_role: roleState.role, source_tool: sourceTool, conversation_id: input.conversationId ?? prev?.conversation_id ?? null, delegation_id: input.delegationId ?? prev?.delegation_id ?? null, plan_id: planId ?? prev?.plan_id ?? null, handoff_id: handoffId ?? prev?.handoff_id ?? null, updated_at: new Date().toISOString(), version: nextVersion
+        observed_at: nowIso,
+        read_only_enforced: Boolean(input.readOnlyEnforced ?? prev?.read_only_enforced ?? false),
+        provenance: {
+          ...(!shaChanged && prev?.provenance ? prev.provenance : {}),
+          delegation_id: input.delegationId ?? prev?.delegation_id ?? null,
+          parent_execution_id: input.parentExecutionId ?? input.delegationId ?? prev?.parent_execution_id ?? null,
+          source_worker_id: workerId,
+          source_role: roleState.role,
+          source_tools: [...new Set([...prevTools, sourceTool])],
+          observed_at: nowIso,
+          read_only_enforced: Boolean(input.readOnlyEnforced ?? prev?.read_only_enforced ?? false)
+        },
+        ...(!shaChanged && prev?.relevance ? { relevance: prev.relevance } : {}),
+        source_worker_id: workerId,
+        source_role: roleState.role, source_tool: sourceTool, conversation_id: input.conversationId ?? prev?.conversation_id ?? null, delegation_id: input.delegationId ?? prev?.delegation_id ?? null, plan_id: planId ?? prev?.plan_id ?? null, handoff_id: handoffId ?? prev?.handoff_id ?? null, updated_at: nowIso, version: nextVersion
       };
       state.evidence.set(path, entry); roleState.evidence.set(path, entry);
       const durable = persistRoleState(roleState, input);

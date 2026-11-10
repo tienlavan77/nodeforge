@@ -11,6 +11,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
   return Object.freeze({ name: "select_code_graph_candidates", execute });
 
   async function execute(input = {}, context = {}) {
+    assertDelegatedDiscoveryRequired(context, "select_code_graph_candidates", input);
     assertExecutionFileAccess(context);
     const taskId = context.task_id ?? context.taskId;
     if (typeof taskId !== "string" || !taskId) throw scopedError("TOOL_SCOPE_INVALID", "Candidate selection requires the current task_id.");
@@ -42,9 +43,16 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     assertExecutionFileAccess(context);
     const selected = (result.tree ?? []).filter((entry) => allowCandidate(entry?.path)).slice(0, limit);
     const stalePaths = Array.isArray(result.stale_paths) ? result.stale_paths.filter(allowCandidate) : undefined;
+    // Explicitly record source metadata for discovered candidates to ensure durable evidence.
     if (typeof recordSourceMetadata === "function") {
       for (const entry of selected) {
-        if (entry.path) recordSourceMetadata({ path: entry.path });
+        if (entry?.path) {
+          try {
+            recordSourceMetadata({ path: entry.path });
+          } catch (e) {
+            // Non-blocking: evidence synchronization error should not crash retrieval.
+          }
+        }
       }
     }
     return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected, ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };

@@ -22,9 +22,13 @@ export function createRgSearchTool({ projectRoot, codeCache, logger = createRunt
     let args;
     try {
       authorizeTool(toolName, context);
+      assertDelegatedDiscoveryRequired(context, toolName, input);
       args = buildArgs(input, context);
       if (input.paths.some((path) => !isAgentPathAllowed(path, context))) throw invalidInput("rg_search path is outside the approved task scope.");
-      await validatePaths(projectRoot, input.paths, environment, context);
+      const storageFiles = createFileService({ projectRoot, role: context.agent_identity?.role });
+      const resolvedPaths = input.paths.map((p) => typeof p === "string" && p.startsWith(".forge/runtime/nf/") && storageFiles.resolveStoragePath ? storageFiles.resolveStoragePath(p) : p);
+      await validatePaths(projectRoot, resolvedPaths, environment, context);
+      args = [...args.slice(0, args.indexOf("--") + 1), ...resolvedPaths];
       if (context.file_access_version === 2 && !codeCache) throw invalidInput("Versioned search requires an authorized content reader.");
     } catch (error) {
       emit("rejected", context, { error_code: error.code ?? "RG_SEARCH_INPUT_INVALID", error: error.message, duration_ms: Date.now() - started });

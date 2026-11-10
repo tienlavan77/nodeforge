@@ -42,6 +42,7 @@ export function createGitReadTools({ gitService, logger = createRuntimeLogger({ 
     let requestedPaths;
     try {
       authorizeTool("git_status", context);
+      assertDelegatedDiscoveryRequired(context, "git_status", input);
       assertPlainObject(input, "git_status");
       assertAllowedKeys(input, ["paths"], "git_status");
       requestedPaths = normalizeInputPaths(input.paths, "git_status", context);
