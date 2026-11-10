@@ -1,6 +1,9 @@
 // Read-Only Explorer delegation keeps parallel repository discovery behind a narrow, injected execution boundary.
 import { ConfigurationError } from "../../shared/errors.js";
 import { recordSourceMetadata } from "./source-metadata-receipts.js";
+import { getSubagentStatusDefinition, collectSubagentResultsDefinition, createSubagentDelegationRegistry } from "./subagent-delegation-registry.js";
+import { emitDelegatedDiscoveryTelemetry, isMeaningfulDelegationObjective, recordDelegationReceipt } from "./delegated-discovery-policy.js";
+export { getSubagentStatusDefinition, collectSubagentResultsDefinition };
 
 // Business purpose: describes the bounded Forge capability for parallel read-only exploration.
 export const delegateSubagentDefinition = {
@@ -11,6 +14,7 @@ export const delegateSubagentDefinition = {
     additionalProperties: false,
     required: ["tasks"],
     properties: {
+      wait: { type: "boolean" },
       tasks: {
         type: "array", minItems: 1, maxItems: 3,
         items: {
@@ -34,9 +38,10 @@ const SAFE_RELATIVE_PATH = /^(?!\.\.)(?!.*(?:^|\/)\.\.(?:\/|$))(?!\/)[A-Za-z0-9_
 const FORBIDDEN_CHILD_TOOLS = Object.freeze(["edit_diff", "write_diff", "delete_file", "move_file", "run_command", "run_check", "run_test", "check_test", "git_branch", "git_restore", "git_stash", "commit_changes", "push_commit", "delegate_subagent"]);
 
 // Business purpose: creates the parent-owned delegation handler while keeping child execution provider-neutral.
-export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000, evidenceStore = null } = {}) {
+export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000, evidenceStore = null, asynchronous = false } = {}) {
   if (typeof executeTask !== "function") throw new ConfigurationError("delegate_subagent requires an injected child executor.");
-  return { definition: delegateSubagentDefinition, execute: (input, context = {}) => executeBatch(input, context) };
+  const registry = createSubagentDelegationRegistry({ executeOne, normalizeObserved, mergeObserved, mergeUsage, bound, classifyError, maxSummaryChars });
+  return { definition: delegateSubagentDefinition, statusTool: registry.statusTool, collectTool: registry.collectTool, execute: (input, context = {}) => executeBatch(input, context) };
 
   // Technical description: validates and reserves the complete batch, executes isolated workers in parallel, records source metadata receipts and evidence store entries, and returns bounded task and worker results.
   async function executeBatch(input, context) {
@@ -45,6 +50,10 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
     if (used + tasks.length > MAX_SUBAGENTS_PER_TURN) throw Object.assign(new ConfigurationError("delegate_subagent per-turn child quota exceeded."), { code: "SUBAGENT_QUOTA_EXCEEDED" });
     context.subagent_reservations = used + tasks.length;
     const signal = context.abortSignal;
+    if (input?.wait === false || (asynchronous && input?.wait !== true)) return registry.acceptBatch(tasks, context, signal);
+    const syncDelegationId = String(context.evidence_scope?.delegationId ?? context.execution_id ?? context.task_id ?? "DELEGATION-SYNC");
+    recordDelegationReceipt(context, { delegation_id: syncDelegationId, status: "running", read_only_enforced: true, tasks });
+    emitDelegatedDiscoveryTelemetry(context, "subagent.delegation_started", "started", `Started subagent delegation ${syncDelegationId} (${tasks.length} tasks).`, { delegation_id: syncDelegationId, task_count: tasks.length });
     const results = await Promise.allSettled(tasks.map((task) => executeOne(task, context, signal)));
     for (const result of results) {
       if (result.status !== "fulfilled") continue;
@@ -94,7 +103,7 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
   }
 
   // Business purpose: executes one isolated read-only child and forwards only the parent abort signal.
-  async function executeOne(task, context, signal) {
+  async function executeOne(task, context, signal, explicitDelegationId = null) {
     if (signal?.aborted) throw Object.assign(new Error("Parent execution was aborted."), { code: "SUBAGENT_ABORTED" });
     if (typeof context !== "object" || context === null) throw new ConfigurationError("delegate_subagent requires a parent execution context.");
     const parentExecutionId = String(context.execution_id ?? context.task_id ?? "parent");
@@ -132,7 +141,7 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
       handoffId: context.evidence_scope?.handoffId ?? null,
       planId: context.evidence_scope?.planId ?? null,
       ticketId: context.evidence_scope?.ticketId ?? context.task_id ?? null,
-      delegationId: context.evidence_scope?.delegationId ?? parentExecutionId
+      delegationId: explicitDelegationId ?? context.evidence_scope?.delegationId ?? parentExecutionId
     };
     evidenceStore?.startWorker({ ...scopeInfo, workerId: childContext.agent_identity.agent_id, parentAgentId: parentIdentity.agent_id ?? null, objective: task.objective, eventSink: context.eventSink });
     let result;

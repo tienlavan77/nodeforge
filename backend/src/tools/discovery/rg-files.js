@@ -22,6 +22,7 @@ export function createRgFilesTool({ projectRoot, logger = createRuntimeLogger({ 
     let args;
     try {
       authorizeTool(toolName, context);
+      assertDelegatedDiscoveryRequired(context, toolName, input);
       args = buildArgs(input);
       if (context.file_access_version === 2) args.push("-0");
     } catch (error) {

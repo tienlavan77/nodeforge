@@ -12,6 +12,7 @@ export function createOwnerSearchTreeTool({ fileService, role }) {
 
   // Lists only safe project entries, bounded by depth and count.
   async function execute(input = {}, context = {}) {
+    assertDelegatedDiscoveryRequired(context, "search_tree", input);
     const path = input.path ?? ".";
     const maxDepth = input.max_depth ?? 3;
     const limit = input.limit ?? 200;

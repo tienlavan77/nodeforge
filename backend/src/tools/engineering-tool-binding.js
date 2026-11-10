@@ -44,6 +44,12 @@ export function bindEngineeringTools({ registry, context }) {
     if (definition.name === "read_subagent_evidence" && bound.active_file_checksums) {
       context.active_file_checksums = bound.active_file_checksums;
     }
+    if (Array.isArray(bound.delegation_receipts)) {
+      context.delegation_receipts = bound.delegation_receipts;
+    }
+    if (bound.subagent_fallback_to_parent) {
+      context.subagent_fallback_to_parent = bound.subagent_fallback_to_parent;
+    }
     if (definition.name === "delegate_subagent" && Array.isArray(result?.observed_files) && Array.isArray(context.observed_files)) {
       for (const file of result.observed_files) {
         if (file?.path && !context.observed_files.some((entry) => entry.path === file.path && entry.sha256 === file.sha256)) {

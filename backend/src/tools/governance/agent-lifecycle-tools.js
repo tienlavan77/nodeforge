@@ -52,6 +52,7 @@ const checksumDiagnostics = (beforeChecksum, targetExists) => ({
 export function createReadFileTool({ fileService, codeCache, projectRoot, dependencyReader = readDependencyFile } = {}) {
   if (typeof fileService?.readForIndex !== "function") throw new ConfigurationError("read_file requires File Service.");
   return Object.freeze({ name: "read_file", async execute(input = {}, context = {}) {
+    assertDelegatedDiscoveryRequired(context, "read_file", input);
     if (Object.keys(input).some((key) => key !== "path")) throw error("INPUT_INVALID", "read_file accepts path only; use Read with symbol or start_line/end_line for source.");
     const path = safePath(input.path, "read", context.agent_identity?.role);
     const readBinary = async () => {
