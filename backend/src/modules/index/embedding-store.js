@@ -44,23 +44,48 @@ export function createEmbeddingStore({ database, logger = console } = {}) {
   }
 
   // Defines search function behavior for embedding-store.js.
-  function search(queryVector, { limit = 8, allowedPrefixes, model } = {}) {
-    if (!Array.isArray(queryVector) || !queryVector.length) return [];
+  function search(queryVector, { limit = 8, allowedPrefixes, model, includeMatchedSymbols = false, queryVectors = null } = {}) {
+    const vectors = Array.isArray(queryVectors) && queryVectors.length ? queryVectors.filter((v) => Array.isArray(v) && v.length) : Array.isArray(queryVector) && queryVector.length ? [queryVector] : [];
+    if (!vectors.length) return [];
     const rows = model
-      ? database.all("SELECT e.symbol_id, e.vector, e.content_checksum, s.summary, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id WHERE e.embedding_model = ?", [model])
-      : database.all("SELECT e.symbol_id, e.vector, e.content_checksum, s.summary, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id");
+      ? database.all("SELECT e.symbol_id, e.vector, e.content_checksum, s.name, s.kind, s.start_line, s.end_line, s.summary, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id WHERE e.embedding_model = ?", [model])
+      : database.all("SELECT e.symbol_id, e.vector, e.content_checksum, s.name, s.kind, s.start_line, s.end_line, s.summary, f.path FROM symbol_embeddings e JOIN symbols s ON s.symbol_id = e.symbol_id JOIN files f ON f.file_id = s.file_id");
     const byPath = new Map();
     for (const row of rows) {
-      if (!row.content_checksum || row.content_checksum !== purposeSummaryInput(row.summary)?.checksum) continue;
+      const richChecksum = purposeSummaryInput({ summary: row.summary, path: row.path, name: row.name, kind: row.kind })?.checksum;
+      const plainChecksum = purposeSummaryInput(row.summary)?.checksum;
+      if (!row.content_checksum || (row.content_checksum !== richChecksum && row.content_checksum !== plainChecksum)) continue;
       if (allowedPrefixes && !allowedPrefixes.some((prefix) => row.path.startsWith(prefix))) continue;
       const vec = decode(row.vector, logger, row.symbol_id, row.content_checksum);
-      if (!vec || vec.length !== queryVector.length) continue;
-      const sim = cosine(queryVector, vec);
+      if (!vec || vec.length !== vectors[0].length) continue;
+      let sim = -Infinity;
+      for (const qv of vectors) {
+        if (qv.length !== vec.length) continue;
+        const candidateSim = cosine(qv, vec);
+        if (Number.isFinite(candidateSim) && candidateSim > sim) sim = candidateSim;
+      }
       if (!Number.isFinite(sim)) continue;
-      const current = byPath.get(row.path);
-      if (!current || sim > current.score) byPath.set(row.path, { path: row.path, score: sim });
+      const current = byPath.get(row.path) ?? { path: row.path, score: sim, symbols: [] };
+      if (sim > current.score) current.score = sim;
+      if (includeMatchedSymbols) {
+        current.symbols.push({
+          symbol_id: row.symbol_id,
+          name: row.name ?? null,
+          kind: row.kind ?? null,
+          start_line: row.start_line ?? null,
+          end_line: row.end_line ?? null,
+          score: Number(sim.toFixed(6)),
+          summary: row.summary ?? null
+        });
+      }
+      byPath.set(row.path, current);
     }
-    return [...byPath.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+    return [...byPath.values()]
+      .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+      .slice(0, limit)
+      .map((entry) => includeMatchedSymbols
+        ? { path: entry.path, score: entry.score, matched_symbols: entry.symbols.sort((a, b) => b.score - a.score).slice(0, 3) }
+        : { path: entry.path, score: entry.score });
   }
 }
 

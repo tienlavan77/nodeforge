@@ -45,10 +45,11 @@ export function prepareEmbeddingQueue({ database, embeddingStore, jobs, model })
     const removedJobs = jobs.removeOtherModels(model);
     const recovered = jobs.recoverProcessing();
     let queued = 0;
-    for (const symbol of database.all(`SELECT s.symbol_id, s.summary, e.embedding_model, e.content_checksum
-      FROM symbols s LEFT JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id`)) {
-      const input = purposeSummaryInput(symbol.summary);
-      if (!input || (symbol.embedding_model === model && symbol.content_checksum === input.checksum)) continue;
+    for (const symbol of database.all(`SELECT s.symbol_id, s.name, s.kind, s.summary, f.path, e.embedding_model, e.content_checksum
+      FROM symbols s LEFT JOIN files f ON f.file_id = s.file_id LEFT JOIN symbol_embeddings e ON e.symbol_id = s.symbol_id`)) {
+      const input = purposeSummaryInput({ summary: symbol.summary, path: symbol.path, name: symbol.name, kind: symbol.kind });
+      const plainChecksum = purposeSummaryInput(symbol.summary)?.checksum;
+      if (!input || (symbol.embedding_model === model && (symbol.content_checksum === input.checksum || symbol.content_checksum === plainChecksum))) continue;
       jobs.enqueue({ symbolId: symbol.symbol_id, contentChecksum: input.checksum, model });
       queued += 1;
     }

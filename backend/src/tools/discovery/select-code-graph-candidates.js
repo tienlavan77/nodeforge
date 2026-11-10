@@ -42,6 +42,11 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     assertExecutionFileAccess(context);
     const selected = (result.tree ?? []).filter((entry) => allowCandidate(entry?.path)).slice(0, limit);
     const stalePaths = Array.isArray(result.stale_paths) ? result.stale_paths.filter(allowCandidate) : undefined;
+    if (typeof recordSourceMetadata === "function") {
+      for (const entry of selected) {
+        if (entry.path) recordSourceMetadata({ path: entry.path });
+      }
+    }
     return { task_id: taskId, query: input.query.trim(), index_version: result.index_version ?? null, selected, ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
   }
 }

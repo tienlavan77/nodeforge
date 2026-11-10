@@ -51,7 +51,7 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
     for (const symbol of rows) {
       const summary = ["function", "method", "hook", "component"].includes(symbol.kind)
         ? purposeCommentBefore(document, Math.max(1, symbol.start_line ?? 1) - 1)?.summary ?? null : null;
-      if (purposeSummaryInput(symbol.summary)?.checksum !== purposeSummaryInput(summary)?.checksum) {
+      if (purposeSummaryInput({ summary: symbol.summary, path, name: symbol.name, kind: symbol.kind })?.checksum !== purposeSummaryInput({ summary, path, name: symbol.name, kind: symbol.kind })?.checksum) {
         database.run("DELETE FROM symbol_embeddings WHERE symbol_id = ?", [symbol.symbol_id]);
         database.run("UPDATE embedding_jobs SET status = 'superseded' WHERE symbol_id = ? AND status IN ('pending', 'processing', 'retry_wait')", [symbol.symbol_id]);
       }
@@ -62,13 +62,13 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
       const comment = purposeCommentBefore(document, start - 1);
       const symbolContent = (comment ? comment.summary + "\n" : "") + lines.slice(start - 1, end).join("\n");
       database.run("INSERT INTO symbol_content_fts (symbol_id, file_id, path, name, kind, content, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [symbol.symbol_id, fileId, path, symbol.name, symbol.kind, symbolContent, symbol.start_line, symbol.end_line]);
-      queueSymbolEmbedding({ symbolId: symbol.symbol_id, name: symbol.name, path, summary });
+      queueSymbolEmbedding({ symbolId: symbol.symbol_id, name: symbol.name, kind: symbol.kind, path, summary });
     }
   }
 
   // Queues symbol embeddings serially and skips symbols whose content checksum is unchanged.
-  function queueSymbolEmbedding({ symbolId, name, path, summary }) {
-    const input = purposeSummaryInput(summary);
+  function queueSymbolEmbedding({ symbolId, name, kind = "function", path, summary }) {
+    const input = purposeSummaryInput({ summary, path, name, kind });
     if (!symbolId || !input) return;
     const { checksum, content } = input;
     if (embeddingJobs?.enqueue) {
@@ -77,8 +77,9 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
           let queuedJob = null;
           // Schedules only current summary work, atomically with the final check.
           const enqueue = () => {
-            const current = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [symbolId])[0];
-            if (purposeSummaryInput(current?.summary)?.checksum !== checksum) return;
+            const current = database.all("SELECT s.summary, s.name, s.kind, f.path FROM symbols s LEFT JOIN files f ON f.file_id = s.file_id WHERE s.symbol_id = ?", [symbolId])[0];
+            const currentChecksum = purposeSummaryInput({ summary: current?.summary, path: current?.path ?? path, name: current?.name ?? name, kind: current?.kind ?? kind })?.checksum ?? purposeSummaryInput(current?.summary)?.checksum;
+            if (currentChecksum !== checksum && purposeSummaryInput(current?.summary)?.checksum !== checksum) return;
             const existing = database.all("SELECT content_checksum, embedding_model FROM symbol_embeddings WHERE symbol_id = ?", [symbolId])[0];
             if (existing?.content_checksum === checksum && existing?.embedding_model === embeddingModel) return;
             queuedJob = embeddingJobs.enqueue({ symbolId, contentChecksum: checksum, model: embeddingModel });
@@ -104,8 +105,9 @@ export function createIndexRecordWriter({ database, graph, embeddingJobs, embedd
         const vector = await embeddingProvider.embed(content);
         // Guards direct-provider publication with the same transaction as its final summary check.
         const publish = () => {
-          const current = database.all("SELECT summary FROM symbols WHERE symbol_id = ?", [symbolId])[0];
-          if (purposeSummaryInput(current?.summary)?.checksum === checksum) embeddingStore.upsert({ symbolId, vector, model: embeddingModel, checksum });
+          const current = database.all("SELECT s.summary, s.name, s.kind, f.path FROM symbols s LEFT JOIN files f ON f.file_id = s.file_id WHERE s.symbol_id = ?", [symbolId])[0];
+          const currentChecksum = purposeSummaryInput({ summary: current?.summary, path: current?.path ?? path, name: current?.name ?? name, kind: current?.kind ?? kind })?.checksum ?? purposeSummaryInput(current?.summary)?.checksum;
+          if (currentChecksum === checksum || purposeSummaryInput(current?.summary)?.checksum === checksum) embeddingStore.upsert({ symbolId, vector, model: embeddingModel, checksum });
         };
         if (database.transaction) database.transaction(publish);
         else publish();

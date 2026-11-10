@@ -20,7 +20,7 @@ export function createAmSeHandoffService({
   if (!fileService || !markdownPlanStore) throw new ConfigurationError("AM-SE handoff service requires fileService and markdownPlanStore.");
   const store = handoffStore ?? (projectId && fileService?.createLock && fileService?.atomicWrite ? createAmSeHandoffStore({ projectId, fileService }) : { create: async (r) => r, update: async (_id, p) => p });
   const checkpoint = projectId && store.transition ? createAmSeHandoffCheckpoint({ projectId, store, markdownPlanStore, fileService, gitService, executionCheckpoint, pauseExecution, maxRounds }) : null;
-  const critique = projectId && store.transition ? createAmSeCritiqueCheckpoint({ store, executionCheckpoint, maxCritiqueRounds }) : { initialize: async (id) => store.get?.(id), run: async (id, { invoke }) => ({ record: await store.get?.(id), result: { text: await invoke(`CORR-CRITIQUE-${id}`) } }), advance: async (id, { round, history, plan }) => store.update(id, { critique_round: round, history, ...(plan ? { plan_revision: plan.revision, plan_sha256: plan.sha256, plan_source_path: plan.source_path } : {}) }) };
+  const critique = projectId && store.transition ? createAmSeCritiqueCheckpoint({ projectId, store, fileService, gitService, executionCheckpoint, maxCritiqueRounds }) : { initialize: async (id) => store.get?.(id), run: async (id, { invoke }) => ({ record: await store.get?.(id), result: { text: await invoke(`CORR-CRITIQUE-${id}`) } }), advance: async (id, { round, history, plan }) => store.update(id, { critique_round: round, history, ...(plan ? { plan_revision: plan.revision, plan_sha256: plan.sha256, plan_source_path: plan.source_path } : {}) }) };
   const publishDualConversationMessage = (args) => publishDualHandoffMessage({ bus, projectId, ...args });
   const maybeApplyCritiqueRevision = (args) => applyCritiqueDraftRevision({ fileService, markdownPlanStore, ...args });
   const handoffResultPayload = (record) => ({ handoff_id: record.handoff_id, phase: record.phase, status: record.status, reason: record.checkpoint.error_code, delivery_target: record.delivery_target, plan_id: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, se_conversation_id: record.se_conversation_id, critique_rounds_completed: record.critique_round, rounds_completed: record.checkpoint.round, history: record.history, checkpoint: record.checkpoint });
@@ -169,11 +169,6 @@ export function createAmSeHandoffService({
           record = await store.transition(record.handoff_id, record.critique_checkpoint.generation, (current) => ({ ...current, history, critique_round: critiqueRound, critique_checkpoint: { ...current.critique_checkpoint, next_step: null, execution_status: "completed" } }));
           break;
         }
-        if (critiqueRound >= record.max_critique_rounds && !explicitOwnerCommand) {
-          history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, critique_status: critiqueStatus, timestamp: new Date().toISOString() });
-          record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", critique_round: critiqueRound, history, error_code: "CRITIQUE_CONSENSUS_REQUIRED" });
-          return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: "CRITIQUE_CONSENSUS_REQUIRED", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
-        }
         const amTurn = await critique.run(record.handoff_id, { step: "am", round: critiqueRound, invoke: (executionId) => typeof turnRequestArchitecture === "function"
           ? turnRequestArchitecture(buildAmCritiqueReplyPrompt({ planJson: currentPlanJson, planId: currentPlan.plan_id, seCritiqueText }), conversationId, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, handoffId: record.handoff_id, planId: currentPlan.plan_id, linkedConversationId: seConversationId, withEvidence: Boolean(executionCheckpoint), planningInputOnly: false })
           : "Architecture Manager đã ghi nhận và làm rõ các điểm phản biện của SE." });
@@ -184,6 +179,10 @@ export function createAmSeHandoffService({
         const resolvedStatus = critiqueRound >= record.max_critique_rounds && explicitOwnerCommand ? "ALIGNED" : critiqueStatus;
         history.push({ phase: "plan_critique", critique_round: critiqueRound, se_critique: seCritiqueText, am_reply: applied.cleanReply, critique_status: resolvedStatus, plan_revision: currentPlan.revision, timestamp: new Date().toISOString() });
         publishDualConversationMessage({ sender: { id: amProfile.agent_id, role: "architecture_manager" }, recipient: { id: seProfile.agent_id, role: "system_engineer" }, messageType: "architecture.message.received", amConversationId: conversationId, seConversationId, correlationId: `${correlationBase}-CRITIQUE-AM-R${critiqueRound}`, text: applied.cleanReply, extraPayload: { handoff_id: record.handoff_id, plan_id: currentPlan.plan_id, phase: "plan_critique", critique_round: critiqueRound, plan_revision: currentPlan.revision } });
+        if (critiqueRound >= record.max_critique_rounds && !explicitOwnerCommand) {
+          record = await store.update(record.handoff_id, { phase: "plan_critique", status: "paused", plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, critique_round: critiqueRound, history, error_code: "CRITIQUE_CONSENSUS_REQUIRED" });
+          return { handoff_id: record.handoff_id, phase: "plan_critique", status: "paused", reason: "CRITIQUE_CONSENSUS_REQUIRED", plan_id: currentPlan.plan_id, revision: currentPlan.revision, sha256: currentPlan.sha256, history };
+        }
         if (critiqueRound >= record.max_critique_rounds && explicitOwnerCommand) {
           record = await store.transition(record.handoff_id, record.critique_checkpoint.generation, (current) => ({ ...current, plan_revision: currentPlan.revision, plan_sha256: currentPlan.sha256, plan_source_path: currentPlan.source_path, history, critique_round: critiqueRound, critique_checkpoint: { ...current.critique_checkpoint, next_step: null, execution_status: "completed" } }));
           break;
