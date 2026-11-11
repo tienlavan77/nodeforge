@@ -12,8 +12,8 @@ const commit = "a".repeat(40);
 const base = "b".repeat(40);
 
 // Supplies pinned blobs independently of the mutable cache to expose any accidental live fallback.
-function fixture() {
-  const contents = new Map([["backend/target.js", "const target = 1;\n"], ["backend/caller.js", "needle committed caller\n"],
+function fixture(candidateFiles = []) {
+  const contents = new Map([["backend/target.js", "const target = 1;\n"], ["backend/caller.js", "// needle committed caller\nexport function caller() { return 1; }\n"],
     ["docs/guide.md", "needle committed docs\n"], ["backend/secrets/fixture.js", "needle PRIVATE\n"]]);
   const reads = [];
   const source = { committedReview: true, reviewCommit: commit,
@@ -32,18 +32,34 @@ function fixture() {
   const tools = createReviewerForgeTools({ fileService: source, projectRoot: process.cwd(), ticketEvidence: evidence,
     codeCache: { read: async () => assert.fail("Live cache must not supply snapshot evidence") },
     gitService: { status: () => assert.fail("Live status is not snapshot evidence"), diffWorkingTree: () => assert.fail("Live diff is not snapshot evidence") },
-    job: { task_id: "TASK", request_id: "REQUEST", payload: {} }, reviewer: { agent_id: "REVIEWER", provider: "claude" } });
+    relevantTreeSelector: { select: assert.fail },
+    job: { task_id: "TASK", request_id: "REQUEST", payload: { ticket: { candidate_files: candidateFiles } } },
+    reviewer: { agent_id: "REVIEWER", provider: "claude" } });
   return { tools, source, reads, contents };
 }
 
-test("read_file and read_lines outside the diff carry pinned source provenance", async () => {
+test("snapshot candidate discovery bypasses cached ticket candidates", async () => {
+  const { tools } = fixture([{ path: "backend/target.js", score: 999 }]);
+  const result = await tools.registry.select_code_graph_candidates.execute({ query: "caller", limit: 1 });
+  assert.equal(result.candidate_source, undefined);
+  assert.equal(result.review_source.commit_sha, commit);
+  assert.deepEqual(result.selected.map((entry) => entry.path), ["backend/caller.js"]);
+  assert.equal(result.selected[0].receipt.status, "verified");
+});
+
+test("metadata and symbolic reads outside the diff carry pinned source provenance", async () => {
   const { tools, contents } = fixture();
-  const read = await tools.registry.read_file.execute({ path: "backend/caller.js", offset: 1, limit: 1 });
-  assert.equal(read.content, "needle committed caller");
+  const read = await tools.registry.read_file.execute({ path: "backend/caller.js" });
+  assert.equal(read.content, undefined);
+  const symbolic = await tools.registry.Read.execute({ file_path: "backend/caller.js", symbol: "caller" });
+  assert.match(symbolic.content, /function caller/);
+  assert.equal(symbolic.review_source.commit_sha, commit);
   assert.equal(read.review_source.commit_sha, commit);
   assert.equal(read.review_evidence.commit_sha, commit);
   assert.equal(read.review_evidence.sha256, `sha256:${createHash("sha256").update(contents.get("backend/caller.js")).digest("hex")}`);
-  assert.equal((await tools.registry.read_lines.execute({ path: "backend/caller.js", start_line: 1, end_line: 1 })).stdout, "needle committed caller\n");
+  const doc = await tools.registry.read_file.execute({ path: "docs/guide.md" });
+  assert.match(doc.content, /needle committed docs/);
+  assert.match((await tools.registry.Read.execute({ file_path: "docs/guide.md", start_line: 1, end_line: 1 })).content, /needle committed docs/);
   assert.equal(tools.registry.git_status, undefined);
   assert.equal(tools.registry.git_diff, undefined);
   await assert.rejects(tools.registry.read_file.execute({ path: "backend/live-only.js" }), { code: "ENOENT" });
@@ -62,7 +78,7 @@ test("snapshot tree, listing and search agree and never use working-tree content
   assert.match(combined.stdout, /backend\/caller.js/);
   assert.match(combined.stdout, /docs\/guide.md/);
   const matches = await tools.registry.search_text.execute({ pattern: "needle", paths: ["backend", "docs"], flags: ["-n"] });
-  assert.match(matches.stdout, /backend\/caller.js:1:needle committed caller/);
+  assert.match(matches.stdout, /backend\/caller.js:1:\/\/ needle committed caller/);
   assert.match(matches.stdout, /docs\/guide.md:1:needle committed docs/);
   assert.equal(matches.review_source.commit_sha, commit);
   assert.ok(reads.every((path) => !path.includes("secrets")));
