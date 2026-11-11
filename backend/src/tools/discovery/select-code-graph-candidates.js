@@ -10,7 +10,7 @@ import { extractExplicitPaths, isLegacyBackfillCandidate } from "../../modules/i
 import { assertExecutionFileAccess, executionReadScope } from "../execution-file-access.js";
 import { isAgentPathAllowed } from "../governance/tool-authorization.js";
 
-export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker, fileService, codeCache, assertReadPath, evidenceStore, projectRoot, logger = console } = {}) {
+export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, freshnessChecker, fileService, codeCache, assertReadPath, evidenceStore, projectRoot, logger = console, reuseTicketCandidates = true } = {}) {
   return Object.freeze({ name: "select_code_graph_candidates", execute });
 
   async function execute(input = {}, context = {}) {
@@ -27,7 +27,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     const maximum = context.eval_harness === true ? 30 : 8;
     if (!Number.isInteger(limit) || limit < 1 || limit > maximum) throw scopedError("GRAPH_CANDIDATE_LIMIT", `Candidate retrieval limit must be between one and ${maximum}.`);
     if (typeof relevantTreeSelector?.selectFreshWithEmbeddings !== "function" && typeof relevantTreeSelector?.select !== "function") throw scopedError("GRAPH_INDEX_UNAVAILABLE", "Code Graph retrieval is not configured.");
-    const task = { title: input.title, objective: input.objective, acceptance_criteria: input.acceptance_criteria, guardrails: input.guardrails, ...(context.task_context ?? {}) };
+    const task = { title: input.title, objective: input.objective, acceptance_criteria: input.acceptance_criteria, guardrails: input.guardrails, ...(context.task_context ?? {}), ...(!reuseTicketCandidates ? { candidate_files: [] } : {}) };
     const allowCandidate = (path) => typeof path === "string" && !path.startsWith("/") && !path.split("/").some((part) => !part || part === "." || part === "..")
       && isAgentPathAllowed(path, context) && (context.file_access_version === 2
         || (!Array.isArray(context.allowed_file_paths) && !Array.isArray(context.allowed_prefixes))
@@ -36,7 +36,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     // Sprint-leader cache: a ticket that already carries manually-traced
     // candidate_files is served directly instead of re-running retrieval.
     // Stale entries (file no longer indexed) fall through to normal retrieval.
-    const cached = await cachedTicketCandidates(task, limit, freshnessChecker, allowCandidate);
+    const cached = reuseTicketCandidates === true ? await cachedTicketCandidates(task, limit, freshnessChecker, allowCandidate) : null;
     if (cached) {
       assertExecutionFileAccess(context);
       return { task_id: taskId, query: query, index_version: cached.index_version ?? null, selected: await receive(cached.selected, context, allowCandidate), candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
@@ -48,7 +48,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     // Prefer semantic retrieval with freshness validation; fall back for older test doubles.
     const result = typeof relevantTreeSelector.selectFreshWithEmbeddings === "function"
       ? await relevantTreeSelector.selectFreshWithEmbeddings(args)
-      : relevantTreeSelector.select(args);
+      : await relevantTreeSelector.select(args);
     assertExecutionFileAccess(context);
     const selected = (result.tree ?? []).filter((entry) => allowCandidate(entry?.path)).slice(0, limit);
     const stalePaths = Array.isArray(result.stale_paths) ? result.stale_paths.filter(allowCandidate) : undefined;

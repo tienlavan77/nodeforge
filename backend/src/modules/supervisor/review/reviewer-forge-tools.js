@@ -100,6 +100,7 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     lookup_schema: createLookupSchemaTool({ role: "reviewer" }),
     select_code_graph_candidates: createSelectCodeGraphCandidatesTool({
       relevantTreeSelector: candidateSelector, freshnessChecker: snapshot ? undefined : freshnessChecker, projectRoot,
+      reuseTicketCandidates: snapshot === false,
       fileService: { readForIndex: (input) => reviewCache?.read ? reviewCache.read(input) : scopedFiles.readForIndex(input) },
       assertReadPath: (path) => snapshot ? assertRoleFileAccess("reviewer", "read", path) : assertReviewerReadPath(projectRoot, path)
     }),
