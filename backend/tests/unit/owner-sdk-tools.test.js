@@ -78,7 +78,7 @@ test("owner exposes the same approved Forge tools to OpenAI, Codex, Claude, Anth
     const sdk = { conversationMode: provider === "codex" ? "thread" : "history", builtinWebSearchAvailable: provider !== "ollama", execute: async (input) => { request = input; return { text: "ok" }; } };
     const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { [provider]: sdk }, fallbackStream: async function* () {}, fileService: fileService(), projectRoot: process.cwd(), projectLogger: () => {} });
     for await (const chunk of stream({ agentId: "architect", payload: { text: "inspect project" }, correlationId: `CORR-${provider}`, conversationId: `CONV-${provider}` })) assert.equal(typeof chunk.text, "string");
-    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "Read", "delegate_subagent", "read_subagent_evidence", "write_diff", "edit_diff", "delete_file", "lookup_schema"]);
+    assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "Read", "delegate_subagent", "get_subagent_status", "collect_subagent_results", "read_subagent_evidence", "write_diff", "edit_diff", "delete_file", "lookup_schema"]);
     assert.deepEqual(request.options.forgeTools.context.allowed_write_prefixes, ["docs/", "Skills/", "workflows/"]);
     assert.match(request.prompt, /ARCHITECTURE\.md, docs\/, Skills\/, or workflows\//);
     assert.match(request.prompt, /workflows\/agents\/architecture\/README\.md/);
