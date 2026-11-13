@@ -1,5 +1,6 @@
 // Read-Only Explorer delegation keeps parallel repository discovery behind a narrow, injected execution boundary.
 import { ConfigurationError } from "../../shared/errors.js";
+import { createExplorationState } from "./exploration-state-factory.js";
 import { recordSourceMetadata } from "./source-metadata-receipts.js";
 import { getSubagentStatusDefinition, collectSubagentResultsDefinition, createSubagentDelegationRegistry } from "./subagent-delegation-registry.js";
 import { emitDelegatedDiscoveryTelemetry, isMeaningfulDelegationObjective, recordDelegationReceipt } from "./delegated-discovery-policy.js";
@@ -120,7 +121,8 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
       tools: [...READ_ONLY_EXPLORER_TOOLS],
       allowed_file_paths: Array.isArray(context.allowed_file_paths) ? [...context.allowed_file_paths] : undefined,
       allowed_prefixes: Array.isArray(context.allowed_prefixes) ? [...context.allowed_prefixes] : undefined,
-      exploration_enabled: false,
+      exploration_enabled: true,
+      exploration_state: createSubagentExplorationState(task),
       read_only_enforced: true,
       subagent_depth: Number(context.subagent_depth ?? 0) + 1,
       abortSignal: signal,
@@ -164,6 +166,18 @@ export function createDelegateSubagentTool({ executeTask, maxSummaryChars = 6000
     }));
     return { ...result, raw_observed_files: rawObserved, observed_files: observed };
   }
+}
+
+// Business purpose: gives each read-only exploration task a finite evidence budget so the parent receives a conclusion instead of an unbounded stream of file reads.
+// Technical description: creates an isolated exploration state with an 8-call focused budget, a 16-call multi-path budget, an optional target path, and no automatic escalation for a delegated child.
+function createSubagentExplorationState(task) {
+  const state = createExplorationState();
+  const paths = Array.isArray(task?.paths) ? task.paths : [];
+  state.discovery_limit = paths.length > 1 ? 16 : 8;
+  state.allow_escalation = false;
+  state.explicit_target = paths.length === 1 ? paths[0] : null;
+  state.edit_must_start_by = state.discovery_limit;
+  return state;
 }
 
 // Technical description: validates the complete batch, including safe unique identifiers, before reservation or spawning.

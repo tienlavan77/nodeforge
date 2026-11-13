@@ -27,6 +27,8 @@ test("System Engineer uses the shared schemas without changing its owner ledger 
     "Read",
     "select_code_graph_candidates",
     "delegate_subagent",
+    "get_subagent_status",
+    "collect_subagent_results",
     "read_subagent_evidence",
     "write_diff",
     "edit_diff",
@@ -44,8 +46,7 @@ test("System Engineer uses the shared schemas without changing its owner ledger 
     "run_check",
     "commit_changes",
     "push_commit",
-    "lookup_schema",
-    "send_execution_directive"
+    "lookup_schema"
   ]);
   for (const definition of engineeringToolDefinitions()) {
     const expected = structuredClone(definition.input_schema);
@@ -63,7 +64,7 @@ test("System Engineer uses the shared schemas without changing its owner ledger 
 
 test("shared descriptors do not grant owner Coder write, verification, commit or push permissions", () => {
   const { definitions } = createOwnerConversationTools(ownerServices("coder"));
-  assert.deepEqual(definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "Read", "select_code_graph_candidates", "delegate_subagent", "read_subagent_evidence", "lookup_schema"]);
+  assert.deepEqual(definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "Read", "select_code_graph_candidates", "delegate_subagent", "get_subagent_status", "collect_subagent_results", "read_subagent_evidence", "lookup_schema"]);
 });
 
 test("legacy discovery aliases have identical argument schemas", () => {

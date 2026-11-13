@@ -5,7 +5,7 @@ import { assertRoleFileAccess, roleWritePrefixes } from "../../infrastructure/fi
 import { isProjectGitkeepPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 
 const READ_TOOLS = Object.freeze(["select_code_graph_candidates", "search_tree", "list_files", "search_text", "read_file", "Read", "lookup_schema"]);
-const DELEGATE_TOOLS = Object.freeze(["read_subagent_evidence"]);
+const DELEGATE_TOOLS = Object.freeze(["delegate_subagent", "get_subagent_status", "collect_subagent_results", "read_subagent_evidence"]);
 const GIT_READ_TOOLS = Object.freeze(["git_status", "git_diff", "git_log", "git_show", "git_blame"]);
 const ROLE_TOOLS = Object.freeze({
   architecture_manager: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch", "write_diff", "edit_diff", "delete_file", "send_execution_directive"]),
@@ -34,7 +34,7 @@ import { assertDelegatedDiscoveryRequired } from "../discovery/delegated-discove
 export async function authorizeOwnerTool(name, input, context, projectRoot) {
   authorizeTool(name, context);
   assertDelegatedDiscoveryRequired(context, name, input);
-  const isAsyncSubagentTool = context.async_subagents === true && ["get_subagent_status", "collect_subagent_results"].includes(name);
+  const isAsyncSubagentTool = ["get_subagent_status", "collect_subagent_results"].includes(name);
   if (context.planning_input_only === true) {
     if (!isAsyncSubagentTool && ![...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch"].includes(name)) throw forbidden("Planning input permits discovery and Git reads only.");
     if (name === "git_branch" && !["list", "current"].includes(input?.action)) throw forbidden("Planning input permits read-only git_branch (list, current) only.");

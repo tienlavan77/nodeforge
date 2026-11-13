@@ -57,7 +57,7 @@ function memoryStateStore() {
 }
 
 test("System Engineer exposes the same Forge discovery and engineering tools across all SDK providers", async () => {
-  const expected = ["search_tree", "list_files", "search_text", "read_file", "Read", "delegate_subagent", "read_subagent_evidence", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit", "lookup_schema"];
+  const expected = ["search_tree", "list_files", "search_text", "read_file", "Read", "delegate_subagent", "get_subagent_status", "collect_subagent_results", "read_subagent_evidence", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit", "lookup_schema"];
   for (const provider of ["openai", "codex", "claude", "anthropic", "ollama"]) {
     let request;
     const profile = { agent_id: "engineer", agent_name: "Engineer", role: "system_engineer", provider };
@@ -89,7 +89,7 @@ test("System Engineer translates the request to English and is instructed to sea
   const activities = [];
   const stream = createOwnerSdkStream({ agentConfiguration: { getById: () => profile }, sdkGateways: { codex: sdk }, fallbackStream: async function* () {}, fileService: fileService(), conversationStateStore, testService, gitService, projectRoot: TEST_PROJECT_ROOT, projectLogger: (event) => logs.push(event) });
   for await (const chunk of stream({ agentId: "engineer", payload: { text: "inspect and fix the project" }, correlationId: "CORR-SYSTEM-ENGINEER", conversationId: "CONV-SYSTEM-ENGINEER", eventSink: (event) => activities.push(event) })) assert.equal(typeof chunk.text, "string");
-  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "Read", "delegate_subagent", "read_subagent_evidence", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit", "lookup_schema"]);
+  assert.deepEqual(request.options.forgeTools.definitions.map(({ name }) => name), ["search_tree", "list_files", "search_text", "read_file", "Read", "delegate_subagent", "get_subagent_status", "collect_subagent_results", "read_subagent_evidence", "write_diff", "edit_diff", "delete_file", "move_file", "git_status", "git_diff", "git_log", "git_show", "git_blame", "git_branch", "git_restore", "git_stash", "run_command", "run_check", "commit_changes", "push_commit", "lookup_schema"]);
   assert.equal(request.options.sandboxMode, "read-only");
   assert.equal(request.options.networkAccessEnabled, true);
   assert.equal(request.options.webSearchMode, "live");
@@ -176,6 +176,8 @@ test("Owner child Claude execution receives isolated Forge read-only options", a
   assert.equal(childRequest.correlationId, "PARENT-CORR:sub:inspect");
   assert.equal(childRequest.subagentId, "inspect");
   assert.equal(childRequest.conversationId, "PARENT-CONV");
+  assert.match(childRequest.prompt, /Completion contract: investigate only this objective/);
+  assert.match(childRequest.prompt, /Stop as soon as you have enough fresh source evidence/);
   assert.deepEqual(childRequest.options.tools, []);
   assert.ok(childRequest.options.mcpServers.forge);
   assert.deepEqual(childRequest.options.allowedTools, [
