@@ -37,7 +37,8 @@ export async function rebuildIndex({ projectRoot, database, runtimeDir = CODE_IN
   }
   try {
     // Force means retry extraction, never erase committed rows before replacement succeeds.
-    const isIgnored = createProjectIgnoreMatcher(projectRoot, ignore);
+    // Documentation is searchable through the document pipeline, but must stay out of the executable code index.\n    
+    const isIgnored = createProjectIgnoreMatcher(projectRoot, [...ignore, "docs/**"]);
     const indexedPaths = [];
     const seenPaths = new Set();
     progress.stage("scan/index");

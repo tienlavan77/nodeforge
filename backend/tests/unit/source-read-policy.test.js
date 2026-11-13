@@ -40,6 +40,25 @@ test("code requires prior metadata and symbols; Markdown permits line windows", 
 });
 
 // Ensures a large symbol is delivered completely while adjacent source stays undisclosed.
+test("symbol reads do not mutate frozen file results or observed receipts", async () => {
+  const content = "export function answer() { return 42; }\n";
+  const sha256 = `sha256:${createHash("sha256").update(content).digest("hex")}`;
+  const fileService = { readForIndex: async () => Object.freeze({ content, sha256 }) };
+  const context = { agent_identity: { role: "system_engineer" }, execution_id: "frozen-execution" };
+  const metadata = createReadFileTool({ fileService });
+  await metadata.execute({ path: "backend/frozen.js" }, context);
+  context.observed_files = Object.freeze(context.observed_files.map((file) => Object.freeze(file)));
+  const read = createSourceReadTool({ fileService, projectRoot: process.cwd() });
+
+  const result = await read.execute({ file_path: "backend/frozen.js", symbol: "answer" }, context);
+
+  assert.match(result.content, /return 42/);
+  assert.equal(result.sha256, sha256);
+  assert.equal(Object.isFrozen(context.observed_files), false);
+  assert.equal(Object.isFrozen(context.observed_files[0]), false);
+  assert.deepEqual(context.observed_files[0].symbols_read, ["answer"]);
+});
+
 test("symbol reads exceed 80 lines without returning neighboring code", async () => {
   const content = ["const before = 'outside';", "export function large() {",
     ...Array.from({ length: 100 }, (_, index) => `  const value${index} = ${index};`),

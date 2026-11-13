@@ -7,7 +7,6 @@ import { rgFilesDefinition, rgSearchDefinition } from "./governance/agent-comman
 import { ownerSearchTreeDefinition } from "./roles/owner-search-tree.js";
 import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } from "./roles/owner-engineer-tools.js";
 import { ownerDeleteFileDefinition, ownerMoveFileDefinition } from "./roles/owner-delete-file.js";
-import { delegateSubagentDefinition } from "./discovery/delegate-subagent-tool.js";
 import { subagentEvidenceDefinition } from "./discovery/subagent-evidence-tool.js";
 import { sendExecutionDirectiveDefinition } from "../modules/governance/conversation-directive-trigger.js";
 
@@ -29,7 +28,7 @@ export function engineeringToolDefinitions() {
     { ...rgFilesDefinition, name: "list_files", description: "List non-ignored project files with safe filters." },
     { ...rgSearchDefinition, name: "search_text", description: "Search project file contents with safe paths and filters." },
     readFileDefinition,
-    sourceReadDefinition, selectCodeGraphCandidatesDefinition, delegateSubagentDefinition, subagentEvidenceDefinition,
+    sourceReadDefinition, selectCodeGraphCandidatesDefinition, subagentEvidenceDefinition,
     writeDiffDefinition, editDiffDefinition, ownerDeleteFileDefinition, ownerMoveFileDefinition,
     gitStatusDefinition, gitDiffDefinition, gitLogDefinition, gitShowDefinition, gitBlameDefinition,
     gitBranchDefinition, gitRestoreDefinition, gitStashDefinition,

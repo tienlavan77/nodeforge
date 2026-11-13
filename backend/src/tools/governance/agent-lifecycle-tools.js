@@ -14,6 +14,7 @@ import { hasFileHeaderComment, extractFunctionSignatures, findFunctionDeclaratio
 import { discoveryNotice, recordRead, resetExploration } from "../discovery/exploration-state.js";
 import { assertDelegatedDiscoveryRequired } from "../discovery/delegated-discovery-policy.js";
 import { invalidateReadDeduplication, readDeduplicationKey, readWithDeduplication } from "../discovery/read-deduplication.js";
+import { normalizeExecutionIdentity } from "../discovery/execution-identity.js";
 const MAX_CONTENT = 200000;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
@@ -59,7 +60,8 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
     const path = safePath(input.path, "read", context.agent_identity?.role);
     const readBinary = async () => {
       assertAllowed(path, context);
-      const readKey = readDeduplicationKey({ projectRoot: projectRoot ?? context.project_root, projectId: context.project_id, conversationId: context.conversation_id, delegationId: context.execution_id ?? context.task_id, path, tool: "source", symbol: "binary" });
+      const identity = normalizeExecutionIdentity(context);
+      const readKey = readDeduplicationKey({ projectRoot: projectRoot ?? context.project_root, projectId: context.project_id, conversationId: identity.conversation_id, delegationId: identity.delegation_id, executionId: identity.execution_id, path, tool: "source", symbol: "binary" });
       const deduplicated = await readWithDeduplication({ key: readKey, context, path, read: () => fileService.readFile({ path, encoding: null }).then((raw) => ({ raw })) });
       const raw = deduplicated.raw;
       const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw ?? ""), "utf8");
@@ -83,7 +85,8 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
     assertAllowed(path, context);
     let file;
     try {
-      const readKey = readDeduplicationKey({ projectRoot: projectRoot ?? context.project_root, projectId: context.project_id, conversationId: context.conversation_id, delegationId: context.execution_id ?? context.task_id, path, tool: "source", symbol: markdown ? "document" : "metadata" });
+      const identity = normalizeExecutionIdentity(context);
+      const readKey = readDeduplicationKey({ projectRoot: projectRoot ?? context.project_root, projectId: context.project_id, conversationId: identity.conversation_id, delegationId: identity.delegation_id, executionId: identity.execution_id, path, tool: "source", symbol: markdown ? "document" : "metadata" });
       file = await readWithDeduplication({ key: readKey, context, path, read: () => context.agent_identity?.role !== "coder" && isDependencyPath(path) && (projectRoot ?? context.project_root)
         ? dependencyReader({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? codeCache.read({ path }) : fileService.readForIndex({ path }) });
     } catch (readError) {

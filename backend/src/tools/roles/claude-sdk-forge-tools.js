@@ -155,7 +155,6 @@ export function createForgeSdkMcpServer({ registry, context = {}, includeCommit 
 }
 
 export const forgeSdkToolNames = Object.freeze([
-  "mcp__forge__delegate_subagent",
   "mcp__forge__select_code_graph_candidates",
   "mcp__forge__search_code",
   "mcp__forge__read_file",

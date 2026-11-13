@@ -3,8 +3,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSelectCodeGraphCandidatesTool } from "../../src/tools/discovery/select-code-graph-candidates.js";
+import { createSourceReadTool } from "../../src/tools/discovery/source-read.js";
 import { issueExecutionFileAccess } from "../../src/tools/execution-file-access.js";
-import { sourceMetadataSymbol } from "../../src/tools/discovery/source-metadata-receipts.js";
+import { recordSourceMetadata, sourceMetadataSymbol } from "../../src/tools/discovery/source-metadata-receipts.js";
 const path = "backend/src/example.js";
 const content = "export function example() { return 7; }\n";
 
@@ -19,6 +20,46 @@ function fixture() {
   context.file_access_version = 2;
   return { context, revoke: () => { authorized = false; } };
 }
+
+test("missing current symbols are rejected without an uncontrolled exception", () => {
+  const f = fixture();
+  recordSourceMetadata(f.context, { path, sha256: "sha256:" + "b".repeat(64), symbol_map: [{ name: "example", start_line: 1, end_line: 1 }], source_revision: f.context.source_revision });
+  assert.equal(sourceMetadataSymbol(f.context, path, "example", "sha256:" + "b".repeat(64), undefined), null);
+});
+
+test("camelCase executions keep symbolic receipts isolated by execution", () => {
+  const agent = { agent_id: "reviewer", role: "reviewer" };
+  const base = { agent_identity: agent, conversationId: "conversation", source_revision: "a".repeat(40), allowedFilePaths: [path], allowedPrefixes: [] };
+  const first = { ...base, executionId: "run-one", delegationId: "delegation-one" };
+  const second = { ...base, executionId: "run-two", delegationId: "delegation-two" };
+  const firstSha = "sha256:" + "1".repeat(64);
+  const secondSha = "sha256:" + "2".repeat(64);
+  const symbol = { name: "example", start_line: 1, end_line: 1 };
+  recordSourceMetadata(first, { path, sha256: firstSha, symbol_map: [symbol], source_revision: first.sourceRevision });
+  recordSourceMetadata(second, { path, sha256: secondSha, symbol_map: [symbol], source_revision: second.sourceRevision });
+  assert.deepEqual(sourceMetadataSymbol(first, path, "example", firstSha, symbol), symbol);
+  assert.deepEqual(sourceMetadataSymbol(second, path, "example", secondSha, symbol), symbol);
+  assert.equal(sourceMetadataSymbol(first, path, "example", secondSha, symbol), null);
+});
+
+test("camelCase candidate receipts reach Read without crossing executions", async () => {
+  const contentByExecution = new Map([["run-one", "export function example() { return 1; }\n"], ["run-two", "export function example() { return 2; }\n"]]);
+  const contexts = ["run-one", "run-two"].map((executionId) => ({ taskId: "ticket", executionId, conversationId: "conversation", delegationId: executionId,
+    source_revision: "a".repeat(40), project_root: process.cwd(), agent_identity: { agent_id: executionId, role: "reviewer" }, capabilities: ["select_code_graph_candidates"], allowed_file_paths: [path], allowedFilePaths: [path], allowed_prefixes: [], allowedPrefixes: [] }));
+  const tool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector: { select: () => ({ tree: [{ path }] }) },
+    fileService: { readForIndex: async () => ({ content: contentByExecution.get(contexts.find((context) => context.executionId === currentExecution)?.executionId) }) } });
+  let currentExecution = "run-one";
+  const first = await tool.execute({ query: "example" }, contexts[0]);
+  currentExecution = "run-two";
+  const second = await tool.execute({ query: "example" }, contexts[1]);
+  const read = createSourceReadTool({ fileService: { readForIndex: async () => ({ content: contentByExecution.get(currentExecution) }) }, projectRoot: process.cwd() });
+  currentExecution = "run-one";
+  assert.match((await read.execute({ file_path: path, symbol: "example" }, contexts[0])).content, /return 1/);
+  currentExecution = "run-two";
+  assert.match((await read.execute({ file_path: path, symbol: "example" }, contexts[1])).content, /return 2/);
+  assert.notEqual(first.selected[0].receipt_id, second.selected[0].receipt_id);
+  await assert.rejects(read.execute({ file_path: path, symbol: "example" }, { ...contexts[0], executionId: "run-two" }), /current read_file metadata/);
+});
 
 test("v2 candidate retrieval excludes paths outside the issued read scope", async () => {
   const f = fixture();
