@@ -5,7 +5,9 @@ import { parseArchitecturePlanJSON } from "../modules/governance/architecture-pl
 import { createAmSeHandoffStore } from "./am-se-handoff-store.js";
 import { createAmSeHandoffCheckpoint, resolveSafeResumeState } from "./am-se-handoff-checkpoint.js";
 import { createAmSeCritiqueCheckpoint } from "./am-se-critique-checkpoint.js";
+import { resumeAmSeCritique } from "./am-se-critique-resume.js";
 import { handoffWorkspaceSnapshot } from "./am-se-handoff-workspace.js";
+import { createTicketDirectiveInbox, formatMidFlightDirectives } from "../modules/supervisor/ticket/ticket-directive-inbox.js";
 import { formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict, buildAmCritiqueReplyPrompt, buildRvImplementationReviewPrompt, buildAmAcceptanceReviewPrompt, publishDualHandoffMessage, applyCritiqueDraftRevision, projectHandoffRecord } from "./am-se-handoff-helpers.js";
 
 export { formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerdict, parseRvReviewVerdict };
@@ -15,11 +17,12 @@ export { formatHumanReadableHandoffBrief, parseSePlanCritique, parseAmReviewVerd
 export function createAmSeHandoffService({
   projectId, fileService, markdownPlanStore, bus, gitService, executionCheckpoint, pauseExecution,
   agentRoleResolver, approvePlan, requestArchitecture, requestSystemEngineer, requestReviewer,
-  handoffStore, maxCritiqueRounds = 2, maxRounds = 3
+  handoffStore, directiveInbox: injectedDirectiveInbox = null, maxCritiqueRounds = 2, maxRounds = 3
 } = {}) {
   if (!fileService || !markdownPlanStore) throw new ConfigurationError("AM-SE handoff service requires fileService and markdownPlanStore.");
   const store = handoffStore ?? (projectId && fileService?.createLock && fileService?.atomicWrite ? createAmSeHandoffStore({ projectId, fileService }) : { create: async (r) => r, update: async (_id, p) => p });
   const checkpoint = projectId && store.transition ? createAmSeHandoffCheckpoint({ projectId, store, markdownPlanStore, fileService, gitService, executionCheckpoint, pauseExecution, maxRounds }) : null;
+  const directiveInbox = projectId && fileService?.createLock ? createTicketDirectiveInbox({ projectId, projectRoot: projectId, fileService }) : null;
   const critique = projectId && store.transition ? createAmSeCritiqueCheckpoint({ projectId, store, fileService, gitService, executionCheckpoint, maxCritiqueRounds }) : { initialize: async (id) => store.get?.(id), run: async (id, { invoke }) => ({ record: await store.get?.(id), result: { text: await invoke(`CORR-CRITIQUE-${id}`) } }), advance: async (id, { round, history, plan }) => store.update(id, { critique_round: round, history, ...(plan ? { plan_revision: plan.revision, plan_sha256: plan.sha256, plan_source_path: plan.source_path } : {}) }) };
   const publishDualConversationMessage = (args) => publishDualHandoffMessage({ bus, projectId, ...args });
   const maybeApplyCritiqueRevision = (args) => applyCritiqueDraftRevision({ fileService, markdownPlanStore, ...args });
@@ -32,6 +35,7 @@ export function createAmSeHandoffService({
     let record = await store.get(handoffId);
     if (!record || record.project_id !== projectId || record.delivery_target !== "se" || !approvedOwnerId || record.am_conversation_id == null) throw Object.assign(new ConfigurationError("Handoff identity is unavailable."), { code: "HANDOFF_IDENTITY_INVALID", statusCode: 409 });
     if (expectedRevision !== undefined && expectedRevision !== record.plan_revision || expectedSha256 !== undefined && expectedSha256 !== record.plan_sha256) throw Object.assign(new ConfigurationError("Plan identity changed."), { code: "HANDOFF_PLAN_MISMATCH", statusCode: 409 });
+    if (!record.checkpoint && record.critique_checkpoint) return resumeCritique({ handoffId, approvedOwnerId, requestSystemEngineer: se, requestArchitecture: am, requestReviewer: rv });
     let approved;
     if (record.checkpoint && !record.checkpoint.approval_pending) {
       if (!record.checkpoint.approved_owner_id) throw Object.assign(new ConfigurationError("Checkpoint has no recorded Owner approval; re-approve the plan before resuming."), { code: "PLAN_APPROVAL_REQUIRED", statusCode: 409 });
@@ -48,14 +52,8 @@ export function createAmSeHandoffService({
     }
     if (approved.decision?.approver_id !== approvedOwnerId) throw Object.assign(new ConfigurationError("Owner approval does not match."), { code: "PLAN_APPROVAL_OWNER_MISMATCH", statusCode: 409 });
     if (!record.checkpoint) {
-      if (record.phase !== "plan_critique" || record.status !== "paused") throw Object.assign(new ConfigurationError("Critique cannot resume safely."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
-      if (record.approval_mode !== "explicit_owner_command" && (!record.history?.length || record.history.at(-1)?.critique_status !== "ALIGNED" || record.history.at(-1)?.critique_round !== record.critique_round)) throw Object.assign(new ConfigurationError("Critique cannot resume safely."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
-      try {
-        record = await store.transition(handoffId, record.critique_checkpoint?.generation ?? 0, (current) => {
-          if (current.phase !== "plan_critique" || current.status !== "paused" || current.plan_revision !== record.plan_revision || current.plan_sha256 !== record.plan_sha256 || current.checkpoint) throw Object.assign(new ConfigurationError("Handoff changed."), { code: "HANDOFF_STALE", statusCode: 409 });
-          return { ...current, phase: "implementation", status: "running", round: 1, error_code: null, ...(current.critique_checkpoint ? { critique_checkpoint: { ...current.critique_checkpoint, next_step: null, execution_status: "completed", error_code: null } } : {}), checkpoint: { generation: 0, approval_pending: true } };
-        });
-      } catch (error) { if (error?.code !== "HANDOFF_STALE") throw error; const latest = await store.get(handoffId); if (!latest?.checkpoint) throw error; record = latest; }
+      if (record.phase !== "plan_critique" || record.status !== "paused" || record.history?.at(-1)?.critique_status !== "ALIGNED") throw Object.assign(new ConfigurationError("A saved critique result is required."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
+      record = await store.transition(handoffId, 0, (current) => ({ ...current, phase: "implementation", status: "running", round: 1, error_code: null, checkpoint: { generation: 0, approval_pending: true } }));
     }
     for (let attempt = 0; record.checkpoint?.approval_pending && attempt < 2; attempt += 1) {
       try { record = await checkpoint.initialize(handoffId, approvedOwnerId); } catch (error) { if (!["HANDOFF_STALE", "HANDOFF_INITIALIZATION_INVALID"].includes(error?.code) || attempt !== 0) throw error; const latest = await store.get(handoffId); if (!latest?.checkpoint || latest.checkpoint.approval_pending) throw error; record = latest; }
@@ -79,15 +77,18 @@ export function createAmSeHandoffService({
       const seResult = [...previous].reverse().find((item) => item.round === round && item.step === "se");
       const rvResult = [...previous].reverse().find((item) => item.round === round && item.step === "rv");
       const preceding = previous.at(-1);
-      const prompt = step === "se"
+      const basePrompt = step === "se"
         ? preceding?.verdict === "REVISE" ? `Please address the saved ${preceding.step.toUpperCase()} findings for round ${round}:\n${preceding.text}` : `Implement approved plan ${active.plan_id} r${active.plan_revision} (${active.plan_source_path}). Report implementation and verification evidence.`
         : step === "rv" ? buildRvImplementationReviewPrompt({ planJson, planId: active.plan_id, round, maxRounds: active.max_rounds, seReplyText: seResult?.text, workspace: active.checkpoint?.workspace })
           : buildAmAcceptanceReviewPrompt({ planJson, planId: active.plan_id, round, maxRounds: active.max_rounds, seReplyText: seResult?.text, rvReviewText: rvResult?.text });
+      const drained = directiveInbox ? await directiveInbox.drainPending({ handoffId: active.handoff_id, targetRole: step === "se" ? "se" : step === "am" ? "am" : null, executionId, turnCount: round, receiptPosition: previous.length }) : { directives: [], pauseRequested: false };
+      const prompt = drained.directives.length ? `${basePrompt}\n\n${formatMidFlightDirectives(drained.directives)}` : basePrompt;
       let raw;
       if (step === "se" && typeof se === "function") raw = await se({ agentId: active.se_agent_id, prompt, conversationId: active.se_conversation_id, linkedConversationId: active.am_conversation_id, handoffId: active.handoff_id, planId: active.plan_id, correlationId: executionId, phase: "implementation", round, withEvidence: true });
       else if (step === "rv" && typeof rv === "function") raw = await rv({ agentId: active.rv_agent_id, prompt, conversationId: active.rv_conversation_id, linkedConversationId: active.am_conversation_id, handoffId: active.handoff_id, planId: active.plan_id, correlationId: executionId, phase: "implementation", round, withEvidence: true });
       else if (step === "am" && typeof am === "function") raw = await am(prompt, active.am_conversation_id, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, handoffId: active.handoff_id, planId: active.plan_id, linkedConversationId: active.se_conversation_id, withEvidence: true, planningInputOnly: false });
       else throw Object.assign(new ConfigurationError("Role stream unavailable."), { code: "HANDOFF_ADAPTER_UNAVAILABLE" });
+      if (drained.pauseRequested) throw Object.assign(new ConfigurationError("Execution paused at the requested turn boundary."), { code: "EXECUTION_PAUSED" });
       const parsed = step === "se" ? { cleanText: String(raw?.text ?? "").trim() } : parseAmReviewVerdict(raw?.text);
       if (parsed.cleanText && raw?.execution_id === executionId && raw?.terminal_status === "completed") publishDualConversationMessage({ sender: step === "se" ? { id: active.se_agent_id, role: "system_engineer" } : step === "rv" ? { id: active.rv_agent_id, role: "reviewer" } : { id: active.am_agent_id, role: "architecture_manager" }, recipient: step === "am" ? { id: active.se_agent_id, role: "system_engineer" } : { id: active.am_agent_id, role: "architecture_manager" }, messageType: step === "se" ? "system_engineer.message.received" : step === "rv" ? "reviewer.message.received" : "architecture.message.received", amConversationId: active.am_conversation_id, seConversationId: active.se_conversation_id, correlationId: executionId, text: parsed.cleanText, extraPayload: { handoff_id: active.handoff_id, plan_id: active.plan_id, phase: "implementation", round, ...(step === "se" ? {} : { verdict: parsed.verdict }) } });
       return { execution_id: raw?.execution_id, terminal_status: raw?.terminal_status, result_evidence: raw?.result_evidence, read_only_enforced: raw?.read_only_enforced, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) };
@@ -95,34 +96,25 @@ export function createAmSeHandoffService({
     const hasStepAdapter = (step) => step === "se" ? typeof se === "function" : step === "rv" ? typeof rv === "function" : step === "am" ? typeof am === "function" : false;
     do {
       record = await checkpoint.resume(handoffId, { invoke, recoverResult: (step, receipt) => { const parsed = step === "se" ? { cleanText: receipt.text } : parseAmReviewVerdict(receipt.text); return { ...receipt, text: parsed.cleanText, ...(step === "se" ? {} : { verdict: parsed.verdict }) }; }, expectedRevision: record.plan_revision, expectedSha256: record.plan_sha256, expectedOwnerId: approvedOwnerId });
-    } while (runToCompletion && record.status === "running" && record.checkpoint?.execution_status === "pending" && hasStepAdapter(record.checkpoint?.next_step));
+    } while (runToCompletion && record.status === "running" && record.checkpoint?.execution_status === "pending" && !record.checkpoint?.last_error && hasStepAdapter(record.checkpoint?.next_step));
     return handoffResultPayload(record);
   }
 
   // Business purpose: resumes only the next incomplete AM-SE critique turn from its durable checkpoint.
   // Technical description: reconstructs the role prompt from the pinned plan and saved critique result, invokes one role, and leaves implementation approval to the existing backend gate.
-  async function resumeCritique({ handoffId, requestSystemEngineer: se = requestSystemEngineer, requestArchitecture: am = requestArchitecture } = {}) {
-    const record = await store.get(handoffId);
-    const cp = record?.critique_checkpoint;
-    if (!record || !cp || record.phase !== "plan_critique") throw Object.assign(new ConfigurationError("Critique checkpoint is unavailable."), { code: "HANDOFF_CRITIQUE_REQUIRED", statusCode: 409 });
-    const planJson = parseArchitecturePlanJSON(await fileService.readFile({ path: record.plan_source_path }));
-    const previousSe = cp.results.find((item) => item.step === "se" && item.round === cp.round);
-    const displaySourcePath = typeof fileService?.resolveStoragePath === "function" ? fileService.resolveStoragePath(record.plan_source_path) : record.plan_source_path;
-    const brief = formatHumanReadableHandoffBrief(planJson, { planId: record.plan_id, revision: record.plan_revision, planSourcePath: displaySourcePath, deliveryTarget: record.delivery_target });
-    const step = cp.next_step ?? cp.current_step;
-    const prompt = step === "se"
-      ? `${brief}\n\n[Giai đoạn 1 - Resume phản biện kế hoạch, vòng ${cp.round}/${record.max_critique_rounds}]: Hãy phản biện kỹ thuật kế hoạch và kết thúc bằng [CRITIQUE: ALIGNED] hoặc [CRITIQUE: DISCUSS].`
-      : buildAmCritiqueReplyPrompt({ planJson, planId: record.plan_id, seCritiqueText: previousSe?.text ?? "" });
-    const turn = await critique.run(handoffId, { step, round: cp.round, invoke: (executionId) => step === "se"
-      ? se?.({ agentId: record.se_agent_id, prompt, conversationId: record.se_conversation_id, linkedConversationId: record.am_conversation_id, handoffId: record.handoff_id, planId: record.plan_id, correlationId: executionId, phase: "plan_critique", critiqueRound: cp.round, round: cp.round, withEvidence: Boolean(executionCheckpoint) })
-      : am?.(prompt, record.am_conversation_id, { responseContentType: "text/markdown", exposeText: false, correlationId: executionId, handoffId: record.handoff_id, planId: record.plan_id, linkedConversationId: record.se_conversation_id, withEvidence: Boolean(executionCheckpoint) }) });
-    if (!turn.result) return { handoff_id: handoffId, phase: "plan_critique", status: "paused", reason: turn.record.critique_checkpoint.error_code, checkpoint: turn.record.critique_checkpoint };
-    if (step === "am") {
-      const applied = await maybeApplyCritiqueRevision({ rawAmReply: turn.result.text, currentPlan: { plan_id: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, source_path: record.plan_source_path }, currentPlanJson: planJson, conversationId: record.am_conversation_id });
-      await critique.advance(handoffId, { round: cp.round, history: [...(record.history ?? []), { phase: "plan_critique", critique_round: cp.round, am_reply: applied.cleanReply, timestamp: new Date().toISOString() }], plan: applied.currentPlan });
-    }
-    const latest = await store.get(handoffId);
-    return { handoff_id: handoffId, phase: latest.phase, status: latest.status, reason: latest.critique_checkpoint?.error_code ?? null, checkpoint: latest.critique_checkpoint };
+  async function resumeCritique({ handoffId, approvedOwnerId, requestSystemEngineer: se = requestSystemEngineer, requestArchitecture: am = requestArchitecture, requestReviewer: rv = requestReviewer } = {}) {
+    return resumeAmSeCritique({ handoffId, projectId, store, critique, fileService, applyRevision: maybeApplyCritiqueRevision, se, am, withEvidence: Boolean(executionCheckpoint),
+      finish: async (record) => {
+        if (record.error_code === "CRITIQUE_CONSENSUS_REQUIRED") return { handoff_id: handoffId, phase: record.phase, status: "paused", reason: record.error_code };
+        if (record.approval_mode === "explicit_owner_command" && approvedOwnerId) await markdownPlanStore.decide({ planId: record.plan_id, revision: record.plan_revision, sha256: record.plan_sha256, decision: "approved", approverId: approvedOwnerId });
+        const approved = await checkpoint.verifyPlan(record);
+        if (!approvedOwnerId || approved.decision?.approver_id !== approvedOwnerId) throw Object.assign(new ConfigurationError("Authenticated Owner approval is required before implementation."), { code: "PLAN_APPROVAL_REQUIRED", statusCode: 409 });
+        if (record.delivery_target !== "se") throw Object.assign(new ConfigurationError("This handoff requires the sprint delivery adapter."), { code: "HANDOFF_ADAPTER_UNAVAILABLE", statusCode: 409 });
+        await store.transition(handoffId, record.critique_checkpoint.generation, (current) => ({ ...current, phase: "implementation", status: "running", round: 1, error_code: null, checkpoint: { generation: 0, approval_pending: true } }));
+        await checkpoint.initialize(handoffId, approvedOwnerId);
+        return resumeHandoff({ handoffId, approvedOwnerId, requestSystemEngineer: se, requestArchitecture: am, requestReviewer: rv, runToCompletion: true });
+      }
+    });
   }
 
   // Business purpose: runs Phase 1 (1-2 rounds of AM-SE plan critique) and Phase 2 automatic handoff to SL or SE.

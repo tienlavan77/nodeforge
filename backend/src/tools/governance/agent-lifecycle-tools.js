@@ -12,6 +12,8 @@ import { recordSourceMetadata } from "../discovery/source-metadata-receipts.js";
 import { extractorRegistry } from "../../modules/index/parser/index.js";
 import { hasFileHeaderComment, extractFunctionSignatures, findFunctionDeclarationLine, hasPrecedingComment, extractFileHeaderComment, extractPrecedingCommentBlock, countBudgetLines, validateCommentLanguage, resolveFileLineLimit } from "./agent-code-conventions.js";
 import { discoveryNotice, recordRead, resetExploration } from "../discovery/exploration-state.js";
+import { assertDelegatedDiscoveryRequired } from "../discovery/delegated-discovery-policy.js";
+import { invalidateReadDeduplication, readDeduplicationKey, readWithDeduplication } from "../discovery/read-deduplication.js";
 const MAX_CONTENT = 200000;
 const DOCUMENT_LINE_LIMIT = 250;
 // safePath - handles safePath operation.
@@ -57,13 +59,15 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
     const path = safePath(input.path, "read", context.agent_identity?.role);
     const readBinary = async () => {
       assertAllowed(path, context);
-      const raw = await fileService.readFile({ path, encoding: null });
+      const readKey = readDeduplicationKey({ projectRoot: projectRoot ?? context.project_root, projectId: context.project_id, conversationId: context.conversation_id, delegationId: context.execution_id ?? context.task_id, path, tool: "source", symbol: "binary" });
+      const deduplicated = await readWithDeduplication({ key: readKey, context, path, read: () => fileService.readFile({ path, encoding: null }).then((raw) => ({ raw })) });
+      const raw = deduplicated.raw;
       const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw ?? ""), "utf8");
       assertAllowed(path, context);
       const sha256 = checksum(bytes);
       recordRead(context, { path, window: "binary" });
       recordObservedFile(context, { path, sha256, symbols_read: [], source_tool: "read_file" });
-      return { path, sha256, size_bytes: bytes.byteLength, binary: true, encoding: "base64", content_base64: bytes.toString("base64") };
+      return { path, sha256, size_bytes: bytes.byteLength, binary: true, encoding: "base64", content_base64: bytes.toString("base64"), read_deduplication: deduplicated.read_deduplication };
     };
     if (/\.bak$/i.test(path)) {
       assertAllowed(path, context);
@@ -79,8 +83,9 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
     assertAllowed(path, context);
     let file;
     try {
-      file = context.agent_identity?.role !== "coder" && isDependencyPath(path) && (projectRoot ?? context.project_root)
-        ? await dependencyReader({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path });
+      const readKey = readDeduplicationKey({ projectRoot: projectRoot ?? context.project_root, projectId: context.project_id, conversationId: context.conversation_id, delegationId: context.execution_id ?? context.task_id, path, tool: "source", symbol: markdown ? "document" : "metadata" });
+      file = await readWithDeduplication({ key: readKey, context, path, read: () => context.agent_identity?.role !== "coder" && isDependencyPath(path) && (projectRoot ?? context.project_root)
+        ? dependencyReader({ projectRoot: projectRoot ?? context.project_root, path }) : codeCache ? codeCache.read({ path }) : fileService.readForIndex({ path }) });
     } catch (readError) {
       if (/Refusing to index binary file/i.test(String(readError?.message ?? "")) && typeof fileService?.readFile === "function") return readBinary();
       throw readError;
@@ -97,7 +102,7 @@ export function createReadFileTool({ fileService, codeCache, projectRoot, depend
       cache: file.cache ?? { status: "bypass", cached_at: null, expires_at: null }, content_sha256: file.content_sha256 ?? sha256,
       indexed_sha256: file.indexed_sha256 ?? null, index_version: file.index_version ?? null,
       index_status: file.index_status ?? "unavailable", code_index: file.code_index ?? { path, symbols },
-      code_graph: scopedGraph(file.code_graph, context), symbol_map: symbols, discovery_budget: discoveryNotice(context) };
+      code_graph: scopedGraph(file.code_graph, context), symbol_map: symbols, read_deduplication: file.read_deduplication, discovery_budget: discoveryNotice(context) };
     if (markdown) {
       const content = lines.slice(0, DOCUMENT_LINE_LIMIT).join("\n");
       recordRead(context, { path, window: `document-1-${Math.min(lines.length, DOCUMENT_LINE_LIMIT)}` });
@@ -258,6 +263,7 @@ function formatConventionMapping(raw) {
 // recordChangedPath - handles recordChangedPath operation.
 function recordChangedPath(context, path) {
   if (!context || typeof context !== "object") return;
+  invalidateReadDeduplication({ projectRoot: context.project_root, projectId: context.project_id, path });
   const paths = Array.isArray(context.changed_paths) ? context.changed_paths : [];
   if (!paths.includes(path)) paths.push(path);
   context.changed_paths = paths;

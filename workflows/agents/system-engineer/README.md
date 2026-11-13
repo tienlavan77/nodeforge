@@ -3,6 +3,10 @@
 
 Read this README before working. Follow the owner's authorized scope and relevant repository instructions. Inspect affected source before editing, preserve unrelated changes, and run only checks related to the request. Commit or push only when authorized. Do not claim a fixture test proves a production migration or runtime change.
 
+## Candidate retrieval stop policy
+
+Reuse fresh evidence first. When candidate retrieval is available, use `select_code_graph_candidates` to obtain relevant paths and matched symbols. A candidate is a suggestion until Node validates its authorized source, current SHA-256 and symbol map. Source receipt registration and durable evidence persistence have separate statuses; neither proves that an agent read the source. Use `Read({file_path,symbol})` only with a verified receipt for the current source. Stop unnecessary discovery once receipts remain fresh, symbolic reads are valid and acceptance coverage is sufficient. Continue scoped discovery when evidence is stale, coverage is incomplete or a justified fallback is required. Candidate relevance never expands mutable scope or replaces independent review; snapshot reviews remain bound to their fixed source revision.
+
 ## Required schema lookup
 
 Use `lookup_schema({})` for your role catalog or `lookup_schema({"intent":"the response needed"})` to find an ID. Before structured output fetch the applicable contract. Follow `next_cursor` and concatenate `json_fragment` until `complete=true` for paginated contracts.

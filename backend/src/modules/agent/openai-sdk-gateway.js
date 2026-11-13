@@ -14,7 +14,7 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
   return Object.freeze({ execute, provider: "openai", conversationMode: "history", builtinWebSearchAvailable: supportsBuiltinWebSearch });
 
   // Defines execute function behavior for openai-sdk-gateway.js.
-  async function execute({ agent, agentId, prompt, correlationId, options = {}, abortSignal } = {}) {
+  async function execute({ agent, agentId, prompt, correlationId, options = {}, abortSignal, resumeThreadId } = {}) {
     const profile = agent ?? { agent_id: agentId };
     if (typeof prompt !== "string" || !prompt.trim()) throw new ConfigurationError("OpenAI SDK prompt is required.");
     if (typeof correlationId !== "string" || !correlationId) throw new ConfigurationError("OpenAI SDK correlation_id is required.");
@@ -48,8 +48,8 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
       };
       if (normalized.reasoning.effort !== "none") agentOptions.modelSettings = { reasoning: { effort: normalized.reasoning.effort } };
       const openaiAgent = new AgentClass(agentOptions);
-      const input = Array.isArray(options.history) ? [...options.history, { role: "user", content: prompt }] : prompt;
-      const result = await runner(openaiAgent, input, { modelProvider: provider, signal: controller.signal, maxTurns: null, tracingDisabled: true });
+      const input = resumeThreadId ? [{ role: "user", content: prompt }] : Array.isArray(options.history) ? [...options.history, { role: "user", content: prompt }] : prompt;
+      const result = await runner(openaiAgent, input, { modelProvider: provider, signal: controller.signal, maxTurns: null, tracingDisabled: true, ...(resumeThreadId ? { previous_response_id: resumeThreadId } : {}) });
       const usage = extractOpenAiRunnerUsage(result);
       const lastRawUsage = Array.isArray(result?.rawResponses) ? result.rawResponses.map((item) => item?.usage).filter(Boolean).at(-1) : undefined;
       return {
@@ -61,6 +61,7 @@ export function createOpenAiSdkGateway({ providerFactory, runner = createTracing
         correlation_id: correlationId,
         status: "completed",
         ...(options.retainHistory ? { turn_completed: true, history: result.history } : {}),
+        ...(result?.response_id || result?.id ? { session_id: result.response_id ?? result.id } : {}),
         text: extractText(result?.finalOutput)
       };
     } catch (error) {

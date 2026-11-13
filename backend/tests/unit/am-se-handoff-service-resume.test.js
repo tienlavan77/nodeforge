@@ -31,6 +31,38 @@ async function fixture(t) {
   return { service, store, id, plan };
 }
 
+// Business purpose: recover the production failure between saving AM output and advancing a critique round.
+// Technical description: persists the interrupted state in the real file store and resumes through independent RV and AM acceptance.
+test("Resume finalizes saved AM critique and continues through implementation acceptance", async (t) => {
+  const f = await fixture(t);
+  await f.store.update(f.id, { status: "critiquing", max_critique_rounds: 2, critique_checkpoint: {
+    generation: 0, round: 1, current_step: null, next_step: "se", execution_status: "pending",
+    attempt: 2, plan_revision: 2, plan_sha256: "approved-sha", workspace: null, results: [
+      { step: "se", round: 1, text: "Clarify [CRITIQUE: DISCUSS]", execution_id: "saved-se" },
+      { step: "am", round: 1, text: "Clarified plan", execution_id: "saved-am" }
+    ]
+  } });
+  const steps = [];
+  const result = await f.service.resumeHandoff({ handoffId: f.id, approvedOwnerId: "OWNER",
+    requestSystemEngineer: async ({ phase, round, correlationId }) => {
+      steps.push(`se:${phase}:${round}`);
+      if (phase === "plan_critique") return "Aligned [CRITIQUE: ALIGNED]";
+      return { text: "Implemented", execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed" } };
+    },
+    requestReviewer: async ({ correlationId }) => {
+      steps.push("rv");
+      return { text: "Verified\n[VERDICT: PASS]", execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed" }, read_only_enforced: true };
+    },
+    requestArchitecture: async (_prompt, _conv, { correlationId }) => {
+      steps.push("am");
+      return { text: "Accepted\n[VERDICT: PASS]", execution_id: correlationId, terminal_status: "completed", result_evidence: { sdk_status: "completed" } };
+    }
+  });
+  assert.deepEqual(steps, ["se:plan_critique:2", "se:implementation:1", "rv", "am"]);
+  assert.equal(result.status, "completed");
+  assert.equal((await f.store.get(f.id)).critique_checkpoint.execution_status, "completed");
+});
+
 test("pending SE after safe reconciliation shows Resume without a stale unknown error", async (t) => {
   const { service, store, id } = await fixture(t);
   await store.update(id, { phase: "implementation", status: "running", checkpoint: { generation: 5, execution_status: "pending", current_step: null, next_step: "se", attempt: 1, error_code: "HANDOFF_EXECUTION_UNKNOWN", results: [] } });

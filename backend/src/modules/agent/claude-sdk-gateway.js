@@ -89,7 +89,7 @@ export function createClaudeSdkGateway({
       cwd: workingDirectory,
       additionalDirectories: [...additionalDirectories],
       ...(model ? { model } : {}),
-      env: createGatewayEnvironment({ config, credential, optionsEnv: options.env, projectRoot: workingDirectory, claudeHome }),
+      env: createGatewayEnvironment({ config, credential, optionsEnv: options.env, projectRoot: workingDirectory, claudeHome, subagent: Boolean(subagentId) }),
       ...(Object.keys(options.mcpServers ?? mcpServers).length ? { mcpServers: options.mcpServers ?? mcpServers } : {}),
       ...((options.allowedTools ?? allowedTools).length ? { allowedTools: [...(options.allowedTools ?? allowedTools)] } : {}),
       ...(options.tools === undefined ? {} : { tools: options.tools }),
@@ -197,7 +197,7 @@ export function createClaudeSdkGateway({
   }
 
   // Defines createGatewayEnvironment function behavior for claude-sdk-gateway.js.
-  function createGatewayEnvironment({ config, credential, optionsEnv, projectRoot, claudeHome }) {
+  function createGatewayEnvironment({ config, credential, optionsEnv, projectRoot, claudeHome, subagent = false }) {
     const baseUrl = config.gateway_url || gatewayBaseUrl;
     if (typeof baseUrl !== "string" || !SAFE_URL.test(baseUrl)) {
       throw new ConfigurationError("Claude SDK third-party gateway URL is unavailable.");
@@ -211,7 +211,7 @@ export function createClaudeSdkGateway({
       ...env,
       ...shellEnvironment,
       PATH: prependNodeBin(env.PATH),
-      ...claudeCacheEnvironment(),
+      ...claudeCacheEnvironment({ subagent }),
       CLAUDE_CONFIG_DIR: claudeHome,
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_AUTH_TOKEN: credential,

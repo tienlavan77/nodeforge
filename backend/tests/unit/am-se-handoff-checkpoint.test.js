@@ -97,7 +97,7 @@ test("reviewer revision loops to a fresh SE attempt and rejects missing reviewer
   assert.notEqual(f.record.status, "completed");
 });
 
-test("simultaneous resume claims one intent; interrupted SE cannot retry before reconciliation", async () => {
+test("simultaneous resume claims one intent; interrupted SE returns to the same safe checkpoint", async () => {
   const f = fixture();
   await f.machine.initialize("HANDOFF-TEST");
   let release;
@@ -107,9 +107,10 @@ test("simultaneous resume claims one intent; interrupted SE cannot retry before 
   await assert.rejects(f.machine.resume("HANDOFF-TEST", { invoke: async () => { throw new Error("duplicate call"); } }), { code: "HANDOFF_BUSY" });
   release();
   await first;
-  assert.equal(f.record.checkpoint.execution_status, "reconciliation_required");
-  await assert.rejects(f.machine.resume("HANDOFF-TEST", { invoke: async () => { throw new Error("unsafe retry"); } }), { code: "HANDOFF_RECONCILIATION_REQUIRED" });
-  assert.deepEqual(await f.machine.reconcile("HANDOFF-TEST"), { classification: "blocked", handoff_id: "HANDOFF-TEST" });
+  assert.equal(f.record.checkpoint.execution_status, "pending");
+  assert.equal(f.record.checkpoint.next_step, "se");
+  await f.machine.resume("HANDOFF-TEST", { invoke: async () => { throw new Error("retry failed"); } });
+  assert.equal(f.record.checkpoint.execution_status, "pending");
 });
 
 test("stopped SE runner after a lost result needs operator evidence before a new attempt", async () => {
@@ -228,7 +229,7 @@ test("baseline adoption rejects unverified or tool-using prior SE attempts", asy
   await assert.rejects(f.machine.adoptWorkspace("HANDOFF-TEST", args), { code: "HANDOFF_BASELINE_ADOPTION_UNSAFE" });
   const execution_id = f.record.checkpoint.execution_id;
   f.setReceipt({ execution_id, runner_stopped_at: "2026-01-01T00:00:00Z", status: "interrupted", pending_tool_calls: [], completed_tool_calls: [{ tool_name: "edit_diff" }], last_completed_step: 1 });
-  assert.equal((await f.machine.reconcile("HANDOFF-TEST", { operatorApproved: true })).classification, "blocked");
+  await assert.rejects(f.machine.reconcile("HANDOFF-TEST", { operatorApproved: true }), { code: "HANDOFF_RECONCILIATION_INVALID" });
   await assert.rejects(f.machine.adoptWorkspace("HANDOFF-TEST", args), { code: "HANDOFF_BASELINE_ADOPTION_UNSAFE" });
   assert.equal(f.record.checkpoint.results.length, 0);
 });

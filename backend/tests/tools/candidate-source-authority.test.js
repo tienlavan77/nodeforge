@@ -12,7 +12,7 @@ const content = "export function example() { return 7; }\n";
 // Technical description: binds the read path and a revocable current-authority resolver to a Reviewer identity.
 function fixture() {
   let authorized = true;
-  const context = { task_id: "ticket", execution_id: "run", project_root: process.cwd(),
+  const context = { task_id: "ticket", execution_id: "run", source_revision: "a".repeat(40), project_root: process.cwd(),
     agent_identity: { agent_id: "reviewer", role: "reviewer" }, capabilities: ["select_code_graph_candidates"], allowed_file_paths: [path], allowed_prefixes: [] };
   context.file_access_policy = issueExecutionFileAccess({ context, readPaths: [path],
     policyIdentity: { id: "policy", revision: "1", sha256: "sha256:" + "a".repeat(64) }, authorizeCurrent: () => authorized });
@@ -62,6 +62,22 @@ test("stale cached candidates stay unverified and allow a later scoped retrieval
   assert.equal(context.active_file_checksums, undefined);
   fresh = true;
   assert.equal((await tool.execute({ query: "example" }, context)).selected[0].receipt.status, "verified");
+});
+
+test("serialized receipt reuse requires the current execution and scope", async () => {
+  const f = fixture();
+  const tool = createSelectCodeGraphCandidatesTool({
+    relevantTreeSelector: { select: () => ({ tree: [{ path }] }) },
+    fileService: { readForIndex: async () => ({ content }) },
+    evidenceStore: { recordDirectEvidence: () => ({ durable: true }) }
+  });
+  const first = await tool.execute({ query: "example" }, f.context);
+  const entry = first.selected[0];
+  assert.equal(entry.receipt.status, "verified");
+  const contextWithoutIdentity = { ...f.context, execution_id: undefined, conversation_id: undefined };
+  assert.equal((await import("../../src/tools/discovery/candidate-source-receipts.js")).candidateSourceMetadata(entry, contextWithoutIdentity), undefined);
+  const mismatchedScope = { ...f.context, allowed_file_paths: ["backend/src/other.js"] };
+  assert.equal((await import("../../src/tools/discovery/candidate-source-receipts.js")).candidateSourceMetadata(entry, mismatchedScope), undefined);
 });
 
 test("candidate input cannot replace path or execution authority", async () => {

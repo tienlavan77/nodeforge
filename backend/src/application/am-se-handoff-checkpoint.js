@@ -84,7 +84,7 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
       const roundLimitReached = accepted && next === "se" && nextRound > current.max_rounds;
       const status = acceptedFinal ? "completed" : accepted ? roundLimitReached ? "blocked" : "pending" : step === "se" ? "reconciliation_required" : "blocked";
       const entry = accepted ? { round: cp.round, step, execution_id: cp.execution_id, attempt: cp.attempt, text, ...(step !== "se" ? { verdict } : {}), result_evidence: evidence, completed_at: now() } : null;
-      return { ...current, ...(resultScope ? { workspace_scope_paths: resultScope } : {}), status: status === "completed" ? "completed" : status === "blocked" ? "paused" : "running", round: nextRound, checkpoint: { ...current.checkpoint, workspace: accepted ? observed : current.checkpoint.workspace, round: nextRound, current_step: status === "pending" || status === "completed" || roundLimitReached ? null : step, next_step: status === "pending" || roundLimitReached ? next : null, execution_status: status, results: entry ? [...current.checkpoint.results, entry] : current.checkpoint.results, error_code: accepted ? null : "HANDOFF_RESULT_REQUIRED", updated_at: now() } };
+      return { ...current, ...(resultScope ? { workspace_scope_paths: resultScope } : {}), status: status === "completed" ? "completed" : status === "blocked" ? "paused" : "running", round: nextRound, checkpoint: { ...current.checkpoint, workspace: accepted ? observed : current.checkpoint.workspace, round: nextRound, current_step: status === "pending" || status === "completed" || roundLimitReached ? null : step, next_step: status === "pending" || roundLimitReached ? next : null, execution_status: status, results: entry ? [...current.checkpoint.results, entry] : current.checkpoint.results, error_code: accepted ? null : "HANDOFF_RESULT_REQUIRED", last_error: accepted ? null : current.checkpoint.last_error ?? null, updated_at: now() } };
     });
     log(completed, completed.checkpoint.error_code ? "result_missing" : "result", completed.checkpoint.error_code);
     return completed;
@@ -161,11 +161,18 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
     const evidence = executionCheckpoint && cp.execution_id ? await executionCheckpoint.load(conversationId, cp.execution_id) : null;
     const observed = await workspace(Array.isArray(cp.workspace?.scope_paths) ? cp.workspace.scope_paths : undefined);
     const stopped = Boolean(evidence?.runner_stopped_at && evidence.status !== "running" && Array.isArray(evidence.pending_tool_calls) && !evidence.pending_tool_calls.length && Array.isArray(evidence.completed_tool_calls));
-    const safe = stopped && !evidence.handoff_result && same(cp.workspace, observed) && (cp.current_step !== "rv" || evidence.read_only_enforced === true) && (cp.current_step !== "se" || evidence.last_completed_step === 0 && !evidence.completed_tool_calls?.some((call) => call.mutating));
+    const updatedAt = Date.parse(cp.updated_at ?? record.updated_at ?? "");
+    const staleRunning = cp.execution_status === "running" && Number.isFinite(updatedAt) && Date.now() - updatedAt > 15 * 60 * 1000 && (!evidence || evidence.status !== "running");
+    const unchangedWorkspace = same(cp.workspace, observed);
+    const ownerApprovedUnknown = operatorApproved && ["reconciliation_required", "unknown"].includes(cp.execution_status)
+      && !cp.results?.length && !evidence?.handoff_result && !evidence?.pending_tool_calls?.length;
+    const staleSafe = staleRunning && unchangedWorkspace && !evidence?.handoff_result;
+    const recoverable = staleSafe || ownerApprovedUnknown;
+    const safe = (stopped && !evidence.handoff_result && unchangedWorkspace && (cp.current_step !== "rv" || evidence.read_only_enforced === true) && (cp.current_step !== "se" || evidence.last_completed_step === 0 && !evidence.completed_tool_calls?.some((call) => call.mutating))) || recoverable;
     if (!safe || !operatorApproved) return { classification: safe ? "operator_decision" : "blocked", handoff_id: handoffId };
     const updated = await store.transition(handoffId, cp.generation, (current) => {
       if (current.checkpoint.execution_id !== cp.execution_id || current.checkpoint.execution_status !== cp.execution_status) fail("HANDOFF_STALE");
-      return { ...current, checkpoint: { ...current.checkpoint, current_step: null, next_step: cp.current_step, execution_status: "pending", error_code: null, updated_at: now() } };
+      return { ...current, checkpoint: { ...current.checkpoint, ...(recoverable ? { workspace: observed } : {}), current_step: null, next_step: cp.current_step, execution_status: "pending", error_code: null, updated_at: now() } };
     });
     log(updated, "reconciled");
     return { classification: "safe_to_resume", handoff_id: handoffId };
@@ -233,10 +240,33 @@ export function createAmSeHandoffCheckpoint({ store, markdownPlanStore, fileServ
       if (typeof invoke !== "function") fail("HANDOFF_ADAPTER_UNAVAILABLE");
       result = await invoke({ record: intent, step, round: cp.round, executionId, previous: cp.results });
     } catch (error) {
+      if (error?.code === "EXECUTION_PAUSED" || error?.code === "DIRECTIVE_PAUSE_REQUESTED") {
+        const paused = await store.transition(handoffId, intent.checkpoint.generation, (current) => {
+          if (current.checkpoint.execution_id !== executionId || current.checkpoint.execution_status !== "running") fail("HANDOFF_STALE");
+          return { ...current, status: "paused", checkpoint: { ...current.checkpoint, current_step: null, next_step: step, execution_status: "pending", error_code: "EXECUTION_PAUSED", updated_at: now() } };
+        });
+        log(paused, "paused", "EXECUTION_PAUSED");
+        return paused;
+      }
+      // A provider/session failure is retryable when the pinned workspace is unchanged.
+      // This proves the failed turn did not apply a project mutation, so a recovered
+      // conversation may safely retry the same role without asking the Owner to reconcile.
+      const observed = await workspace(Array.isArray(intent.checkpoint.workspace?.scope_paths) ? intent.checkpoint.workspace.scope_paths : undefined).catch(() => null);
+      const failureCode = error?.code ?? "HANDOFF_ADAPTER_FAILED";
+      const failureMessage = String(error?.message ?? failureCode).slice(0, 500);
+      const safeRetry = observed && same(intent.checkpoint.workspace, observed);
+      if (safeRetry) {
+        const retry = await store.transition(handoffId, intent.checkpoint.generation, (current) => {
+          if (current.checkpoint.execution_id !== executionId || current.checkpoint.execution_status !== "running") fail("HANDOFF_STALE");
+          return { ...current, checkpoint: { ...current.checkpoint, current_step: null, next_step: step, execution_status: "pending", error_code: failureCode, safe_retry_count: Number(current.checkpoint.safe_retry_count ?? 0) + 1, last_error: { code: failureCode, message: failureMessage }, updated_at: now() } };
+        });
+        log(retry, "retryable", failureCode);
+        return retry;
+      }
       const status = step === "se" ? "reconciliation_required" : "unknown";
       const failed = await store.transition(handoffId, intent.checkpoint.generation, (current) => {
         if (current.checkpoint.execution_id !== executionId || current.checkpoint.execution_status !== "running") fail("HANDOFF_STALE");
-        return { ...current, checkpoint: { ...current.checkpoint, execution_status: status, error_code: "HANDOFF_EXECUTION_UNKNOWN", updated_at: now() } };
+        return { ...current, checkpoint: { ...current.checkpoint, execution_status: status, error_code: "HANDOFF_EXECUTION_UNKNOWN", last_error: { code: failureCode, message: failureMessage }, updated_at: now() } };
       });
       log(failed, "unknown", "HANDOFF_EXECUTION_UNKNOWN");
       return failed;

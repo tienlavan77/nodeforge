@@ -26,10 +26,15 @@ export function syncToolResultToEvidenceStore({ toolName, input = {}, result = {
   };
   if (toolName === "select_code_graph_candidates") {
     return (result.selected ?? []).map((entry) => {
-      const metadata = candidateSourceMetadata(entry);
+      const metadata = candidateSourceMetadata(entry, context);
       if (!metadata || entry.evidence?.status !== "not_recorded") return null;
       try {
-        const stored = evidenceStore.recordDirectEvidence({ ...scopeContext, ...metadata, symbols_read: [], source_tool: toolName,
+        const stored = evidenceStore.recordDirectEvidence({ ...scopeContext, ...metadata, correlation_id: metadata.receipt_id, symbols_read: [], source_tool: toolName,
+          relevance: { score: entry.score ?? null, semantic_score: entry.semantic_score ?? null,
+            lexical_score: entry.lexical_score ?? null, relations: entry.relations ?? [],
+            matched_symbols: entry.matched_symbols ?? [], matched_ac: entry.matched_ac ?? [],
+            matched_intents: entry.matched_intents ?? [], reasons: entry.reasons ?? entry.reason ?? [],
+            confidence: entry.confidence ?? null, recorded_at: new Date().toISOString() },
           workerId: scopeContext.workerId ?? `parent:${scopeContext.role ?? "candidate"}` });
         entry.evidence = stored?.durable === true
           ? { status: "recorded", durable: true }

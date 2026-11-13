@@ -68,7 +68,9 @@ test("Reviewer candidates and symbolic reads remain pinned to committed source",
   const commit = "a".repeat(40);
   const fileService = { ...source(), committedReview: true, reviewCommit: commit };
   const tools = createReviewerForgeTools({ fileService, projectRoot: root,
-    job: { task_id: "review", request_id: "request", payload: {} }, reviewer: { agent_id: "rv", provider: "codex" },
+    job: { task_id: "review", request_id: "request", payload: { ticket: {
+      candidate_files: [{ path: "backend/live-only.js", reason: "cached live winner", symbol: "forged" }]
+    } } }, reviewer: { agent_id: "rv", provider: "codex" },
     relevantTreeSelector: { select: () => ({ tree: [{ path }] }) },
     codeCache: { read: async () => ({ path, content: "export function example() { return 'live'; }", sha256: "live" }) } });
   const result = await tools.registry.select_code_graph_candidates.execute({ query: "example" });

@@ -47,8 +47,15 @@ function createControlApiHttpOptions({ services = {}, resolveProjectServices, no
   const sdkStream = createOwnerSdkStream({ executionCheckpoint, architectureCheckpoint, agentConfiguration, sdkGateways, fallbackStream: (input) => agentGateway.stream(input), conversationStateStore, conversationMessages: communications, fileService, codeCache, codeSearch: services.codeSearch, relevantTreeSelector: services.relevantTreeSelector, freshnessChecker: services.freshnessChecker, gitService, testService: services.testService, projectRoot, projectLogger: agentLoopLogger.emit });
   const planHandoff = services.planStore && services.database ? createPlanHandoffService({ projectId, database: services.database, planStore: services.planStore, markdownPlanStore: services.markdownPlanStore, sprintPlanLeader, sprintOrchestration, sprintRegistry: services.sprintRegistry, agentRoleResolver: services.agentRoleResolver }) : null;
   const handoffAdapter = async ({ agentId, prompt, conversationId, linkedConversationId, handoffId, planId, correlationId, withEvidence, planningInputOnly = false }) => {
+    const ensureConversation = (requestedId, roleAgentId) => {
+      if (!requestedId || typeof conversations?.get !== "function" || conversations.get(requestedId) || typeof conversations.create !== "function") return requestedId;
+      const recovered = conversations.create({ project_id: projectId, agent_id: roleAgentId, title: `Recovered handoff ${handoffId ?? correlationId ?? "conversation"}` });
+      return recovered?.id ?? requestedId;
+    };
+    const effectiveConversationId = ensureConversation(conversationId, agentId);
+    const effectiveLinkedConversationId = ensureConversation(linkedConversationId, linkedConversationId === conversationId ? agentId : services.agentRoleResolver?.resolveProfile?.("architecture_manager")?.agent_id ?? "architecture-manager");
     let text = ""; let terminal;
-    for await (const chunk of sdkStream({ agentId, payload: { text: prompt, response_content_type: "text/markdown", planning_input_only: Boolean(planningInputOnly), linked_conversation_id: linkedConversationId ?? null, ...(handoffId ? { handoff_id: handoffId } : {}), ...(planId ? { plan_id: planId } : {}), ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId, eventSink: publishUnifiedStreamEvent })) {
+    for await (const chunk of sdkStream({ agentId, payload: { text: prompt, response_content_type: "text/markdown", planning_input_only: Boolean(planningInputOnly), linked_conversation_id: effectiveLinkedConversationId ?? null, ...(handoffId ? { handoff_id: handoffId } : {}), ...(planId ? { plan_id: planId } : {}), ...(withEvidence ? { handoff_execution: true } : {}) }, correlationId, conversationId: effectiveConversationId, eventSink: publishUnifiedStreamEvent })) {
       if (typeof chunk?.text === "string") text += chunk.text;
       if (chunk?.handoff_terminal) terminal = chunk.handoff_terminal;
     }

@@ -2,6 +2,7 @@
 // Technical description: Enforces capability authorization, Coder read-scope filtering, and bounded output sizes while delegating to Node Git Service methods and shared helpers in git-read-helpers.js.
 
 import { logEvent } from "../../core/project-log-service.js";
+import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { createRuntimeLogger } from "../../core/runtime-logger.js";
 import { authorizeTool } from "../governance/tool-authorization.js";
 import { ConfigurationError } from "../../shared/errors.js";

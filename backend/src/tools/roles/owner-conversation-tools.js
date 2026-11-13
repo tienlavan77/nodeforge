@@ -17,8 +17,6 @@ import { createDelegateSubagentTool } from "../discovery/delegate-subagent-tool.
 import { createSubagentEvidenceTool } from "../discovery/subagent-evidence-tool.js";
 import { sharedSubagentEvidenceStore, syncToolResultToEvidenceStore } from "../discovery/subagent-evidence-sync.js";
 import { createLookupSchemaTool } from "../discovery/lookup-schema-tool.js";
-import { createTicketDirectiveInbox } from "../../modules/supervisor/ticket/ticket-directive-inbox.js";
-import { createSendExecutionDirectiveTool } from "../../modules/governance/conversation-directive-trigger.js";
 import { formatForgeToolActivitySummary } from "../../application/system-engineer-sdk-transcript.js";
 import { extractOwnerToolPathMeta, recordDiscoveryCompactStep, updateActiveFileChecksums } from "../../application/owner-context-compaction.js";
 
