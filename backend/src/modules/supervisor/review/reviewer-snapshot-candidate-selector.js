@@ -37,6 +37,7 @@ export function createSnapshotCandidateSelector({ relevantTreeSelector, source }
     const fileGraph = { getDependencies: () => ({ edges: [] }), getDependents: () => ({ edges: [] }) };
     const selector = createRelevantTreeSelector({ search, fileGraph });
     const result = selector.select({ ...args,
+      allowedPaths: byPath.keys(),
       priorFiles: (args.priorFiles ?? args.prior_files ?? []).filter((entry) => byPath.has(typeof entry === "string" ? entry : entry?.path)),
       prior_files: [],
       dependencyFiles: (args.dependencyFiles ?? args.dependency_files ?? []).filter((entry) => byPath.has(typeof entry === "string" ? entry : entry?.path)),

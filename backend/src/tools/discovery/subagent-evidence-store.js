@@ -293,7 +293,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       return { ...entry, durable, ...(roleState.last_durability_error && !durable ? { durability_error: roleState.last_durability_error } : {}) };
     },
     recordDirectEvidence(input = {}) {
-      const { path, sha256, total_lines: totalLines, symbol_map: symbolMap, code_graph: codeGraph, symbols_read: symbolsRead = [], source_tool: sourceTool = "read_file", deleted = false, from_path: fromPath = null } = input;
+      const { path, sha256, total_lines: totalLines, symbol_map: symbolMap, code_graph: codeGraph, symbols_read: symbolsRead = [], source_tool: sourceTool = "read_file", deleted = false, from_path: fromPath = null, correlation_id: correlationId = null } = input;
       const state = stateFor(input.conversationId, input.delegationId);
       const roleState = roleStateFor({ ...input, projectRoot: input.projectRoot ?? defaultProjectRoot, projectId: input.projectId ?? defaultProjectId });
       for (const token of scopeTokens(input)) roleState.scopes.add(token);
@@ -313,6 +313,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       const entry = {
         ...(shaChanged ? {} : prev),
         path, sha256,
+        ...(correlationId ? { correlation_id: correlationId } : !shaChanged && prev?.correlation_id ? { correlation_id: prev.correlation_id } : {}),
         ...(Number.isInteger(totalLines ?? prev?.total_lines) ? { total_lines: totalLines ?? prev?.total_lines } : {}),
         ...(symbolNames?.length ? { symbols: symbolNames } : {}),
         ...(Array.isArray(resolvedSymbolMap) ? { symbol_map: resolvedSymbolMap } : {}),
@@ -330,7 +331,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
           observed_at: nowIso,
           read_only_enforced: Boolean(input.readOnlyEnforced ?? prev?.read_only_enforced ?? false)
         },
-        ...(!shaChanged && prev?.relevance ? { relevance: prev.relevance } : {}),
+        ...(input.relevance ? { relevance: structuredClone(input.relevance) } : !shaChanged && prev?.relevance ? { relevance: prev.relevance } : {}),
         source_worker_id: workerId,
         source_role: roleState.role, source_tool: sourceTool, conversation_id: input.conversationId ?? prev?.conversation_id ?? null, delegation_id: input.delegationId ?? prev?.delegation_id ?? null, plan_id: planId ?? prev?.plan_id ?? null, handoff_id: handoffId ?? prev?.handoff_id ?? null, updated_at: nowIso, version: nextVersion
       };

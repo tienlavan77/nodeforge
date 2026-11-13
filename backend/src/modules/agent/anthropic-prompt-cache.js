@@ -2,11 +2,12 @@
 const CACHE_DISABLE_FLAGS = ["DISABLE_PROMPT_CACHING", "DISABLE_PROMPT_CACHING_HAIKU", "DISABLE_PROMPT_CACHING_SONNET", "DISABLE_PROMPT_CACHING_OPUS"];
 
 // Enables SDK-managed cache reads and writes for every Claude model family.
-export function claudeCacheEnvironment() {
+export function claudeCacheEnvironment({ subagent = false } = {}) {
+  const ttl = subagent ? "5m" : "1h";
   return { ...Object.fromEntries(CACHE_DISABLE_FLAGS.map((name) => [name, "0"])),
-    CLAUDE_CODE_PROMPT_CACHE_TTL: "1h",
-    CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: "1h",
-    FORCE_PROMPT_CACHING_5M: "0"
+    CLAUDE_CODE_PROMPT_CACHE_TTL: ttl,
+    CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: "5m",
+    FORCE_PROMPT_CACHING_5M: subagent ? "1" : "0"
   };
 }
 

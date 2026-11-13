@@ -9,6 +9,7 @@ import { runCheckDefinition, commitChangesDefinition, pushCommitDefinition } fro
 import { ownerDeleteFileDefinition, ownerMoveFileDefinition } from "./roles/owner-delete-file.js";
 import { delegateSubagentDefinition } from "./discovery/delegate-subagent-tool.js";
 import { subagentEvidenceDefinition } from "./discovery/subagent-evidence-tool.js";
+import { sendExecutionDirectiveDefinition } from "../modules/governance/conversation-directive-trigger.js";
 
 import { verificationRunnerEnvironmentSchema } from "../modules/supervisor/verification-runner-environment.js";
 import { ENGINEERING_CATALOG_VERSION, ENGINEERING_TOOL_NAMES } from "./engineering-tool-names.js";
@@ -34,7 +35,9 @@ export function engineeringToolDefinitions() {
     gitBranchDefinition, gitRestoreDefinition, gitStashDefinition,
     runCommandDefinition, runCheckDefinition,
     { ...commitChangesDefinition, description: "Commit only authorized files recorded in the execution-scoped Forge change ledger." },
-    { ...pushCommitDefinition, description: "Push the exact execution-recorded commit only when a separate push grant is authorized." }, lookupSchemaDefinition
+    { ...pushCommitDefinition, description: "Push the exact execution-recorded commit only when a separate push grant is authorized." },
+    lookupSchemaDefinition,
+    sendExecutionDirectiveDefinition
   ];
 }
 

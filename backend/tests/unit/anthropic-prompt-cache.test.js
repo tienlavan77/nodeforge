@@ -45,7 +45,7 @@ test("Claude SDK enables cache and preserves usage without exposing credentials 
     assert.equal(options.env.DISABLE_PROMPT_CACHING, "0");
     assert.equal(options.env.DISABLE_PROMPT_CACHING_SONNET, "0");
     assert.equal(options.env.CLAUDE_CODE_PROMPT_CACHE_TTL, "1h");
-    assert.equal(options.env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL, "1h");
+    assert.equal(options.env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL, "5m");
     assert.equal(options.env.FORCE_PROMPT_CACHING_5M, "0");
     assert.deepEqual(result.usage, usage);
     assert.equal(result.messages[1].modelUsage.model.cacheReadInputTokens, 300);

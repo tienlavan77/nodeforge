@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createAmSeHandoffStore } from "../../src/application/am-se-handoff-store.js";
+import { createSendExecutionDirectiveTool, parseConversationDirectiveTrigger } from "../../src/modules/governance/conversation-directive-trigger.js";
 import { createTicketDirectiveInbox, formatMidFlightDirectives } from "../../src/modules/supervisor/ticket/ticket-directive-inbox.js";
 import { buildResumePrompt, createResumeState, recordTurn } from "../../src/modules/supervisor/ticket/ticket-resume.js";
 import { runTicketSdkTurns } from "../../src/modules/supervisor/ticket/ticket-sdk-turns.js";

@@ -1,7 +1,8 @@
 // Summary: Resolves up to eight Code Graph candidates from an Agent search intent.
 
 import { ConfigurationError } from "../../shared/errors.js";
-import { registerCandidateSources } from "./candidate-source-receipts.js";
+import { registerCandidateSources, candidateSourceMetadata } from "./candidate-source-receipts.js";
+import { loadProjectKnowledge, fingerprintQuery, rerankCandidates } from "../../modules/index/semantic-knowledge.js";
 import { syncToolResultToEvidenceStore } from "./subagent-evidence-sync.js";
 import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { assertExecutionScope } from "../governance/retrieval-governance.js";
@@ -39,7 +40,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     const cached = reuseTicketCandidates === true ? await cachedTicketCandidates(task, limit, freshnessChecker, allowCandidate) : null;
     if (cached) {
       assertExecutionFileAccess(context);
-      return { task_id: taskId, query: query, index_version: cached.index_version ?? null, selected: await receive(cached.selected, context, allowCandidate), candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+      return { task_id: taskId, query: query, index_version: cached.index_version ?? null, selected: await receive(cached.selected, context, allowCandidate, input), candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
     }
     const allowedPrefixes = context.file_access_version === 2 ? executionReadScope(context).prefixes : context.allowed_prefixes;
     const args = context.eval_harness === true
@@ -52,16 +53,32 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     assertExecutionFileAccess(context);
     const selected = (result.tree ?? []).filter((entry) => allowCandidate(entry?.path)).slice(0, limit);
     const stalePaths = Array.isArray(result.stale_paths) ? result.stale_paths.filter(allowCandidate) : undefined;
-    return { task_id: taskId, query: query, index_version: result.index_version ?? null, selected: await receive(selected.map((entry) => stalePaths?.includes(entry.path) ? { ...entry, stale: true } : entry), context, allowCandidate), ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+    return { task_id: taskId, query: query, index_version: result.index_version ?? null, selected: await receive(selected.map((entry) => stalePaths?.includes(entry.path) ? { ...entry, stale: true } : entry), context, allowCandidate, input), ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
   }
   // Business purpose: keeps receipt registration and durable evidence reporting consistent across both retrieval sources.
   // Technical description: validates live metadata first, then synchronizes only privately verified entries to the scoped evidence store.
-  async function receive(selected, context, allowCandidate) {
+  async function receive(selected, context, allowCandidate, queryInput) {
     const entries = await registerCandidateSources(selected, context, { fileService, codeCache, assertReadPath, allowPath: allowCandidate, logger });
     assertExecutionFileAccess(context);
     const authorized = entries.filter((entry) => allowCandidate(entry.path));
-    syncToolResultToEvidenceStore({ toolName: "select_code_graph_candidates", result: { selected: authorized }, context, evidenceStore, projectRoot });
-    return authorized;
+    // Knowledge is subordinate to source, scope and receipt gates; it never adds candidates.
+    let ranked = authorized;
+    if (projectRoot && context.project_id && (context.review_commit_sha ?? context.source_revision)) {
+      try {
+        const knowledge = await loadProjectKnowledge({ projectRoot, projectId: context.project_id,
+          sourceRevision: context.review_commit_sha ?? context.source_revision, logger,
+          sourceReader: async (path) => {
+            const entry = authorized.find((item) => item.path === path);
+            return entry ? candidateSourceMetadata(entry, context) : null;
+          } });
+        ranked = rerankCandidates(authorized, knowledge, { queryFingerprint: fingerprintQuery(queryInput), projectId: context.project_id,
+          receiptValidator: (entry) => candidateSourceMetadata(entry, context) });
+      } catch (error) { logger.warn?.("Semantic knowledge unavailable; preserving baseline candidates.", { error: error.message }); }
+    }
+    assertExecutionFileAccess(context);
+    ranked = ranked.filter((entry) => allowCandidate(entry.path));
+    syncToolResultToEvidenceStore({ toolName: "select_code_graph_candidates", result: { selected: ranked }, context, evidenceStore, projectRoot });
+    return ranked;
   }
 }
 
