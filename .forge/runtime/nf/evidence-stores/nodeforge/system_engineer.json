@@ -1,8 +1,8 @@
 {
   "project_id": "nodeforge",
   "role": "system_engineer",
-  "version": 1333,
-  "updated_at": "2026-11-13T06:18:05.819Z",
+  "version": 1364,
+  "updated_at": "2026-11-13T15:57:30.475Z",
   "scopes": [
     "conv:97faa389-c73b-453b-aeb3-218dd53cd9d0",
     "ticket:CORR-system-engineer-a692b659-3406-462a-b8a8-3cca35a5aa5a",
@@ -103,7 +103,9 @@
     "ticket:CORR-system-engineer-f43a2c7c-eab2-4f1f-a833-78a5e6259c63",
     "conv:handoff:/home/data/sites/nodeforge:HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
     "handoff:HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-    "ticket:CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-SE-R2-340b5e23-fb9f-45d0-8b90-010a42c247bf"
+    "ticket:CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-SE-R2-340b5e23-fb9f-45d0-8b90-010a42c247bf",
+    "ticket:CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+    "ticket:CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567"
   ],
   "workers": [
     {
@@ -1650,11 +1652,11 @@
       "sha256": "sha256:f8ef133368657e3705920af63e44e7ab7463f71c3de36df985eb04f985e5be98",
       "total_lines": 62,
       "symbols_read": [],
-      "observed_at": "2026-11-13T06:08:26.073Z",
+      "observed_at": "2026-11-13T15:47:17.649Z",
       "read_only_enforced": false,
       "provenance": {
-        "delegation_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-        "parent_execution_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
+        "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "parent_execution_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
         "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
         "source_role": "system_engineer",
         "source_tools": [
@@ -1662,18 +1664,18 @@
           "read_file",
           "Read"
         ],
-        "observed_at": "2026-11-13T06:08:26.073Z",
+        "observed_at": "2026-11-13T15:47:17.649Z",
         "read_only_enforced": false
       },
       "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
       "source_role": "system_engineer",
-      "source_tool": "read_file",
-      "conversation_id": "handoff:/home/data/sites/nodeforge:HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-      "delegation_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
+      "source_tool": "Read",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
       "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
       "handoff_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-      "updated_at": "2026-11-13T06:08:26.073Z",
-      "version": 1274,
+      "updated_at": "2026-11-13T15:47:17.649Z",
+      "version": 1335,
       "symbol_map": [],
       "code_graph": {}
     },
@@ -3024,9 +3026,9 @@
     },
     {
       "path": "backend/src/tools/roles/owner-role-tool-policy.js",
-      "sha256": "sha256:89888151be0ba7602c384ceb278a8fb606a6768443d535017bd4783e68f60dbd",
+      "sha256": "sha256:faa54230e6adf40321fa2018063e15d5559163e71b92eeab8c0922fd6e712d46",
       "total_lines": 67,
-      "symbols_read": [
+      "symbols": [
         "ownerRoleTools",
         "ownerWritePaths",
         "ownerWritePrefixes",
@@ -3035,30 +3037,6 @@
         "isArchitectureWritePath",
         "forbidden"
       ],
-      "observed_at": "2026-11-13T04:11:51.127Z",
-      "read_only_enforced": true,
-      "provenance": {
-        "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "source_role": "system_engineer",
-        "source_tools": [
-          "read_file"
-        ],
-        "observed_at": "2026-11-13T04:11:51.127Z",
-        "read_only_enforced": true
-      },
-      "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "source_role": "system_engineer",
-      "source_tool": "read_file",
-      "conversation_id": "CONV-SE-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
-      "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-      "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
-      "handoff_id": null,
-      "updated_at": "2026-11-13T04:11:51.127Z",
-      "version": 1262,
       "symbol_map": [
         {
           "name": "ownerRoleTools",
@@ -3109,18 +3087,6 @@
           "end_line": 66,
           "summary": null
         }
-      ],
-      "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-      "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "symbols": [
-        "ownerRoleTools",
-        "ownerWritePaths",
-        "ownerWritePrefixes",
-        "authorizeOwnerTool",
-        "isPrivate",
-        "isArchitectureWritePath",
-        "forbidden"
       ],
       "code_graph": {
         "imports": [
@@ -3505,75 +3471,559 @@
             "line": 65
           }
         ]
-      }
+      },
+      "symbols_read": [
+        "ownerRoleTools",
+        "ownerWritePaths",
+        "ownerWritePrefixes",
+        "authorizeOwnerTool",
+        "isPrivate",
+        "isArchitectureWritePath",
+        "forbidden"
+      ],
+      "observed_at": "2026-11-13T15:53:11.274Z",
+      "read_only_enforced": true,
+      "provenance": {
+        "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "parent_execution_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+        "source_role": "system_engineer",
+        "source_tools": [
+          "read_file",
+          "Read"
+        ],
+        "observed_at": "2026-11-13T15:53:11.274Z",
+        "read_only_enforced": true
+      },
+      "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+      "source_role": "system_engineer",
+      "source_tool": "Read",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+      "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
+      "handoff_id": null,
+      "updated_at": "2026-11-13T15:53:11.274Z",
+      "version": 1352
     },
     {
       "path": "backend/src/tools/roles/owner-conversation-tools.js",
-      "sha256": "sha256:5967b2f4cf2c39b17f13f893a4e86dbaa98d8dda6af6b1a1b36f6489d595c0ba",
-      "total_lines": 149,
+      "sha256": "sha256:f52adf2de7b1bbfd52ff03e40f7bd36cdf388a876d9842cf9087195242fe611d",
+      "total_lines": 144,
+      "symbols": [
+        "createOwnerConversationTools",
+        "log",
+        "summarizeResult",
+        "digest"
+      ],
+      "symbol_map": [
+        {
+          "name": "createOwnerConversationTools",
+          "kind": "function",
+          "start_line": 24,
+          "end_line": 116,
+          "summary": "Creates the role-scoped Forge tool registry used by owner SDK conversations."
+        },
+        {
+          "name": "log",
+          "kind": "function",
+          "start_line": 68,
+          "end_line": 76,
+          "summary": null
+        },
+        {
+          "name": "summarizeResult",
+          "kind": "function",
+          "start_line": 121,
+          "end_line": 140,
+          "summary": "Records result size and status without persisting project source text or search queries."
+        },
+        {
+          "name": "digest",
+          "kind": "function",
+          "start_line": 143,
+          "end_line": 143,
+          "summary": "Digests returned text for audit without persisting source matches or test output in logs."
+        }
+      ],
+      "code_graph": {
+        "imports": [
+          {
+            "path": "backend/src/application/owner-context-compaction.js",
+            "name": "extractOwnerToolPathMeta",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/application/owner-context-compaction.js",
+            "name": "recordDiscoveryCompactStep",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/application/owner-context-compaction.js",
+            "name": "updateActiveFileChecksums",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/application/system-engineer-sdk-transcript.js",
+            "name": "formatForgeToolActivitySummary",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/infrastructure/filesystem/file-service-role-policy.js",
+            "name": "createRoleFileService",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+            "name": "createDelegateSubagentTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/git-read-tools.js",
+            "name": "createGitReadTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/lookup-schema-tool.js",
+            "name": "createLookupSchemaTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/select-code-graph-candidates.js",
+            "name": "createSelectCodeGraphCandidatesTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/source-read.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/subagent-evidence-sync.js",
+            "name": "sharedSubagentEvidenceStore",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/subagent-evidence-sync.js",
+            "name": "syncToolResultToEvidenceStore",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/subagent-evidence-tool.js",
+            "name": "createSubagentEvidenceTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "engineeringToolDefinitions",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-command-tools.js",
+            "name": "createAgentCommandTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-lifecycle-tools.js",
+            "name": "createEditDiffTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-lifecycle-tools.js",
+            "name": "createReadFileTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-lifecycle-tools.js",
+            "name": "createWriteDiffTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/tool-authorization.js",
+            "name": "authorizeTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/git-workflow-tools.js",
+            "name": "createGitWorkflowTools",
+            "kind": "named",
+            "broken": false
+          }
+        ],
+        "imported_by": [
+          {
+            "path": "backend/src/application/owner-sdk-stream.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/sprint-leader-forge-tools.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/transport/cli/mcp-serve.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/integration/file-mutation-commits.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/candidate-runtime-access.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/file-mutation-role-policy.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/lookup-schema-tool.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/mandatory-parent-subagent-discovery.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/owner-engineer-tools.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/owner-sdk-tools.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/read-file-binary-tool.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/reviewer-discovery-tools.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/subagent-failover-and-evidence-store.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/system-engineer-forge-storage.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/system-engineer-restructuring-access.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/unit/terminal-tool-logging.test.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          }
+        ],
+        "calls": [
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "ownerRoleTools"
+            },
+            "line": 27
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/infrastructure/filesystem/file-service-role-policy.js",
+              "name": "createRoleFileService"
+            },
+            "line": 28
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/governance/agent-command-tools.js",
+              "name": "createAgentCommandTools"
+            },
+            "line": 34
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/subagent-evidence-tool.js",
+              "name": "createSubagentEvidenceTool"
+            },
+            "line": 36
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/lookup-schema-tool.js",
+              "name": "createLookupSchemaTool"
+            },
+            "line": 37
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/select-code-graph-candidates.js",
+              "name": "createSelectCodeGraphCandidatesTool"
+            },
+            "line": 38
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-search-tree.js",
+              "name": "createOwnerSearchTreeTool"
+            },
+            "line": 40
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/governance/agent-lifecycle-tools.js",
+              "name": "createReadFileTool"
+            },
+            "line": 41
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "line": 42
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/governance/agent-lifecycle-tools.js",
+              "name": "createWriteDiffTool"
+            },
+            "line": 43
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/governance/agent-lifecycle-tools.js",
+              "name": "createEditDiffTool"
+            },
+            "line": 44
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-delete-file.js",
+              "name": "createOwnerDeleteFileTool"
+            },
+            "line": 45
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-delete-file.js",
+              "name": "createOwnerMoveFileTool"
+            },
+            "line": 46
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/git-read-tools.js",
+              "name": "createGitReadTools"
+            },
+            "line": 49
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/git-workflow-tools.js",
+              "name": "createGitWorkflowTools"
+            },
+            "line": 50
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-engineer-tools.js",
+              "name": "createOwnerEngineerTools"
+            },
+            "line": 53
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "createDelegateSubagentTool"
+            },
+            "line": 56
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "target": {
+              "path": "backend/src/tools/engineering-tool-catalog.js",
+              "name": "engineeringToolDefinitions"
+            },
+            "line": 63
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "log"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "summarizeResult"
+            },
+            "line": 70
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "log"
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "summarizeResult"
+            },
+            "line": 71
+          }
+        ]
+      },
       "symbols_read": [
         "createOwnerConversationTools",
         "log",
         "summarizeResult",
         "digest"
       ],
-      "observed_at": "2026-11-13T04:11:51.127Z",
+      "observed_at": "2026-11-13T15:47:47.738Z",
       "read_only_enforced": true,
       "provenance": {
-        "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
+        "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "parent_execution_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
         "source_role": "system_engineer",
         "source_tools": [
-          "read_file"
+          "read_file",
+          "Read"
         ],
-        "observed_at": "2026-11-13T04:11:51.127Z",
+        "observed_at": "2026-11-13T15:47:47.738Z",
         "read_only_enforced": true
       },
-      "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
+      "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
       "source_role": "system_engineer",
-      "source_tool": "read_file",
-      "conversation_id": "CONV-SE-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
-      "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
+      "source_tool": "Read",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
       "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
       "handoff_id": null,
-      "updated_at": "2026-11-13T04:11:51.127Z",
-      "version": 1262,
-      "symbol_map": [
-        {
-          "name": "createOwnerConversationTools",
-          "kind": "function",
-          "start_line": 24,
-          "end_line": 121,
-          "summary": "Creates the role-scoped Forge tool registry used by owner SDK conversations."
-        },
-        {
-          "name": "log",
-          "kind": "function",
-          "start_line": 73,
-          "end_line": 81,
-          "summary": null
-        },
-        {
-          "name": "summarizeResult",
-          "kind": "function",
-          "start_line": 126,
-          "end_line": 145,
-          "summary": "Records result size and status without persisting project source text or search queries."
-        },
-        {
-          "name": "digest",
-          "kind": "function",
-          "start_line": 148,
-          "end_line": 148,
-          "summary": "Digests returned text for audit without persisting source matches or test output in logs."
-        }
-      ],
-      "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-      "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths"
+      "updated_at": "2026-11-13T15:47:47.738Z",
+      "version": 1342
     },
     {
       "path": "backend/src/modules/governance/runtime-tool-governance.js",
@@ -5854,118 +6304,31 @@
     },
     {
       "path": "backend/src/application/owner-sdk-stream.js",
-      "sha256": "sha256:972b8806a50c1808ac7768ecc464f51fe979cf3c485a2399d42ffdc15235e127",
-      "symbol_map": [
-        {
-          "name": "createOwnerSdkStream",
-          "kind": "function",
-          "start_line": 20,
-          "end_line": 231,
-          "summary": "Builds a role-scoped SDK stream with Forge-owned discovery and persisted conversation state."
-        },
-        {
-          "name": "stream",
-          "kind": "function",
-          "start_line": 39,
-          "end_line": 230,
-          "summary": "Selects an SDK by profile provider and returns its live text to the owner conversation."
-        },
-        {
-          "name": "waitForSessionReady",
-          "kind": "function",
-          "start_line": 126,
-          "end_line": 126,
-          "summary": "Waits for the provider session checkpoint before allowing a Forge tool to execute."
-        },
-        {
-          "name": "push",
-          "kind": "function",
-          "start_line": 131,
-          "end_line": 131,
-          "summary": "Defines push function behavior for owner-sdk-stream.js."
-        },
-        {
-          "name": "nativeActivity",
-          "kind": "function",
-          "start_line": 164,
-          "end_line": 164,
-          "summary": "Saves the provider session immediately so an interrupted execution can resume its thread."
-        },
-        {
-          "name": "onProviderSessionReady",
-          "kind": "function",
-          "start_line": 171,
-          "end_line": 176,
-          "summary": "Defines onProviderSessionReady function behavior for owner-sdk-stream.js."
-        },
-        {
-          "name": "ownerFailureCode",
-          "kind": "function",
-          "start_line": 234,
-          "end_line": 239,
-          "summary": "Maps provider failures to bounded public status text without leaking upstream response details."
-        },
-        {
-          "name": "ownerFailureSummary",
-          "kind": "function",
-          "start_line": 242,
-          "end_line": 247,
-          "summary": "Provides a safe interruption summary for the owner activity stream."
-        },
-        {
-          "name": "codexFilesystemPolicy",
-          "kind": "function",
-          "start_line": 250,
-          "end_line": 252,
-          "summary": "Constrains Codex shell file access to the project while preserving read access to system binaries."
-        },
-        {
-          "name": "isUnapprovedCodexTool",
-          "kind": "function",
-          "start_line": 255,
-          "end_line": 261,
-          "summary": "Allows only the explicitly enabled Codex web search alongside registered Forge MCP tools."
-        }
-      ],
-      "symbols_read": [
-        "createOwnerSdkStream",
-        "stream",
-        "waitForSessionReady",
-        "push",
-        "nativeActivity",
-        "onProviderSessionReady",
-        "ownerFailureCode",
-        "ownerFailureSummary",
-        "codexFilesystemPolicy",
-        "isUnapprovedCodexTool"
-      ],
-      "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-      "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "source_tool": "read_file",
-      "observed_at": "2026-11-13T04:11:51.127Z",
+      "sha256": "sha256:73bc26dfd350e95f4d7350f2a287d618a9c81ba16d394aad866c907843824b71",
+      "total_lines": 262,
+      "symbols_read": [],
+      "observed_at": "2026-11-13T15:57:30.475Z",
       "read_only_enforced": true,
       "provenance": {
-        "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
+        "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "parent_execution_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
         "source_role": "system_engineer",
         "source_tools": [
-          "read_file"
+          "edit_diff"
         ],
-        "observed_at": "2026-11-13T04:11:51.127Z",
+        "observed_at": "2026-11-13T15:57:30.475Z",
         "read_only_enforced": true
       },
-      "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
+      "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
       "source_role": "system_engineer",
-      "conversation_id": "CONV-SE-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
-      "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
+      "source_tool": "edit_diff",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
       "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
       "handoff_id": null,
-      "updated_at": "2026-11-13T04:11:51.127Z",
-      "version": 1262
+      "updated_at": "2026-11-13T15:57:30.475Z",
+      "version": 1364
     },
     {
       "path": "backend/src/modules/supervisor/nodeforge-task-prompts.js",
@@ -6280,37 +6643,8 @@
     },
     {
       "path": "backend/src/tools/engineering-tool-catalog.js",
-      "sha256": "sha256:3c700b840a47b7057918b637e79a95af83d800fd1b2dab0da45b9d68ef5c356d",
+      "sha256": "sha256:a1bdf46877a654bb76ac4b46014e0e8921d2eb3f6098c6ae44a5b641167ad5d9",
       "total_lines": 52,
-      "symbols_read": [
-        "coderToolDefinitions",
-        "engineeringToolDefinitions",
-        "engineeringToolReadiness"
-      ],
-      "observed_at": "2026-11-13T04:11:51.127Z",
-      "read_only_enforced": true,
-      "provenance": {
-        "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-        "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-        "source_role": "system_engineer",
-        "source_tools": [
-          "read_file"
-        ],
-        "observed_at": "2026-11-13T04:11:51.127Z",
-        "read_only_enforced": true
-      },
-      "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "source_role": "system_engineer",
-      "source_tool": "read_file",
-      "conversation_id": "CONV-SE-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
-      "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-      "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
-      "handoff_id": null,
-      "updated_at": "2026-11-13T04:11:51.127Z",
-      "version": 1262,
       "symbols": [
         "coderToolDefinitions",
         "engineeringToolDefinitions",
@@ -6355,7 +6689,19 @@
           },
           {
             "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+            "name": "collectSubagentResultsDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
             "name": "delegateSubagentDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+            "name": "getSubagentStatusDefinition",
             "kind": "named",
             "broken": false
           },
@@ -6446,18 +6792,6 @@
           {
             "path": "backend/src/tools/index.js",
             "name": "gitDiffDefinition",
-            "kind": "named",
-            "broken": false
-          },
-          {
-            "path": "backend/src/tools/index.js",
-            "name": "gitLogDefinition",
-            "kind": "named",
-            "broken": false
-          },
-          {
-            "path": "backend/src/tools/index.js",
-            "name": "gitRestoreDefinition",
             "kind": "named",
             "broken": false
           }
@@ -6598,9 +6932,34 @@
           }
         ]
       },
-      "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1",
-      "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-CRITIQUE-SE-R1-dedf47c3-6011-418e-8fad-35318dd241c0:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths",
-      "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:governance-paths"
+      "symbols_read": [
+        "coderToolDefinitions",
+        "engineeringToolDefinitions",
+        "engineeringToolReadiness"
+      ],
+      "observed_at": "2026-11-13T15:48:15.174Z",
+      "read_only_enforced": true,
+      "provenance": {
+        "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "parent_execution_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+        "source_role": "system_engineer",
+        "source_tools": [
+          "read_file",
+          "Read"
+        ],
+        "observed_at": "2026-11-13T15:48:15.174Z",
+        "read_only_enforced": true
+      },
+      "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+      "source_role": "system_engineer",
+      "source_tool": "Read",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+      "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
+      "handoff_id": null,
+      "updated_at": "2026-11-13T15:48:15.174Z",
+      "version": 1346
     },
     {
       "path": "backend/src/tools/index.js",
@@ -21905,11 +22264,11 @@
       "sha256": "sha256:49e4cd75395135e87265066918315f942cc0af9c20480abeda0cc5b655eb362f",
       "total_lines": 29,
       "symbols_read": [],
-      "observed_at": "2026-11-13T06:10:06.198Z",
+      "observed_at": "2026-11-13T15:47:17.306Z",
       "read_only_enforced": true,
       "provenance": {
-        "delegation_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-        "parent_execution_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
+        "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "parent_execution_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
         "child_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-998a13a3-3a73-41eb-9343-1a7f11d2bdee-SE-R3-8a3f1144-b922-444a-82a5-2ea77f39cc60:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:r3-role-demo",
         "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:r3-role-demo",
         "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
@@ -21918,18 +22277,18 @@
           "read_file",
           "Read"
         ],
-        "observed_at": "2026-11-13T06:10:06.198Z",
+        "observed_at": "2026-11-13T15:47:17.306Z",
         "read_only_enforced": true
       },
       "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
       "source_role": "system_engineer",
-      "source_tool": "read_file",
-      "conversation_id": "handoff:/home/data/sites/nodeforge:HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-      "delegation_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
+      "source_tool": "Read",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
       "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
       "handoff_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-      "updated_at": "2026-11-13T06:10:06.198Z",
-      "version": 1275,
+      "updated_at": "2026-11-13T15:47:17.306Z",
+      "version": 1334,
       "symbol_map": [],
       "code_graph": {},
       "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-998a13a3-3a73-41eb-9343-1a7f11d2bdee-SE-R3-8a3f1144-b922-444a-82a5-2ea77f39cc60:delegation:1",
@@ -21955,104 +22314,92 @@
     },
     {
       "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
-      "sha256": "sha256:536ced7a23d8594df9a1591810b08db2d267ccbbb9ff6ef0edb22cf75e36257a",
+      "sha256": "sha256:3c5505221fa39f5e774a2a5d68d2ab20a43a7490a3ecd6d1ca661703845eaba3",
+      "total_lines": 237,
+      "symbols": [
+        "createDelegateSubagentTool",
+        "executeBatch",
+        "executeOne",
+        "createSubagentExplorationState",
+        "validateTasks",
+        "normalizeObserved",
+        "mergeObserved",
+        "mergeUsage",
+        "bound",
+        "classifyError"
+      ],
       "symbol_map": [
         {
           "name": "createDelegateSubagentTool",
           "kind": "function",
-          "start_line": 41,
-          "end_line": 167,
+          "start_line": 42,
+          "end_line": 169,
           "summary": "Business purpose: creates the parent-owned delegation handler while keeping child execution provider-neutral."
         },
         {
           "name": "executeBatch",
           "kind": "function",
-          "start_line": 47,
-          "end_line": 103,
+          "start_line": 48,
+          "end_line": 104,
           "summary": "Technical description: validates and reserves the complete batch, executes isolated workers in parallel, records source metadata receipts and evidence store entries, and returns bounded task and worker results."
         },
         {
           "name": "executeOne",
           "kind": "function",
-          "start_line": 106,
-          "end_line": 166,
+          "start_line": 107,
+          "end_line": 168,
           "summary": "Business purpose: executes one isolated read-only child and forwards only the parent abort signal."
+        },
+        {
+          "name": "createSubagentExplorationState",
+          "kind": "function",
+          "start_line": 173,
+          "end_line": 181,
+          "summary": "Business purpose: gives each read-only exploration task a finite evidence budget so the parent receives a conclusion instead of an unbounded stream of file reads. Technical description: creates an isolated exploration state with an 8-call focused budget, a 16-call multi-path budget, an optional target path, and no automatic escalation for a delegated child."
         },
         {
           "name": "validateTasks",
           "kind": "function",
-          "start_line": 170,
-          "end_line": 180,
+          "start_line": 184,
+          "end_line": 194,
           "summary": "Technical description: validates the complete batch, including safe unique identifiers, before reservation or spawning."
         },
         {
           "name": "normalizeObserved",
           "kind": "function",
-          "start_line": 183,
-          "end_line": 211,
+          "start_line": 197,
+          "end_line": 225,
           "summary": "Technical description: keeps only observed metadata with verified path and checksum fields for parent handoff."
         },
         {
           "name": "mergeObserved",
           "kind": "function",
-          "start_line": 214,
-          "end_line": 214,
+          "start_line": 228,
+          "end_line": 228,
           "summary": "Technical description: merges duplicate observations without discarding symbols read by another child."
         },
         {
           "name": "mergeUsage",
           "kind": "function",
-          "start_line": 217,
-          "end_line": 217,
+          "start_line": 231,
+          "end_line": 231,
           "summary": "Technical description: bounds child prose before it is returned to the parent context."
         },
         {
           "name": "bound",
           "kind": "function",
-          "start_line": 219,
-          "end_line": 219,
+          "start_line": 233,
+          "end_line": 233,
           "summary": null
         },
         {
           "name": "classifyError",
           "kind": "function",
-          "start_line": 222,
-          "end_line": 222,
+          "start_line": 236,
+          "end_line": 236,
           "summary": "Technical description: converts child failures into bounded, provider-neutral result metadata."
         }
       ],
-      "symbols_read": [
-        "createDelegateSubagentTool",
-        "executeBatch",
-        "executeOne",
-        "validateTasks",
-        "normalizeObserved",
-        "mergeObserved",
-        "mergeUsage",
-        "bound",
-        "classifyError"
-      ],
-      "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:handoff-capabilities",
-      "source_role": "system_engineer",
-      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
-      "delegation_id": "CORR-system-engineer-d9f688fc-7783-478b-961a-eb87d954050b:delegation:1",
-      "plan_id": null,
-      "handoff_id": null,
-      "updated_at": "2026-11-11T07:32:10.676Z",
-      "version": 1061,
-      "total_lines": 223,
-      "symbols": [
-        "createDelegateSubagentTool",
-        "executeBatch",
-        "executeOne",
-        "validateTasks",
-        "normalizeObserved",
-        "mergeObserved",
-        "mergeUsage",
-        "bound",
-        "classifyError"
-      ],
-      "source_tool": "read_file",
       "code_graph": {
         "imports": [
           {
@@ -22062,22 +22409,70 @@
             "broken": false
           },
           {
+            "path": "backend/src/tools/discovery/delegated-discovery-policy.js",
+            "name": "emitDelegatedDiscoveryTelemetry",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/delegated-discovery-policy.js",
+            "name": "isMeaningfulDelegationObjective",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/delegated-discovery-policy.js",
+            "name": "recordDelegationReceipt",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/exploration-state-factory.js",
+            "name": "createExplorationState",
+            "kind": "named",
+            "broken": false
+          },
+          {
             "path": "backend/src/tools/discovery/source-metadata-receipts.js",
             "name": "recordSourceMetadata",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/subagent-delegation-registry.js",
+            "name": "collectSubagentResultsDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/subagent-delegation-registry.js",
+            "name": "createSubagentDelegationRegistry",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/subagent-delegation-registry.js",
+            "name": "getSubagentStatusDefinition",
             "kind": "named",
             "broken": false
           }
         ],
         "imported_by": [
           {
-            "path": "backend/src/modules/supervisor/nodeforge-task-executors.js",
-            "name": "createDelegateSubagentTool",
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "collectSubagentResultsDefinition",
             "kind": "named",
             "broken": false
           },
           {
             "path": "backend/src/tools/engineering-tool-catalog.js",
             "name": "delegateSubagentDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "getSubagentStatusDefinition",
             "kind": "named",
             "broken": false
           },
@@ -22106,6 +22501,12 @@
             "broken": false
           },
           {
+            "path": "backend/tests/unit/mandatory-parent-subagent-discovery.test.js",
+            "name": "createDelegateSubagentTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
             "path": "backend/tests/unit/subagent-failover-and-evidence-store.test.js",
             "name": "createDelegateSubagentTool",
             "kind": "named",
@@ -22119,10 +22520,21 @@
               "name": "createDelegateSubagentTool"
             },
             "target": {
+              "path": "backend/src/tools/discovery/subagent-delegation-registry.js",
+              "name": "createSubagentDelegationRegistry"
+            },
+            "line": 44
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "createDelegateSubagentTool"
+            },
+            "target": {
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "executeBatch"
             },
-            "line": 44
+            "line": 45
           },
           {
             "caller": {
@@ -22133,7 +22545,29 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "validateTasks"
             },
-            "line": 48
+            "line": 49
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "executeBatch"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/delegated-discovery-policy.js",
+              "name": "recordDelegationReceipt"
+            },
+            "line": 56
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "executeBatch"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/delegated-discovery-policy.js",
+              "name": "emitDelegatedDiscoveryTelemetry"
+            },
+            "line": 57
           },
           {
             "caller": {
@@ -22144,7 +22578,7 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "executeOne"
             },
-            "line": 54
+            "line": 58
           },
           {
             "caller": {
@@ -22155,7 +22589,7 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "normalizeObserved"
             },
-            "line": 57
+            "line": 61
           },
           {
             "caller": {
@@ -22166,7 +22600,7 @@
               "path": "backend/src/tools/discovery/source-metadata-receipts.js",
               "name": "recordSourceMetadata"
             },
-            "line": 58
+            "line": 62
           },
           {
             "caller": {
@@ -22177,7 +22611,7 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "classifyError"
             },
-            "line": 63
+            "line": 67
           },
           {
             "caller": {
@@ -22188,7 +22622,7 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "bound"
             },
-            "line": 72
+            "line": 76
           },
           {
             "caller": {
@@ -22198,17 +22632,6 @@
             "target": {
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "normalizeObserved"
-            },
-            "line": 73
-          },
-          {
-            "caller": {
-              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
-              "name": "executeBatch"
-            },
-            "target": {
-              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
-              "name": "mergeObserved"
             },
             "line": 77
           },
@@ -22221,7 +22644,18 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "mergeObserved"
             },
-            "line": 78
+            "line": 81
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "executeBatch"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "mergeObserved"
+            },
+            "line": 82
           },
           {
             "caller": {
@@ -22232,7 +22666,18 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "mergeUsage"
             },
-            "line": 80
+            "line": 84
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "executeOne"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "createSubagentExplorationState"
+            },
+            "line": 125
           },
           {
             "caller": {
@@ -22243,28 +22688,56 @@
               "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
               "name": "normalizeObserved"
             },
-            "line": 154
+            "line": 159
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/delegate-subagent-tool.js",
+              "name": "createSubagentExplorationState"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/exploration-state-factory.js",
+              "name": "createExplorationState"
+            },
+            "line": 174
           }
         ]
       },
-      "observed_at": "2026-11-11T07:32:10.676Z",
+      "symbols_read": [
+        "createDelegateSubagentTool",
+        "executeBatch",
+        "executeOne",
+        "createSubagentExplorationState",
+        "validateTasks",
+        "normalizeObserved",
+        "mergeObserved",
+        "mergeUsage",
+        "bound",
+        "classifyError"
+      ],
+      "observed_at": "2026-11-13T15:47:49.366Z",
       "read_only_enforced": true,
       "provenance": {
-        "delegation_id": "CORR-system-engineer-d9f688fc-7783-478b-961a-eb87d954050b:delegation:1",
-        "parent_execution_id": "CORR-system-engineer-d9f688fc-7783-478b-961a-eb87d954050b:delegation:1",
-        "child_execution_id": "CORR-system-engineer-d9f688fc-7783-478b-961a-eb87d954050b:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:handoff-capabilities",
-        "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:handoff-capabilities",
-        "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:handoff-capabilities",
+        "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "parent_execution_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+        "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
         "source_role": "system_engineer",
         "source_tools": [
-          "read_file"
+          "read_file",
+          "Read"
         ],
-        "observed_at": "2026-11-11T07:32:10.676Z",
+        "observed_at": "2026-11-13T15:47:49.366Z",
         "read_only_enforced": true
       },
-      "parent_execution_id": "CORR-system-engineer-d9f688fc-7783-478b-961a-eb87d954050b:delegation:1",
-      "child_execution_id": "CORR-system-engineer-d9f688fc-7783-478b-961a-eb87d954050b:delegation:1:sub:885b2b5f-5247-4dfc-8f05-968de25391dc:sub:handoff-capabilities",
-      "child_agent_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:handoff-capabilities"
+      "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+      "source_role": "system_engineer",
+      "source_tool": "Read",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-a979bcc6-ff68-4d79-8db3-3205e7ac8ab2",
+      "plan_id": null,
+      "handoff_id": null,
+      "updated_at": "2026-11-13T15:47:49.366Z",
+      "version": 1345
     },
     {
       "path": "backend/src/tools/discovery/subagent-delegation-registry.js",
@@ -22569,31 +23042,456 @@
     },
     {
       "path": "backend/src/tools/discovery/source-read.js",
-      "sha256": "sha256:c67aaa980f1f447b6b94fa65d6279c307611f3ebac78f330b354b587d47164d7",
-      "total_lines": 66,
-      "symbols_read": [],
-      "observed_at": "2026-11-13T06:13:23.094Z",
+      "sha256": "sha256:aa5e9ce483df6e57024ed6b0517a02ef0213fb707029e49da6cd75169749f7a1",
+      "total_lines": 81,
+      "symbols": [
+        "createSourceReadTool",
+        "invalid"
+      ],
+      "symbol_map": [
+        {
+          "name": "createSourceReadTool",
+          "kind": "function",
+          "start_line": 27,
+          "end_line": 77,
+          "summary": "Reads exact source evidence for implementation and review without shell access; rechecks scope after asynchronous reads so revoked authority cannot deliver code."
+        },
+        {
+          "name": "invalid",
+          "kind": "function",
+          "start_line": 80,
+          "end_line": 80,
+          "summary": "Gives all providers the same actionable failure when a requested read is invalid."
+        }
+      ],
+      "code_graph": {
+        "imports": [
+          {
+            "path": "backend/src/modules/index/parser/index.js",
+            "name": "extractorRegistry",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/shared/errors.js",
+            "name": "ConfigurationError",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/delegated-discovery-policy.js",
+            "name": "assertDelegatedDiscoveryRequired",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/exploration-state.js",
+            "name": "discoveryNotice",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/exploration-state.js",
+            "name": "recordRead",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/source-metadata-receipts.js",
+            "name": "recordSourceSymbolRead",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/source-metadata-receipts.js",
+            "name": "sourceMetadataSymbol",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/execution-file-access.js",
+            "name": "assertExecutionFileAccess",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/tool-authorization.js",
+            "name": "isAgentPathAllowed",
+            "kind": "named",
+            "broken": false
+          }
+        ],
+        "imported_by": [
+          {
+            "path": ".forge/runtime/reports/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792-r1-snapshot/6f78aa84c7260b5a439d142b116d9121ef67c3d1/backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/reports/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792-r1-snapshot/6f78aa84c7260b5a439d142b116d9121ef67c3d1/backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/reports/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792-r1-snapshot/73b927297f9d90784808e0e15d53accf63165d53/backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/reports/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792-r1-snapshot/73b927297f9d90784808e0e15d53accf63165d53/backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/reports/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792-r1-snapshot/dbeac8ddd6092a5790e4e3f184fcda605407a491/backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/reports/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792-r1-snapshot/dbeac8ddd6092a5790e4e3f184fcda605407a491/backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/tickets/ticket-verification/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792/snapshot/6f78aa84c7260b5a439d142b116d9121ef67c3d1/backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/tickets/ticket-verification/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792/snapshot/6f78aa84c7260b5a439d142b116d9121ef67c3d1/backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/tickets/ticket-verification/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792/snapshot/73b927297f9d90784808e0e15d53accf63165d53/backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/tickets/ticket-verification/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792/snapshot/73b927297f9d90784808e0e15d53accf63165d53/backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/tickets/ticket-verification/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792/snapshot/dbeac8ddd6092a5790e4e3f184fcda605407a491/backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": ".forge/runtime/tickets/ticket-verification/PLAN-PROJECT-NODEFORGE-8679120d-e401-43fa-ad67-21fd61c50792/snapshot/dbeac8ddd6092a5790e4e3f184fcda605407a491/backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/modules/supervisor/blocker/blocker-reviewer-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/claude-file-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/claude-file-tools.js",
+            "name": "sourceReadDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "sourceReadDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-implementations.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/tests/tools/candidate-source-authority.test.js",
+            "name": "createSourceReadTool",
+            "kind": "named",
+            "broken": false
+          }
+        ],
+        "calls": [
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/delegated-discovery-policy.js",
+              "name": "assertDelegatedDiscoveryRequired"
+            },
+            "line": 29
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/execution-file-access.js",
+              "name": "assertExecutionFileAccess"
+            },
+            "line": 30
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 31
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 33
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 35
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 36
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/governance/tool-authorization.js",
+              "name": "isAgentPathAllowed"
+            },
+            "line": 36
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 38
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 39
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 40
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 42
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 49
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/execution-file-access.js",
+              "name": "assertExecutionFileAccess"
+            },
+            "line": 51
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 52
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/governance/tool-authorization.js",
+              "name": "isAgentPathAllowed"
+            },
+            "line": 52
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-metadata-receipts.js",
+              "name": "sourceMetadataSymbol"
+            },
+            "line": 55
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 56
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 59
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "invalid"
+            },
+            "line": 62
+          },
+          {
+            "caller": {
+              "path": "backend/src/tools/discovery/source-read.js",
+              "name": "createSourceReadTool"
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/source-metadata-receipts.js",
+              "name": "recordSourceSymbolRead"
+            },
+            "line": 63
+          }
+        ]
+      },
+      "symbols_read": [
+        "createSourceReadTool",
+        "invalid"
+      ],
+      "observed_at": "2026-11-13T15:54:24.487Z",
       "read_only_enforced": true,
       "provenance": {
-        "delegation_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-        "parent_execution_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
+        "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "parent_execution_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
         "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
         "source_role": "system_engineer",
         "source_tools": [
-          "edit_diff"
+          "read_file"
         ],
-        "observed_at": "2026-11-13T06:13:23.094Z",
+        "observed_at": "2026-11-13T15:54:24.487Z",
         "read_only_enforced": true
       },
       "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
       "source_role": "system_engineer",
-      "source_tool": "edit_diff",
-      "conversation_id": "handoff:/home/data/sites/nodeforge:HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-      "delegation_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
+      "source_tool": "read_file",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
       "plan_id": "PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa",
       "handoff_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
-      "updated_at": "2026-11-13T06:13:23.094Z",
-      "version": 1312
+      "updated_at": "2026-11-13T15:54:24.487Z",
+      "version": 1358
     },
     {
       "path": "backend/src/tools/discovery/exploration-state-factory.js",
@@ -22887,7 +23785,21 @@
     },
     {
       "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
-      "sha256": "sha256:d8e77539856197f7ec8f8fc04525c26eb0224ed7aabe6011506ffc494403b41d",
+      "sha256": "sha256:d6ea7e7f6df1cc8a632484f713bc3c61a19323cf6c9f7a653927ec1fec4f783c",
+      "total_lines": 218,
+      "symbols": [
+        "atomicWrite",
+        "deleteFile",
+        "fileService",
+        "readFile",
+        "consume",
+        "memoryStateStore",
+        "create",
+        "get",
+        "update",
+        "logger",
+        "execute"
+      ],
       "symbol_map": [
         {
           "name": "atomicWrite",
@@ -22967,6 +23879,257 @@
           "summary": null
         }
       ],
+      "code_graph": {
+        "imports": [
+          {
+            "path": "backend/src/application/owner-sdk-stream.js",
+            "name": "createOwnerSdkStream",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/core/runtime-logger.js",
+            "name": "createRuntimeLogger",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/infrastructure/filesystem/file-service.js",
+            "name": "createFileService",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/modules/agent/claude-sdk-gateway.js",
+            "name": "createClaudeSdkGateway",
+            "kind": "named",
+            "broken": false
+          }
+        ],
+        "imported_by": [],
+        "calls": [
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/application/owner-sdk-stream.js",
+              "name": "createOwnerSdkStream"
+            },
+            "line": 29
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 29
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "memoryStateStore"
+            },
+            "line": 29
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "consume"
+            },
+            "line": 36
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/application/owner-sdk-stream.js",
+              "name": "createOwnerSdkStream"
+            },
+            "line": 67
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 67
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "memoryStateStore"
+            },
+            "line": 67
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "memoryStateStore"
+            },
+            "line": 87
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/application/owner-sdk-stream.js",
+              "name": "createOwnerSdkStream"
+            },
+            "line": 90
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 90
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "memoryStateStore"
+            },
+            "line": 124
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/application/owner-sdk-stream.js",
+              "name": "createOwnerSdkStream"
+            },
+            "line": 125
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 125
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/modules/agent/claude-sdk-gateway.js",
+              "name": "createClaudeSdkGateway"
+            },
+            "line": 140
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/application/owner-sdk-stream.js",
+              "name": "createOwnerSdkStream"
+            },
+            "line": 147
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 147
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/application/owner-sdk-stream.js",
+              "name": "createOwnerSdkStream"
+            },
+            "line": 172
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 172
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": "memoryStateStore"
+            },
+            "line": 172
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/system-engineer-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/infrastructure/filesystem/file-service.js",
+              "name": "createFileService"
+            },
+            "line": 191
+          }
+        ]
+      },
       "symbols_read": [
         "atomicWrite",
         "deleteFile",
@@ -22980,14 +24143,29 @@
         "logger",
         "execute"
       ],
-      "source_worker_id": "885b2b5f-5247-4dfc-8f05-968de25391dc:sub:role-sdk-tests",
+      "observed_at": "2026-11-13T15:56:02.685Z",
+      "read_only_enforced": false,
+      "provenance": {
+        "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "parent_execution_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+        "source_role": "system_engineer",
+        "source_tools": [
+          "read_file",
+          "Read"
+        ],
+        "observed_at": "2026-11-13T15:56:02.685Z",
+        "read_only_enforced": false
+      },
+      "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
       "source_role": "system_engineer",
+      "source_tool": "Read",
       "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
-      "delegation_id": "CORR-system-engineer-e6dbddae-8b83-4fd4-a5fa-3549b37c9681",
+      "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
       "plan_id": null,
       "handoff_id": null,
-      "updated_at": "2026-11-10T10:41:11.385Z",
-      "version": 428
+      "updated_at": "2026-11-13T15:56:02.685Z",
+      "version": 1360
     },
     {
       "path": "backend/tests/unit/subagent-failover-and-evidence-store.test.js",
@@ -24796,31 +25974,413 @@
     },
     {
       "path": "backend/tests/unit/engineering-tool-catalog.test.js",
-      "sha256": "sha256:8f258b84ea48bd5b0e42fff2f643a3d0c23a071064e2f74b8062efc4bfff181a",
-      "total_lines": 132,
-      "symbols_read": [],
-      "observed_at": "2026-11-10T15:40:00.261Z",
+      "sha256": "sha256:8fc0c46e89d961c754c5861a934439c507cc7018935543ffecafadfadb013810",
+      "total_lines": 134,
+      "symbols_read": [
+        "ownerServices",
+        "atomicWrite",
+        "deleteFile",
+        "listDirectories",
+        "listFiles",
+        "readFile",
+        "readForIndex",
+        "commit",
+        "diffWorkingTree",
+        "pushCommit",
+        "runCheck",
+        "status",
+        "get",
+        "update",
+        "execute"
+      ],
+      "observed_at": "2026-11-13T15:54:34.803Z",
       "read_only_enforced": true,
       "provenance": {
-        "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-e23f47df-29a2-49c1-8f4d-6b545fcf191e-SE-R1-8f76f2a9-a6b7-4bbb-9fae-e4ef9888498f",
-        "parent_execution_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-e23f47df-29a2-49c1-8f4d-6b545fcf191e-SE-R1-8f76f2a9-a6b7-4bbb-9fae-e4ef9888498f",
+        "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "parent_execution_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
         "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
         "source_role": "system_engineer",
         "source_tools": [
-          "edit_diff"
+          "edit_diff",
+          "read_file",
+          "Read"
         ],
-        "observed_at": "2026-11-10T15:40:00.261Z",
+        "observed_at": "2026-11-13T15:54:34.803Z",
         "read_only_enforced": true
       },
       "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
       "source_role": "system_engineer",
-      "source_tool": "edit_diff",
-      "conversation_id": "CONV-SE-PLAN-PROJECT-NODEFORGE-e23f47df-29a2-49c1-8f4d-6b545fcf191e",
-      "delegation_id": "CORR-HANDOFF-PLAN-PROJECT-NODEFORGE-e23f47df-29a2-49c1-8f4d-6b545fcf191e-SE-R1-8f76f2a9-a6b7-4bbb-9fae-e4ef9888498f",
+      "source_tool": "Read",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
       "plan_id": "PLAN-PROJECT-NODEFORGE-e23f47df-29a2-49c1-8f4d-6b545fcf191e",
       "handoff_id": null,
-      "updated_at": "2026-11-10T15:40:00.261Z",
-      "version": 746
+      "updated_at": "2026-11-13T15:54:34.803Z",
+      "version": 1359,
+      "symbols": [
+        "ownerServices",
+        "atomicWrite",
+        "deleteFile",
+        "listDirectories",
+        "listFiles",
+        "readFile",
+        "readForIndex",
+        "commit",
+        "diffWorkingTree",
+        "pushCommit",
+        "runCheck",
+        "status",
+        "get",
+        "update",
+        "execute"
+      ],
+      "symbol_map": [
+        {
+          "name": "ownerServices",
+          "kind": "function",
+          "start_line": 13,
+          "end_line": 18,
+          "summary": "Supplies Node services without exercising provider SDKs or production repository mutation."
+        },
+        {
+          "name": "atomicWrite",
+          "kind": "method",
+          "start_line": 14,
+          "end_line": 14,
+          "summary": null
+        },
+        {
+          "name": "deleteFile",
+          "kind": "method",
+          "start_line": 14,
+          "end_line": 14,
+          "summary": null
+        },
+        {
+          "name": "listDirectories",
+          "kind": "method",
+          "start_line": 14,
+          "end_line": 14,
+          "summary": null
+        },
+        {
+          "name": "listFiles",
+          "kind": "method",
+          "start_line": 14,
+          "end_line": 14,
+          "summary": null
+        },
+        {
+          "name": "readFile",
+          "kind": "method",
+          "start_line": 14,
+          "end_line": 14,
+          "summary": null
+        },
+        {
+          "name": "readForIndex",
+          "kind": "method",
+          "start_line": 14,
+          "end_line": 14,
+          "summary": null
+        },
+        {
+          "name": "commit",
+          "kind": "method",
+          "start_line": 15,
+          "end_line": 15,
+          "summary": null
+        },
+        {
+          "name": "diffWorkingTree",
+          "kind": "method",
+          "start_line": 15,
+          "end_line": 15,
+          "summary": null
+        },
+        {
+          "name": "pushCommit",
+          "kind": "method",
+          "start_line": 15,
+          "end_line": 15,
+          "summary": null
+        },
+        {
+          "name": "runCheck",
+          "kind": "method",
+          "start_line": 15,
+          "end_line": 15,
+          "summary": null
+        },
+        {
+          "name": "status",
+          "kind": "method",
+          "start_line": 15,
+          "end_line": 15,
+          "summary": null
+        },
+        {
+          "name": "get",
+          "kind": "method",
+          "start_line": 17,
+          "end_line": 17,
+          "summary": null
+        },
+        {
+          "name": "update",
+          "kind": "method",
+          "start_line": 17,
+          "end_line": 17,
+          "summary": null
+        },
+        {
+          "name": "execute",
+          "kind": "method",
+          "start_line": 78,
+          "end_line": 78,
+          "summary": null
+        }
+      ],
+      "code_graph": {
+        "imports": [
+          {
+            "path": "backend/src/modules/governance/runtime-tool-governance.js",
+            "name": "createRuntimeToolGovernance",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/discovery/exploration-state-factory.js",
+            "name": "discoveryKind",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "CODER_TOOL_NAMES",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "ENGINEERING_ALIASES",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "ENGINEERING_TOOL_NAMES",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "coderToolDefinitions",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "engineeringToolDefinitions",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-catalog.js",
+            "name": "engineeringToolReadiness",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/engineering-tool-implementations.js",
+            "name": "engineeringToolImplementations",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-command-tools.js",
+            "name": "rgFilesDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-command-tools.js",
+            "name": "rgSearchDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-command-tools.js",
+            "name": "sedLinesDefinition",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/claude-sdk-forge-tools.js",
+            "name": "createForgeSdkMcpServer",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/claude-sdk-forge-tools.js",
+            "name": "forgeSdkToolNames",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          }
+        ],
+        "imported_by": [],
+        "calls": [
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "line": 21
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": "ownerServices"
+            },
+            "line": 21
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/engineering-tool-catalog.js",
+              "name": "engineeringToolDefinitions"
+            },
+            "line": 51
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "line": 66
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": "ownerServices"
+            },
+            "line": 66
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/engineering-tool-catalog.js",
+              "name": "engineeringToolDefinitions"
+            },
+            "line": 71
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/engineering-tool-catalog.js",
+              "name": "engineeringToolReadiness"
+            },
+            "line": 78
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/discovery/exploration-state-factory.js",
+              "name": "discoveryKind"
+            },
+            "line": 86
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/modules/governance/runtime-tool-governance.js",
+              "name": "createRuntimeToolGovernance"
+            },
+            "line": 87
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/engineering-tool-implementations.js",
+              "name": "engineeringToolImplementations"
+            },
+            "line": 96
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/engineering-tool-catalog.js",
+              "name": "coderToolDefinitions"
+            },
+            "line": 109
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/engineering-tool-catalog.js",
+              "name": "engineeringToolDefinitions"
+            },
+            "line": 109
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/engineering-tool-catalog.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/claude-sdk-forge-tools.js",
+              "name": "createForgeSdkMcpServer"
+            },
+            "line": 124
+          }
+        ]
+      }
     },
     {
       "path": "backend/tests/unit/owner-chat-command-service.test.js",
@@ -38039,6 +39599,399 @@
       "handoff_id": "HANDOFF-PLAN-PROJECT-NODEFORGE-cd2cd2eb-c316-440d-914a-e7fd9195c0aa-R1",
       "updated_at": "2026-11-13T06:18:05.819Z",
       "version": 1333
+    },
+    {
+      "path": "backend/tests/unit/owner-sdk-tools.test.js",
+      "sha256": "sha256:005b36033dc49a253e05e0570f2f021a3df065f386e46cf85724b1f5e5d4aff6",
+      "total_lines": 234,
+      "symbols": [
+        "atomicWrite",
+        "deleteFile",
+        "fileService",
+        "readFile",
+        "readForIndex",
+        "constructor"
+      ],
+      "symbol_map": [
+        {
+          "name": "atomicWrite",
+          "kind": "method",
+          "start_line": 72,
+          "end_line": 72,
+          "summary": "Builds a minimal project file service so Owner tools can be registered without touching disk."
+        },
+        {
+          "name": "deleteFile",
+          "kind": "method",
+          "start_line": 72,
+          "end_line": 72,
+          "summary": "Builds a minimal project file service so Owner tools can be registered without touching disk."
+        },
+        {
+          "name": "fileService",
+          "kind": "function",
+          "start_line": 72,
+          "end_line": 72,
+          "summary": "Builds a minimal project file service so Owner tools can be registered without touching disk."
+        },
+        {
+          "name": "readFile",
+          "kind": "method",
+          "start_line": 72,
+          "end_line": 72,
+          "summary": "Builds a minimal project file service so Owner tools can be registered without touching disk."
+        },
+        {
+          "name": "readForIndex",
+          "kind": "method",
+          "start_line": 72,
+          "end_line": 72,
+          "summary": "Builds a minimal project file service so Owner tools can be registered without touching disk."
+        },
+        {
+          "name": "constructor",
+          "kind": "method",
+          "start_line": 121,
+          "end_line": 121,
+          "summary": null
+        },
+        {
+          "name": "constructor",
+          "kind": "method",
+          "start_line": 135,
+          "end_line": 135,
+          "summary": null
+        }
+      ],
+      "code_graph": {
+        "imports": [
+          {
+            "path": "backend/src/application/owner-sdk-stream.js",
+            "name": "createOwnerSdkStream",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/infrastructure/filesystem/file-service.js",
+            "name": "createFileService",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/modules/agent/claude-sdk-gateway.js",
+            "name": "createClaudeSdkGateway",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/modules/agent/openai-sdk-gateway.js",
+            "name": "createOpenAiSdkGateway",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/governance/agent-lifecycle-tools.js",
+            "name": "createReadFileTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-builtin-search-shell.js",
+            "name": "createOwnerBuiltinSearchShell",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-conversation-tools.js",
+            "name": "createOwnerConversationTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-delete-file.js",
+            "name": "createOwnerDeleteFileTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+            "name": "authorizeOwnerTool",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+            "name": "ownerRoleTools",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+            "name": "ownerWritePrefixes",
+            "kind": "named",
+            "broken": false
+          },
+          {
+            "path": "backend/src/tools/roles/owner-search-tree.js",
+            "name": "createOwnerSearchTreeTool",
+            "kind": "named",
+            "broken": false
+          }
+        ],
+        "imported_by": [],
+        "calls": [
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "ownerRoleTools"
+            },
+            "line": 21
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "ownerRoleTools"
+            },
+            "line": 22
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "ownerRoleTools"
+            },
+            "line": 26
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 27
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "line": 28
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "authorizeOwnerTool"
+            },
+            "line": 35
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "line": 37
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": "readFile"
+            },
+            "line": 53
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/infrastructure/filesystem/file-service.js",
+              "name": "createFileService"
+            },
+            "line": 56
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-conversation-tools.js",
+              "name": "createOwnerConversationTools"
+            },
+            "line": 56
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/application/owner-sdk-stream.js",
+              "name": "createOwnerSdkStream"
+            },
+            "line": 79
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": "fileService"
+            },
+            "line": 79
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "ownerWritePrefixes"
+            },
+            "line": 104
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "authorizeOwnerTool"
+            },
+            "line": 106
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "authorizeOwnerTool"
+            },
+            "line": 107
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "authorizeOwnerTool"
+            },
+            "line": 109
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "authorizeOwnerTool"
+            },
+            "line": 110
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "authorizeOwnerTool"
+            },
+            "line": 112
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "ownerWritePrefixes"
+            },
+            "line": 114
+          },
+          {
+            "caller": {
+              "path": "backend/tests/unit/owner-sdk-tools.test.js",
+              "name": null
+            },
+            "target": {
+              "path": "backend/src/tools/roles/owner-role-tool-policy.js",
+              "name": "authorizeOwnerTool"
+            },
+            "line": 115
+          }
+        ]
+      },
+      "symbols_read": [
+        "atomicWrite",
+        "deleteFile",
+        "fileService",
+        "readFile",
+        "readForIndex",
+        "constructor"
+      ],
+      "observed_at": "2026-11-13T15:54:23.782Z",
+      "read_only_enforced": false,
+      "provenance": {
+        "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "parent_execution_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+        "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+        "source_role": "system_engineer",
+        "source_tools": [
+          "read_file"
+        ],
+        "observed_at": "2026-11-13T15:54:23.782Z",
+        "read_only_enforced": false
+      },
+      "source_worker_id": "parent:885b2b5f-5247-4dfc-8f05-968de25391dc",
+      "source_role": "system_engineer",
+      "source_tool": "read_file",
+      "conversation_id": "f31e31c0-aa18-42cd-8aff-d579be508bb6",
+      "delegation_id": "CORR-system-engineer-10156718-b367-4db9-9d17-7865b7197567",
+      "plan_id": null,
+      "handoff_id": null,
+      "updated_at": "2026-11-13T15:54:23.782Z",
+      "version": 1356
     }
   ]
 }

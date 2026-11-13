@@ -106,10 +106,10 @@ export function createOwnerSubagentChildExecutor({
   context, profile, agentId, correlationId, conversationId, projectRoot, sdkGateways, agentConfiguration, createTools, projectLogger
 }) {
   return async (task, child) => {
-    const childContext = { ...context, ...child, execution_id: child.execution_id ?? `${correlationId}:sub:${task.id}`, correlation_id: child.correlation_id ?? `${correlationId}:sub:${task.id}`, capabilities: child.capabilities ?? child.tools, exploration_enabled: false, subagent_depth: child.subagent_depth ?? 1 };
+    const childContext = { ...context, ...child, execution_id: child.execution_id ?? `${correlationId}:sub:${task.id}`, correlation_id: child.correlation_id ?? `${correlationId}:sub:${task.id}`, capabilities: child.capabilities ?? child.tools, exploration_enabled: child.exploration_enabled !== false, subagent_depth: child.subagent_depth ?? 1 };
     const childTools = createTools(childContext);
     const childForgeTools = { registry: childTools.registry, definitions: childTools.definitions, context: childContext };
-    const prompt = `Read-Only Explorer objective: ${task.objective}${Array.isArray(task.paths) && task.paths.length ? `\nPrioritize paths: ${task.paths.join(", ")}` : ""}`;
+    const prompt = `Read-Only Explorer objective: ${task.objective}${Array.isArray(task.paths) && task.paths.length ? `\nPrioritize paths: ${task.paths.join(", ")}` : ""}\n\nCompletion contract: investigate only this objective and its declared paths. Stop as soon as you have enough fresh source evidence to state the relevant files, symbols, facts, and remaining uncertainty. Do not keep reading for completeness or inspect unrelated files. Before finishing, return a concise summary, observed file paths with checksums, relevant symbols, and a clear conclusion. If the objective cannot be resolved within the bounded discovery budget, stop and report the exact evidence gap instead of making another broad discovery call.`;
     return executeSubagentWithFailover({
       parentProvider: profile.provider, parentProfile: profile, agentConfiguration, childContext, projectLogger, conversationId, correlationId: childContext.correlation_id,
       runCandidate: async ({ provider, model, profile: targetProfile }) => {
@@ -136,9 +136,9 @@ export function createTicketSubagentChildExecutor({
 }) {
   const explorerToolNames = ["search_tree", "list_files", "search_text", "read_file", "Read", "git_status", "git_diff", "git_log", "git_show", "git_blame"];
   return async (task, child) => {
-    const childContext = { ...toolContext, ...child, execution_id: child.execution_id ?? `${executionId}:sub:${task.id}`, correlation_id: child.correlation_id ?? `${request.correlation_id}:sub:${task.id}`, capabilities: child.capabilities ?? child.tools ?? explorerToolNames, exploration_enabled: false, subagent_depth: child.subagent_depth ?? 1, observed_files: child.observed_files ?? [] };
+    const childContext = { ...toolContext, ...child, execution_id: child.execution_id ?? `${executionId}:sub:${task.id}`, correlation_id: child.correlation_id ?? `${request.correlation_id}:sub:${task.id}`, capabilities: child.capabilities ?? child.tools ?? explorerToolNames, exploration_enabled: child.exploration_enabled !== false, subagent_depth: child.subagent_depth ?? 1, observed_files: child.observed_files ?? [] };
     const childBinding = bindEngineeringTools({ registry: toolRegistry, context: childContext });
-    const prompt = `Read-Only Explorer objective: ${task.objective}${Array.isArray(task.paths) && task.paths.length ? `\nPrioritize paths: ${task.paths.join(", ")}` : ""}`;
+    const prompt = `Read-Only Explorer objective: ${task.objective}${Array.isArray(task.paths) && task.paths.length ? `\nPrioritize paths: ${task.paths.join(", ")}` : ""}\n\nCompletion contract: investigate only this objective and its declared paths. Stop as soon as you have enough fresh source evidence to state the relevant files, symbols, facts, and remaining uncertainty. Do not keep reading for completeness or inspect unrelated files. Before finishing, return a concise summary, observed file paths with checksums, relevant symbols, and a clear conclusion. If the objective cannot be resolved within the bounded discovery budget, stop and report the exact evidence gap instead of making another broad discovery call.`;
     return executeSubagentWithFailover({
       parentProvider: selected.provider ?? "anthropic", parentProfile: selected, childContext, projectLogger, conversationId: request.task_id, correlationId: childContext.correlation_id,
       runCandidate: async ({ provider, model, profile: targetProfile }) => {

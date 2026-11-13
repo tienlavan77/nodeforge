@@ -8,7 +8,9 @@ test("delegate_subagent runs a valid batch in parallel and preserves partial suc
   const tool = createDelegateSubagentTool({ executeTask: async (task, child) => {
     started.push(task.id);
     assert.deepEqual(child.tools, READ_ONLY_EXPLORER_TOOLS);
-    assert.equal(child.exploration_enabled, false);
+    assert.equal(child.exploration_enabled, true);
+    assert.equal(child.exploration_state.discovery_limit, 8);
+    assert.equal(child.exploration_state.allow_escalation, false);
     if (task.id === "bad") throw Object.assign(new Error("timeout"), { code: "SDK_REQUEST_TIMEOUT" });
     await new Promise((resolve) => setTimeout(resolve, 5));
     return { summary: `summary-${task.id}`, observed_files: [{ path: "src/shared.js", sha256: "sha256:" + "a".repeat(64), symbols_read: [task.id] }] };
