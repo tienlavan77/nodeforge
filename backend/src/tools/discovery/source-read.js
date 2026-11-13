@@ -3,11 +3,15 @@
 // available, retain role and execution boundaries, and resolve symbols against
 // current source before returning exactly the selected symbol or a bounded document window.
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { ConfigurationError } from "../../shared/errors.js";
 import { assertExecutionFileAccess } from "../execution-file-access.js";
 import { isAgentPathAllowed } from "../governance/tool-authorization.js";
-import { sourceMetadataSymbol } from "./source-metadata-receipts.js";
+import { sourceMetadataSymbol, recordSourceSymbolRead } from "./source-metadata-receipts.js";
+import { createHash } from "node:crypto";
+import { extractorRegistry } from "../../modules/index/parser/index.js";
 import { recordRead, discoveryNotice } from "./exploration-state.js";
+import { readDeduplicationKey, readWithDeduplication } from "./read-deduplication.js";
 
 // Advertises a provider-neutral read contract with mutually exclusive symbol and line selectors.
 export const sourceReadDefinition = Object.freeze({ name: "Read",
@@ -35,17 +39,26 @@ export function createSourceReadTool({ fileService, projectRoot, codeCache }) {
     if (bySymbol && (typeof input.symbol !== "string" || !input.symbol || input.start_line !== undefined || input.end_line !== undefined)) throw invalid("Read symbol cannot be combined with line bounds.");
     let start = input.start_line, end = input.end_line;
     if (!bySymbol && (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < start || end - start + 1 > 80)) throw invalid("Read requires an inclusive window of at most 80 lines.");
-    const file = codeCache ? await codeCache.read({ path }) : await fileService.readForIndex({ path, maxBytes: 1_000_000 });
+    const readKey = readDeduplicationKey({ projectRoot, projectId: context.project_id, conversationId: context.conversation_id, delegationId: context.execution_id ?? context.task_id, path, tool: "source", symbol: bySymbol ? input.symbol : `${start}-${end}` });
+    // Symbol delivery always re-reads the authorized source, never a cached body or supplied hash.
+    const file = bySymbol
+      ? await fileService.readForIndex({ path, maxBytes: 1_000_000 })
+      : await readWithDeduplication({ key: readKey, context, path, read: () => codeCache ? codeCache.read({ path }) : fileService.readForIndex({ path, maxBytes: 1_000_000 }) });
+    if (typeof file?.content !== "string") throw invalid("Current source bytes are unavailable.");
+    file.sha256 = `sha256:${createHash("sha256").update(file.content).digest("hex")}`;
     assertExecutionFileAccess(context);
     if (!isAgentPathAllowed(path, context)) throw invalid("Read authority changed before delivery.");
     if (bySymbol) {
       const symbol = sourceMetadataSymbol(context, path, input.symbol, file.sha256);
       if (!symbol) throw invalid("Read requires current read_file metadata and a symbol from its symbol_map. Inspect code_graph before selecting code.");
+      const currentSymbol = extractorRegistry.extract(path, file.content).symbols?.find((item) => item.name === input.symbol);
       start = symbol.start_line; end = symbol.end_line;
-      if (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < start) throw invalid("Read symbol has invalid source bounds; refresh read_file metadata.");
+      if (!Number.isInteger(start) || start < 1 || !Number.isInteger(end) || end < start || end > file.content.split("\n").length
+        || !currentSymbol || currentSymbol.start_line !== start || currentSymbol.end_line !== end) throw invalid("Read symbol has invalid or stale source bounds; refresh read_file metadata.");
     }
     const lines = file.content.split("\n");
     if (start > lines.length) throw invalid(`Read start_line exceeds the file (${lines.length} lines).`);
+    if (bySymbol) recordSourceSymbolRead(context, path, input.symbol, file.sha256);
     recordRead(context, { path, window: bySymbol ? input.symbol : `${start}-${end}` });
     const observed = Array.isArray(context.observed_files) ? context.observed_files : [];
     const current = observed.find((item) => item.path === path);
@@ -54,7 +67,7 @@ export function createSourceReadTool({ fileService, projectRoot, codeCache }) {
     else context.observed_files = [...observed, { path, sha256: file.sha256, symbols_read: symbolsRead, source_tool: "Read" }];
     return { path, file_path: path, content: lines.slice(start - 1, end).map((line, index) => `${String(start + index).padStart(6)}→${line}`).join("\n"), sha256: file.sha256, observed_file: { path, sha256: file.sha256, symbols_read: symbolsRead },
       start_line: start, end_line: Math.min(end, lines.length), total_lines: lines.length, truncated: end < lines.length, ...(bySymbol ? { symbol: input.symbol } : {}),
-      ...(codeCache ? { cache: file.cache, index_status: file.index_status } : {}), discovery_budget: discoveryNotice(context) };
+      ...(codeCache ? { cache: file.cache, index_status: file.index_status } : {}), read_deduplication: file.read_deduplication, discovery_budget: discoveryNotice(context) };
   } };
 }
 

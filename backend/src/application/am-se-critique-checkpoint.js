@@ -41,11 +41,27 @@ export function createAmSeCritiqueCheckpoint({ store, fileService, executionChec
     if (cp.round !== round || !["se", "am"].includes(step)) fail("HANDOFF_CRITIQUE_STALE");
     if (cp.results.some((item) => item.step === step && item.round === round)) return { record, result: cp.results.find((item) => item.step === step && item.round === round) };
     if (["running", "unknown", "paused"].includes(cp.execution_status)) {
-      if (cp.current_step !== step || !await safeToRetry(record, cp)) fail("HANDOFF_CRITIQUE_RECOVERY_REQUIRED");
+      if (cp.current_step !== step) fail("HANDOFF_CRITIQUE_RECOVERY_REQUIRED");
+      const receipt = executionCheckpoint && cp.execution_id ? await executionCheckpoint.load(key(record, step), cp.execution_id) : null;
+      const result = receipt?.handoff_result;
+      if (receipt?.execution_id === cp.execution_id && receipt?.runner_stopped_at && receipt.status === "completed" && Array.isArray(receipt.pending_tool_calls) && !receipt.pending_tool_calls.length && result?.execution_id === cp.execution_id && result.terminal_status === "completed" && result.result_evidence?.sdk_status === "completed" && typeof result.text === "string" && result.text.trim()) {
+        const recovered = await store.transition(handoffId, cp.generation, (current) => {
+          if (current.critique_checkpoint.execution_id !== cp.execution_id || current.critique_checkpoint.current_step !== step) fail("HANDOFF_CRITIQUE_STALE");
+          return { ...current, status: "critiquing", critique_checkpoint: { ...current.critique_checkpoint, current_step: null, next_step: step === "se" ? "am" : "se", execution_status: "pending", error_code: null, results: [...current.critique_checkpoint.results, { step, round, text: result.text.trim(), execution_id: cp.execution_id, completed_at: clock() }] } };
+        });
+        return { record: recovered, result: recovered.critique_checkpoint.results.at(-1) };
+      }
+      if (!await safeToRetry(record, cp)) fail("HANDOFF_CRITIQUE_RECOVERY_REQUIRED");
       record = await store.transition(handoffId, cp.generation, (current) => ({ ...current, status: "paused", critique_checkpoint: { ...current.critique_checkpoint, current_step: null, next_step: step, execution_status: "pending", error_code: null, updated_at: clock() } }));
       cp = record.critique_checkpoint;
     }
-    if (cp.execution_status !== "pending" || cp.next_step !== step || cp.plan_revision !== record.plan_revision || cp.plan_sha256 !== record.plan_sha256 || step === "am" && !cp.results.some((item) => item.step === "se" && item.round === round) || !same(cp.workspace, await snapshot())) fail("HANDOFF_CRITIQUE_STALE");
+    if (cp.execution_status !== "pending" || cp.next_step !== step || cp.plan_revision !== record.plan_revision || cp.plan_sha256 !== record.plan_sha256 || step === "am" && !cp.results.some((item) => item.step === "se" && item.round === round)) fail("HANDOFF_CRITIQUE_STALE");
+    const currentWorkspace = await snapshot();
+    if (!same(cp.workspace, currentWorkspace)) {
+      // Critique agents are read-only; refresh a stale baseline before retrying a pending step.
+      record = await store.transition(handoffId, cp.generation, (current) => ({ ...current, critique_checkpoint: { ...current.critique_checkpoint, workspace: currentWorkspace, updated_at: clock() } }));
+      cp = record.critique_checkpoint;
+    }
     const executionId = `CORR-HANDOFF-${record.plan_id}-CRITIQUE-${step.toUpperCase()}-R${round}-${randomUUID()}`;
     record = await store.transition(handoffId, cp.generation, (current) => {
       if (current.critique_checkpoint.execution_status !== "pending" || current.critique_checkpoint.next_step !== step) fail("HANDOFF_CRITIQUE_STALE");
@@ -89,7 +105,8 @@ export function createAmSeCritiqueCheckpoint({ store, fileService, executionChec
     const record = await store.get(handoffId);
     const cp = record?.critique_checkpoint;
     if (!cp || cp.round !== round || cp.execution_status !== "pending" || !cp.results.some((item) => item.round === round && item.step === "se") || plan.revision < record.plan_revision) fail("HANDOFF_CRITIQUE_STALE");
-    return store.transition(handoffId, cp.generation, (current) => ({ ...current, history, critique_round: round + 1, plan_revision: plan.revision, plan_sha256: plan.sha256, plan_source_path: plan.source_path, critique_checkpoint: { ...current.critique_checkpoint, round: round + 1, next_step: "se", workspace: cp.workspace, plan_revision: plan.revision, plan_sha256: plan.sha256, updated_at: clock() } }));
+    const workspace = await snapshot();
+    return store.transition(handoffId, cp.generation, (current) => ({ ...current, history, critique_round: round + 1, plan_revision: plan.revision, plan_sha256: plan.sha256, plan_source_path: plan.source_path, critique_checkpoint: { ...current.critique_checkpoint, round: round + 1, next_step: "se", workspace, plan_revision: plan.revision, plan_sha256: plan.sha256, updated_at: clock() } }));
   }
   return Object.freeze({ initialize, run, advance });
 }

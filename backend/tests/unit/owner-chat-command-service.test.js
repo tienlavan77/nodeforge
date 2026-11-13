@@ -106,3 +106,46 @@ test("approve waits for completed Sprint Leader handoff before marking ready", a
     assert.equal(result.sprint_status, undefined);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("owner chat command service routes /se, /am, /coder, and natural language directives into the active handoff or ticket inbox", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nodeforge-directive-cmd-"));
+  const database = await createDatabaseService({ dataDir: join(root, ".forge/runtime"), runtimeDir: "." });
+  try {
+    const fileService = createFileService({ projectRoot: root, role: "system_engineer", allowPlanStorage: true });
+    const plans = createHumanPlanStore({ projectId: "PROJECT-A", database, fileService });
+    await fileService.atomicWrite({
+      path: ".forge/runtime/nf/se-handoffs/PROJECT-A/HANDOFF-PLAN-1-R1.json",
+      content: JSON.stringify({
+        handoff_id: "HANDOFF-PLAN-1-R1",
+        project_id: "PROJECT-A",
+        plan_id: "PLAN-1",
+        plan_revision: 1,
+        plan_sha256: "a".repeat(64),
+        plan_source_path: "docs/plan.json",
+        am_conversation_id: "CONV-DIR",
+        se_conversation_id: "CONV-SE-PLAN-1",
+        phase: "implementation",
+        status: "running",
+        updated_at: new Date().toISOString()
+      }),
+      replace: true
+    });
+    const service = createOwnerChatCommandService({ projectId: "PROJECT-A", fileService, planStore: plans });
+    assert.equal(service.isCommand("/se giữ nguyên schema hiện tại"), true);
+    assert.equal(service.isCommand("nhắn AM: bổ sung kiểm tra quyền cho O1"), true);
+
+    const seRes = await service.execute({ text: "/se giữ nguyên schema hiện tại", conversationId: "CONV-DIR", project_id: "PROJECT-A", approvedOwnerId: "OWNER" });
+    assert.equal(seRes.status, "directive_enqueued");
+    assert.equal(seRes.target_id, "HANDOFF-PLAN-1-R1");
+    assert.equal(seRes.target_role, "se");
+    assert.equal(seRes.kind, "focus_constraint");
+
+    const amRes = await service.execute({ text: "nhắn AM: bổ sung kiểm tra quyền cho O1", conversationId: "CONV-DIR", project_id: "PROJECT-A", approvedOwnerId: "OWNER" });
+    assert.equal(amRes.status, "directive_enqueued");
+    assert.equal(amRes.target_id, "HANDOFF-PLAN-1-R1");
+    assert.equal(amRes.target_role, "am");
+  } finally {
+    await database.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -6,6 +6,8 @@ import { createArchitecturePlanningService } from "./architecture-planning-servi
 import { createConversationPlanningService, isConversationPlanMessage, planIdFromIntakePath } from "./conversation-planning-service.js";
 import { createArchitectureClarificationStore } from "./architecture-clarification-store.js";
 import { detectPlanApproveTrigger, detectPlanCreateTrigger, detectPlanHandoffRetryTrigger } from "../modules/governance/conversation-plan-trigger.js";
+import { createSendExecutionDirectiveTool, detectConversationDirectiveTrigger, parseConversationDirectiveTrigger } from "../modules/governance/conversation-directive-trigger.js";
+import { createTicketDirectiveInbox } from "../modules/supervisor/ticket/ticket-directive-inbox.js";
 import { createAmSeHandoffService } from "./am-se-handoff-service.js";
 
 const PLAN_RE = /^\/plan\s+(\S+)\s*$/i;
@@ -57,6 +59,15 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
   const planning = createArchitecturePlanningService({ projectId, fileService, markdownPlanStore, validateMarkdown, framePath: PLAN_FRAME_PATH });
   let clarificationSessions;
   let seHandoff = amSeHandoffService ?? null;
+  let directiveTool = null;
+  // Business purpose: lazily create the project-scoped directive bridge used by owner chat shortcuts.
+  // Technical description: binds the durable inbox to the current project and resolves active handoff or ticket targets before enqueueing.
+  function ensureDirectiveTool() {
+    directiveTool ??= createSendExecutionDirectiveTool({
+      directiveInbox: createTicketDirectiveInbox({ fileService, projectId, projectRoot: projectId })
+    });
+    return directiveTool;
+  }
   // Business purpose: lazily compose the persisted AM-SE-RV handoff service for projection and recovery requests.
   // Technical description: reuses the project-scoped stores and approval guards without starting any agent execution.
   function ensureSeHandoff() {
@@ -73,7 +84,7 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
   return Object.freeze({ execute, isCommand, listHandoffs: () => ensureSeHandoff().listHandoffs(), resumeHandoff: (input) => ensureSeHandoff().resumeHandoff(input), pauseHandoff: (input) => ensureSeHandoff().pauseHandoff(input), handoffWorkspaceStatus: (input) => ensureSeHandoff().handoffWorkspaceStatus(input), adoptHandoffWorkspace: (input) => ensureSeHandoff().adoptHandoffWorkspace(input), reconcileHandoff: (input) => ensureSeHandoff().reconcileHandoff(input), planningSessions: planning.sessions });
 
   // Recognizes exact slash commands plus standalone conversation planning triggers.
-  function isCommand(text) { const value = String(text ?? ""); return PLAN_RE.test(value) || APPROVE_RE.test(value) || CONTINUE_RE.test(value) || /^\/resume-se-handoff\s+HANDOFF-[A-Za-z0-9_-]+\s*$/i.test(value) || isConversationPlanMessage(value) || detectPlanHandoffRetryTrigger(value) !== null; }
+  function isCommand(text) { const value = String(text ?? ""); return PLAN_RE.test(value) || APPROVE_RE.test(value) || CONTINUE_RE.test(value) || /^\/resume-se-handoff\s+HANDOFF-[A-Za-z0-9_-]+\s*$/i.test(value) || isConversationPlanMessage(value) || detectPlanHandoffRetryTrigger(value) !== null || detectConversationDirectiveTrigger(value) !== null; }
 
   // Business purpose: retries or continues Sprint Leader handoff for the latest plan in the active conversation so the owner can recover from an interrupted or repaired handoff directly in chat without regenerating the plan.
   // Technical description: locates the latest Markdown plan revision in markdownPlanStore (scoped to conversationId or project), auto-approves it if still awaiting approval, and runs approvePlan to complete SL handoff.
@@ -153,6 +164,17 @@ export function createOwnerChatCommandService({ projectId, fileService, planStor
   async function execute({ text, conversationId, project_id: inputProjectId, requestArchitecture, requestSystemEngineer: turnRequestSe, requestReviewer: turnRequestRv, approvedOwnerId, approvalRevision, approvalSha256, approvalComments, planningVersion, planningSourceSha256 } = {}) {
     if (inputProjectId && inputProjectId !== projectId) throw fail("PROJECT_CONTEXT_CONFLICT", "Command project differs from the active project.");
     const value = String(text ?? "").trim();
+    const directive = parseConversationDirectiveTrigger(value);
+    if (directive) {
+      const queued = await ensureDirectiveTool().execute({
+        target_role: directive.target_role,
+        target_id: directive.target_id,
+        kind: directive.kind,
+        instruction: directive.instruction,
+        supersede_pending: directive.supersede_pending
+      }, { conversation_id: conversationId, agent_identity: { id: approvedOwnerId ?? "project-owner", agent_id: approvedOwnerId ?? "project-owner", role: "project_owner" } });
+      return { ...queued, status: "directive_enqueued", trigger_type: directive.trigger_type, command: directive.command };
+    }
     const continuation = value.match(CONTINUE_RE);
     if (continuation) return createPlanWithDiagnostics({ projectId, planRequests, publishPlanEvent, createPlan: async () => {
       const resumeSession = await planning.sessions.get(continuation[1]);

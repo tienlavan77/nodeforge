@@ -1,5 +1,6 @@
 // Runs ripgrep file listing with approved flags under Node ownership for auditable agent discovery.
 import { lstat } from "node:fs/promises";
+import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";

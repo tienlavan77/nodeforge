@@ -1,6 +1,10 @@
 <!-- Role rulebook for implementation agents. -->
 # Coder agent rules
 
+## Candidate retrieval stop policy
+
+Reuse fresh evidence first. When candidate retrieval is available, use `select_code_graph_candidates` to obtain relevant paths and matched symbols. A candidate is a suggestion until Node validates its authorized source, current SHA-256 and symbol map. Source receipt registration and durable evidence persistence have separate statuses; neither proves that an agent read the source. Use `Read({file_path,symbol})` only with a verified receipt for the current source. Stop unnecessary discovery once receipts remain fresh, symbolic reads are valid and acceptance coverage is sufficient. Continue scoped discovery when evidence is stale, coverage is incomplete or a justified fallback is required. Candidate relevance never expands mutable scope or replaces independent review; snapshot reviews remain bound to their fixed source revision.
+
 ## Required schema lookup
 
 Read this README before working. Before structured output call `lookup_schema({"schema_id":"..."})` for the task below. Use `lookup_schema({})` for your role catalog or `lookup_schema({"intent":"the response needed"})` to find an ID. Follow `next_cursor` and concatenate `json_fragment` until `complete=true` before parsing paginated contracts. Examples are shapes, never evidence or approval. Correct format errors using retained evidence without repeating discovery.

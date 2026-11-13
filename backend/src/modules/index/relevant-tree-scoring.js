@@ -8,7 +8,8 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
   // Defines isIgnored function behavior for relevant-tree-scoring.js.
   const isIgnored = (path) => ignoredPaths.some((prefix) => path === prefix || path.startsWith(prefix));
   // Defines select function behavior for relevant-tree-scoring.js.
-  function select({ title = "", objective = "", query = "", acceptanceCriteria = [], acceptance_criteria = [], guardrails = [], style, depth = defaultDepth, limit = maxFiles, scope = "all", allowed_prefixes, allowedPrefixes, priorFiles = [], prior_files = [], dependencyFiles = [], dependency_files = [] } = {}) {
+  function select({ title = "", objective = "", query = "", acceptanceCriteria = [], acceptance_criteria = [], guardrails = [], style, depth = defaultDepth, limit = maxFiles, scope = "all", allowed_prefixes, allowedPrefixes, priorFiles = [], prior_files = [], dependencyFiles = [], dependency_files = [], allowedPaths = null } = {}) {
+    const allowedPathSet = allowedPaths === null ? null : new Set(allowedPaths);
     const criteria = acceptanceCriteria.length ? acceptanceCriteria : acceptance_criteria;
     const guardrailList = Array.isArray(guardrails) ? guardrails : [];
     const text = [title, objective, query, ...(Array.isArray(criteria) ? criteria : []), ...guardrailList].filter((value) => typeof value === "string" && value.trim()).join(" ");
@@ -25,7 +26,7 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
     // Defines shortlistAdd function behavior for relevant-tree-scoring.js.
     const shortlistAdd = (entry, why) => {
       const path = entry?.node?.path ?? entry?.path;
-      if (!path || isIgnored(path) || path.includes(".test.") || (normalizedAllowedPrefixes && !normalizedAllowedPrefixes.some((prefix) => path.startsWith(prefix)))) return;
+      if (!path || (allowedPathSet && !allowedPathSet.has(path)) || isIgnored(path) || path.includes(".test.") || (normalizedAllowedPrefixes && !normalizedAllowedPrefixes.some((prefix) => path.startsWith(prefix)))) return;
       const current = shortlist.get(path) ?? { path, terms: new Set(), kinds: new Set(), node: entry.node ?? entry };
       if (why?.term) current.terms.add(why.term);
       if (why?.kind) current.kinds.add(why.kind);
@@ -36,7 +37,7 @@ export function createRelevantTreeScoring({ search, fileGraph, logger, maxFiles,
     // Defines add function behavior for relevant-tree-scoring.js.
     const add = (entry, score, reason, relation = null) => {
       const path = entry?.node?.path ?? entry?.path;
-      if (!path || isIgnored(path) || path.includes(".test.") || (normalizedAllowedPrefixes && !normalizedAllowedPrefixes.some((prefix) => path.startsWith(prefix)))) return;
+      if (!path || (allowedPathSet && !allowedPathSet.has(path)) || isIgnored(path) || path.includes(".test.") || (normalizedAllowedPrefixes && !normalizedAllowedPrefixes.some((prefix) => path.startsWith(prefix)))) return;
       const current = seeds.get(path) ?? { path, score: 0, t1: 0, reasons: new Set(), relations: [], node: entry.node ?? entry };
       current.score = Math.min(18, current.score + score);
       current.reasons.add(reason);

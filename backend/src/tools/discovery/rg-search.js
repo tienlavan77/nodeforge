@@ -1,5 +1,6 @@
 // Searches project source text with approved ripgrep flags under Forge task control.
 import { lstat, realpath } from "node:fs/promises";
+import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { isAbsolute, join, relative } from "node:path";
 import { runProjectRipgrep as runRipgrep } from "./project-ripgrep-runner.js";
 import { logEvent } from "../../core/project-log-service.js";

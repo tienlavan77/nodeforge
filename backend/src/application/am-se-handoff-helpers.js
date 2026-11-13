@@ -125,7 +125,11 @@ export async function applyCritiqueDraftRevision({ fileService, markdownPlanStor
     const baseMarkdown = renderArchitecturePlanMarkdown({ plan: merged, planId: currentPlan.plan_id, revision: 1, sourceSha256: summarySha256 });
     const prev = await markdownPlanStore.getRevision({ planId: currentPlan.plan_id, revision: 1 });
     const record = readArchitectureDecisions(prev?.markdown ?? "");
-    const decisionSession = record?.decisions?.length ? architectureSessionFromRecord(record) : { session_id: `${currentPlan.plan_id}-R1`, source_path: summaryPath, source_sha256: summarySha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
+    if (record?.decisions?.length || prev?.decision?.decision) {
+      // A decided revision is immutable; preserve the approved plan and continue the durable handoff.
+      return { cleanReply, currentPlan, currentPlanJson, error: null };
+    }
+    const decisionSession = { session_id: `${currentPlan.plan_id}-R1`, source_path: summaryPath, source_sha256: summarySha256, owner_id: null, confirmed_at: null, questions: [], selections: {}, notes: {} };
     const stored = await markdownPlanStore.updateDraftRevision({ planId: currentPlan.plan_id, revision: 1, markdown: appendArchitectureDecisions(baseMarkdown, decisionSession), summaryPath, summarySha256, summaryContent: canonicalBytes, conversationId });
     await retainConversationPlanSource({ fileService, planId: currentPlan.plan_id, revision: 1, canonicalBytes, overwriteUnapproved: true });
     return { cleanReply, currentPlan: { plan_id: stored.plan_id, revision: 1, sha256: stored.sha256, source_path: summaryPath }, currentPlanJson: merged, error: null };

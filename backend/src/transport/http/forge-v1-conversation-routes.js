@@ -49,8 +49,8 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
       }
       if (parts.length === 3 && method === "POST" && parts[2] === "resume-critique") {
         if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for critique resume."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
-        planOwnerAuth.verify(headers);
-        return { status: 200, body: await handoffService.resumeCritique({ handoffId: parts[1] }) };
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.resumeCritique({ handoffId: parts[1], approvedOwnerId }) };
       }
     }
     if (parts[0] === "projects" && parts[2] === "handoffs" && handoffService) {
@@ -79,8 +79,8 @@ export function createForgeV1ConversationRoutes({ conversationCrudService, conve
       if (parts.length === 5 && method === "POST" && parts[4] === "resume-critique") {
         if (typeof handoffService.resumeCritique !== "function") throw Object.assign(new ConfigurationError("Critique resume is unavailable."), { code: "HANDOFF_CRITIQUE_UNAVAILABLE", statusCode: 503 });
         if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for critique resume."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });
-        planOwnerAuth.verify(headers);
-        return { status: 200, body: await handoffService.resumeCritique({ handoffId: parts[3] }) };
+        const approvedOwnerId = planOwnerAuth.verify(headers);
+        return { status: 200, body: await handoffService.resumeCritique({ handoffId: parts[3], approvedOwnerId }) };
       }
       if (parts.length === 5 && method === "POST" && parts[4] === "reconcile") {
         if (typeof planOwnerAuth?.verify !== "function") throw Object.assign(new ConfigurationError("Owner authentication is unavailable for handoff reconciliation."), { code: "OWNER_AUTH_UNCONFIGURED", statusCode: 503 });

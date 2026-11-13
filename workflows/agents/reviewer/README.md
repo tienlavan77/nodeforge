@@ -1,6 +1,10 @@
 <!-- Role rulebook for independent change-review agents. -->
 # Reviewer agent rules
 
+## Candidate retrieval stop policy
+
+Reuse fresh evidence first. When candidate retrieval is available, use `select_code_graph_candidates` to obtain relevant paths and matched symbols. A candidate is a suggestion until Node validates its authorized source, current SHA-256 and symbol map. Source receipt registration and durable evidence persistence have separate statuses; neither proves that an agent read the source. Use `Read({file_path,symbol})` only with a verified receipt for the current source. Stop unnecessary discovery once receipts remain fresh, symbolic reads are valid and acceptance coverage is sufficient. Continue scoped discovery when evidence is stale, coverage is incomplete or a justified fallback is required. Candidate relevance never expands mutable scope or replaces independent review; snapshot reviews remain bound to their fixed source revision.
+
 ## Required schema lookup
 
 Read this README before working. Before structured output call `lookup_schema` with the task's ID below. The current Node exchange transport overrides older output labels: for `review_result` use `payload.finding_updates` for adjudications. Node owns finding IDs and exchange identities. Examples are placeholders, never evidence or approval. Correct format errors using retained findings and evidence without repeating discovery.

@@ -63,7 +63,7 @@ export function createCodexForgeToolLoop({ agentGateway, projectLogger } = {}) {
           projectLogger({ event_name: "supervisor.sdk_context_compacted", level: "info", status: "success", message: "Compacted function-calling tool history with receipt stubs.", task_id: context?.task_id, correlation_id: correlationId, source: "codex-forge-tool-loop", payload: { agent_id: agentId, mode: "history_compaction", before_bytes: compacted.beforeBytes, after_bytes: compacted.afterBytes, compacted_items: compacted.compactedItems, round: rounds } });
         }
       }
-      const response = await agentGateway.request({ agentId, payload: { messages, ...(cacheConfig ? { cache_config: cacheConfig } : {}), ...(previousResponseId !== undefined ? { previous_response_id: previousResponseId } : {}), ...context?.gateway_payload }, correlationId, tools });
+      const response = await agentGateway.request({ agentId, payload: { ...context?.gateway_payload, messages, ...(cacheConfig ? { cache_config: cacheConfig } : {}), ...(previousResponseId !== undefined ? { previous_response_id: previousResponseId } : {}) }, correlationId, tools });
       const payload = response?.payload ?? {};
       if (payload.response_id) previousResponseId = payload.response_id;
       recordUsage(response);

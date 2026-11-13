@@ -1,5 +1,6 @@
 // Lists a bounded, secret-filtered project tree for owner conversations.
 import { ConfigurationError } from "../../shared/errors.js";
+import { assertDelegatedDiscoveryRequired } from "../discovery/delegated-discovery-policy.js";
 import { isProtectedPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 import { isCoderProjectPath } from "../../infrastructure/filesystem/coder-project-access.js";
 

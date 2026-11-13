@@ -32,7 +32,7 @@ export function readClaudeSessionContext(home, sessionId, output = process.stder
         if (!usage) continue;
         const values = [usage.input_tokens, usage.cache_creation_input_tokens, usage.cache_read_input_tokens].map((value) => Number(value ?? 0));
         if (!values.every((value) => Number.isFinite(value) && value >= 0)) continue;
-        const tokens = values.reduce((total, value) => total + value, 0);
+        const tokens = values[0] + Math.max(values[1], values[2]);
         const timestamp = String(entry.timestamp ?? "");
         if (tokens > 0 && (!latest || timestamp >= latest.timestamp)) latest = { timestamp, tokens };
       }
