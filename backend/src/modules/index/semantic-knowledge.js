@@ -93,7 +93,7 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
     catch (error) {
       if (error?.code === "ENOENT") continue;
       logger.warn?.("Semantic knowledge file could not be read.", { path: relativePath, error: error.message });
-      diagnostics.rejected++;
+      reject(relativePath, null, [`knowledge file could not be read: ${error.message}`]);
       continue;
     }
     for (const [lineNumber, line] of text.split(/\r?\n/).entries()) {
@@ -102,7 +102,12 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
       try { parsed = JSON.parse(line); }
       catch (error) {
         logger.warn?.("Semantic knowledge record is malformed.", { path: relativePath, line: lineNumber + 1, error: error.message });
-        diagnostics.rejected++;
+        reject(relativePath, lineNumber + 1, [`malformed JSON: ${error.message}`]);
+        continue;
+      }
+      if (sourceRevision && parsed.source_revision && parsed.source_revision !== sourceRevision) {
+        diagnostics.stale++;
+        reject(relativePath, lineNumber + 1, [`source_revision mismatch: record=${parsed.source_revision}, current=${sourceRevision}`]);
         continue;
       }
       const validation = validateKnowledgeRecord(parsed, { projectId, kind: kind === "semantic_anchors" ? "semantic_anchor" : kind, projectRoot, sourceReader, sourceRevision });
@@ -110,7 +115,6 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
       const identity = JSON.stringify([kind, parsed.query_fingerprint, parsed.path ?? parsed.candidate?.path, parsed.symbol ?? parsed.candidate?.symbol, parsed.label, parsed.status]);
       if (seen.has(identity)) { diagnostics.duplicates++; reject(relativePath, lineNumber + 1, ["duplicate feedback identity"]); continue; }
       seen.add(identity);
-      if (sourceRevision && parsed.source_revision && parsed.source_revision !== sourceRevision) { diagnostics.stale++; continue; }
       let corpusValidated = false;
       if (sourceReader) {
         const items = parsed.accepted_symbols ?? parsed.candidate ?? parsed.expected_symbols;
@@ -154,8 +158,8 @@ export function rerankCandidates(candidates = [], knowledge, { queryFingerprint,
     if (record.source_revision && record.source_revision !== revision) return false;
     const binding = record.receipt_binding;
     if (!binding || binding.receipt_id !== candidate.receipt_id || binding.source_revision !== revision
-      || JSON.stringify(binding.scope) !== JSON.stringify(candidate.scope)
-      || JSON.stringify(binding.execution_identity) !== JSON.stringify(candidate.execution_identity)) return false;
+      || stableSerialize(binding.scope) !== stableSerialize(candidate.scope)
+      || stableSerialize(binding.execution_identity) !== stableSerialize(candidate.execution_identity)) return false;
     return true;
   };
   const adjustment = (candidate) => {
@@ -172,7 +176,7 @@ export function rerankCandidates(candidates = [], knowledge, { queryFingerprint,
   let adjusted = 0;
   const seenCandidates = new Set();
   const ranked = candidates.map((candidate, index) => {
-    const identity = JSON.stringify([candidate.path, candidate.symbol ?? null]);
+    const identity = candidateBoundIdentity(candidate);
     const result = adjustment(candidate);
     if (seenCandidates.has(identity) || adjusted >= Math.min(2, Math.max(0, maxAdjustedCandidates))) result.value = 0;
     result.value = Math.sign(result.value) * Math.min(Math.abs(result.value), remaining);
@@ -181,7 +185,42 @@ export function rerankCandidates(candidates = [], knowledge, { queryFingerprint,
     return { ...candidate, baseline_score: Number(candidate.score ?? 0), score: Number((Number(candidate.score ?? 0) + result.value).toFixed(6)), knowledge_adjustment: result.value, reasons: [...(candidate.reasons ?? []), ...result.reasons], baseline_rank: index + 1 };
   });
   if (!ranked.some((candidate) => candidate.knowledge_adjustment !== 0)) return ranked;
-  return ranked.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path) || String(a.symbol ?? "").localeCompare(String(b.symbol ?? "")) || a.baseline_rank - b.baseline_rank);
+  return ranked.sort((a, b) => b.score - a.score || candidateBoundIdentity(a).localeCompare(candidateBoundIdentity(b)) || a.baseline_rank - b.baseline_rank);
+}
+
+/**
+ * Builds the complete candidate identity used for duplicate suppression and
+ * deterministic ordering, retaining source and receipt lineage boundaries.
+ *
+ * Business purpose: lineage-bound identity protects reranking correctness by
+ * ensuring feedback can affect only the exact verified source and execution
+ * context that produced it. Technical behavior: nested binding objects are
+ * serialized with recursively sorted keys, so equivalent objects remain equal
+ * despite different property insertion order.
+ */
+function candidateBoundIdentity(candidate = {}) {
+  return stableSerialize([
+    candidate.path ?? null,
+    candidate.symbol ?? null,
+    candidate.source_sha256 ?? candidate.sha256 ?? candidate.receipt?.sha256 ?? null,
+    candidate.source_revision ?? candidate.receipt?.source_revision ?? null,
+    candidate.receipt_id ?? candidate.receipt?.receipt_id ?? null,
+    candidate.receipt?.status ?? null,
+    candidate.scope ?? null,
+    candidate.execution_identity ?? null
+  ]);
+}
+
+/**
+ * Canonicalizes JSON-compatible values for stable lineage comparisons and
+ * deterministic candidate identities independent of object key insertion order.
+ */
+function stableSerialize(value) {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function isContainedProjectPath(projectRoot, candidatePath) {

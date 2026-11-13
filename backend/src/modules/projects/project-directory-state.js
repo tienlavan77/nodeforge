@@ -19,7 +19,11 @@ export function createProjectDirectoryState({ catalog, runtimes, isAvailable, is
     } catch (error) {
       if (attempts.get(root) === attempt) {
         attempt.status = "failed";
-        attempt.diagnostic = { code: "project_startup_failed", message: "Project startup failed. Correct the project configuration and retry Add." };
+        attempt.diagnostic = {
+          code: error?.code ?? "project_startup_failed",
+          message: error?.message ?? "Project startup failed. Correct the project configuration and retry Add.",
+          cause: error?.cause?.message ?? null
+        };
       }
       throw error;
     }

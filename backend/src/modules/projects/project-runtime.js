@@ -14,7 +14,7 @@ import { createApplicationBridge } from "./project-runtime-bridge.js";
 import { startProjectWorkerRuntime } from "./project-worker-runtime.js";
 
 // Starts every per-project service without introducing an HTTP or CLI management contract.
-export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }), normalizeComments = true, coderNormalizer = null, rejectOnViolation = true, fallbackOnViolation = false, onRuntimeCreated = null, awaitInitialEmbeddings = false, embeddingPollMs = 1000, useWorkerThread = false, sharedStreamState = null } = {}) {
+export async function startProjectRuntime({ projectRoot, projectId, logger = console, embeddingProvider, ollamaConfig, chokidarOptions, watcherFactory, onProgress = () => {}, progress = createIndexProgress({ onProgress }), normalizeComments = true, coderNormalizer = null, rejectOnViolation = false, fallbackOnViolation = false, onRuntimeCreated = null, awaitInitialEmbeddings = false, embeddingPollMs = 1000, useWorkerThread = false, sharedStreamState = null } = {}) {
   if (useWorkerThread && !watcherFactory && !coderNormalizer && !embeddingProvider) {
     return startProjectWorkerRuntime({
       projectRoot, projectId, logger, ollamaConfig, chokidarOptions,

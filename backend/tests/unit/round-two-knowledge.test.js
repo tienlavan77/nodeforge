@@ -39,6 +39,20 @@ test("rejected records retain file, line and actionable validation reasons", asy
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("malformed and stale records retain actionable rejection reasons", async () => {
+  const root = await mkdtemp(join(tmpdir(), "semantic-knowledge-rejections-"));
+  try {
+    await mkdir(join(root, "vocabulary"), { recursive: true });
+    const stale = { ...golden(), label: "accepted", candidate: { path: "backend/src/example.js", symbol: "example" }, source_revision: "b".repeat(40), verifier_provenance: { verifier: "test", evidence: "fixture:example", revision: "b".repeat(40) } };
+    await writeFile(join(root, "vocabulary/retrieval-feedback.jsonl"), ["{not-json", JSON.stringify(stale)].join("\n"));
+    const result = await loadProjectKnowledge({ projectRoot: root, projectId: "project", sourceRevision: "a".repeat(40) });
+    assert.equal(result.diagnostics.rejected, 2);
+    assert.match(result.diagnostics.rejections[0].errors[0], /malformed JSON/);
+    assert.match(result.diagnostics.rejections[1].errors[0], /source_revision mismatch/);
+    assert.equal(result.diagnostics.stale, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("reranking requires private receipt validation and exact lineage, caps duplicates and aggregate", () => {
   const candidates = [0, 1, 2, 3].map((i) => ({ path: `backend/src/e${i}.js`, symbol: "example", score: 1,
     sha256: "sha256:" + "b".repeat(64), source_revision: "a".repeat(40), receipt_id: `receipt:${i}`, receipt: { status: "verified" }, fresh: true,
@@ -52,6 +66,23 @@ test("reranking requires private receipt validation and exact lineage, caps dupl
   assert.equal(ranked.filter((item) => item.knowledge_adjustment).length, 2);
   assert.equal(rerankCandidates(candidates, knowledge, { ...options, receiptValidator: undefined })[0].knowledge_adjustment, 0);
   assert.equal(rerankCandidates([{ ...candidates[0], scope: {} }], knowledge, options)[0].knowledge_adjustment, 0);
+});
+
+test("reranking canonicalizes reordered lineage keys", () => {
+  const first = { path: "backend/src/example.js", symbol: "example", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:one", receipt: { status: "verified" }, fresh: true, scope: { allowed_file_paths: ["backend/src"], allowed_prefixes: [], nested: { alpha: "a", beta: "b" } }, execution_identity: { execution_id: "run:one", metadata: { first: 1, second: 2 } } };
+  const second = { ...first, scope: { nested: { beta: "b", alpha: "a" }, allowed_prefixes: [], allowed_file_paths: ["backend/src"] }, execution_identity: { metadata: { second: 2, first: 1 }, execution_id: "run:one" } };
+  const record = { ...golden(), label: "accepted", corpus_validated: true, candidate: { path: first.path, symbol: first.symbol }, receipt_binding: { receipt_id: first.receipt_id, source_revision: first.source_revision, scope: first.scope, execution_identity: first.execution_identity } };
+  const ranked = rerankCandidates([first, second], { records: { retrieval_feedback: [record] } }, { queryFingerprint: golden().query_fingerprint, projectId: "project", receiptValidator: () => true, maxAdjustedCandidates: 2 });
+  assert.equal(ranked.filter((item) => item.knowledge_adjustment).length, 1);
+  assert.equal(ranked[1].knowledge_adjustment, 0);
+});
+
+test("reranking keeps same path-symbol candidates distinct when bound lineage differs", () => {
+  const first = { path: "backend/src/example.js", symbol: "example", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:one", receipt: { status: "verified" }, fresh: true, scope: { allowed_file_paths: ["backend/src"], allowed_prefixes: [] }, execution_identity: { execution_id: "run:one" } };
+  const second = { ...first, sha256: "sha256:" + "2".repeat(64), receipt_id: "receipt:two", execution_identity: { execution_id: "run:two" } };
+  const record = (candidate) => ({ ...golden(), label: "accepted", corpus_validated: true, candidate: { path: candidate.path, symbol: candidate.symbol }, receipt_binding: { receipt_id: candidate.receipt_id, source_revision: candidate.source_revision, scope: candidate.scope, execution_identity: candidate.execution_identity } });
+  const ranked = rerankCandidates([first, second], { records: { retrieval_feedback: [record(first), record(second)] } }, { queryFingerprint: golden().query_fingerprint, projectId: "project", receiptValidator: () => true, maxAdjustedCandidates: 2 });
+  assert.equal(ranked.filter((item) => item.knowledge_adjustment).length, 2);
 });
 
 test("evaluation artifact retains explicit provenance, fallback counts and regression outcomes", () => {

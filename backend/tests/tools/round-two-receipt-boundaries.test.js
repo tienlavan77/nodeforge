@@ -44,6 +44,15 @@ test("reuse requires pinned revision and exact scope and delegation", async () =
   assert.equal(unavailable.receipt.status, "unavailable");
 });
 
+test("camelCase executionId supplies the persisted delegation identity", async () => {
+  const f = fixture();
+  const context = { ...f.context, execution_id: undefined, executionId: "camel-execution", delegation_id: undefined };
+  const [entry] = await registerCandidateSources([{ path: f.path }], context, { fileService: f.fileService });
+  assert.equal(entry.receipt.status, "verified");
+  assert.equal(entry.execution_identity.delegation_id, "camel-execution");
+  assert.ok(candidateSourceMetadata(entry, context));
+});
+
 test("source drift cannot pass symbolic delivery even with an old advertised hash", async () => {
   const f = fixture();
   const [entry] = await registerCandidateSources([{ path: f.path }], f.context, { fileService: f.fileService });

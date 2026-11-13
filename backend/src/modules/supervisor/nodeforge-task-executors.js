@@ -16,10 +16,8 @@ import { CODER_TOOL_NAMES, coderToolDefinitions } from "../../tools/engineering-
 import { coderFailureTriage } from "./coder/coder-recovery-policy.js";
 import { withCoderExchange, coderExchangePrompt } from "./coder/coder-agent-exchange.js";
 import { createFunctionCallingTaskExecutor } from "./function-calling-task-executor.js";
-import { createDelegateSubagentTool } from "../../tools/discovery/delegate-subagent-tool.js";
 import { createSubagentEvidenceTool } from "../../tools/discovery/subagent-evidence-tool.js";
 import { sharedSubagentEvidenceStore } from "../../tools/discovery/subagent-evidence-sync.js";
-import { createTicketSubagentChildExecutor } from "../../tools/discovery/subagent-failover-executor.js";
 
 const CODER_FORGE_TOOL_NAMES = new Set(CODER_TOOL_NAMES.map((name) => `mcp__forge__${name}`));
 
@@ -62,10 +60,8 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
     const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
-    const childExecutor = delegateSubagentExecutor ?? createTicketSubagentChildExecutor({ selected, request, executionId, toolContext, toolRegistry, claudeSdkGateway, codexSdkGateway, extractFinalAgentReport, projectRoot, projectLogger });
-    const delegateTool = selected.role === "coder" ? createDelegateSubagentTool({ executeTask: childExecutor, evidenceStore: sharedSubagentEvidenceStore }) : null;
-    const evidenceTool = selected.role === "coder" ? (toolRegistry.read_subagent_evidence ?? createSubagentEvidenceTool({ evidenceStore: sharedSubagentEvidenceStore, projectRoot })) : null;
-    const registryWithDelegate = delegateTool && selected.role === "coder" ? { ...toolRegistry, delegate_subagent: delegateTool, read_subagent_evidence: evidenceTool } : toolRegistry;
+    const evidenceTool = toolRegistry.read_subagent_evidence ?? createSubagentEvidenceTool({ evidenceStore: sharedSubagentEvidenceStore, projectRoot });
+    const registryWithDelegate = { ...toolRegistry, read_subagent_evidence: evidenceTool };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: registryWithDelegate, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
     const boundRegistry = binding.registry;
@@ -144,10 +140,8 @@ export function createNodeforgeTaskExecutors({ claudeSdkGateway, openaiSdkGatewa
       lifecycle: "RUNNING", audit_context: { correlation_id: request.correlation_id }
     });
     const toolContext = { ...context, project_id: request.project_id, project_root: projectRoot, execution_context: request.execution_context ?? null, ticket, task: ticket, task_context: ticket, changed_paths: [...resumeState.changedPaths], allowed_file_paths: allowedFilePaths, allowed_prefixes: allowedPrefixes, lab_mode: Boolean(labMode), abortSignal: request.abortSignal, session_id: executionId, target_path: targetPath };
-    const childExecutor = delegateSubagentExecutor ?? createTicketSubagentChildExecutor({ selected: { ...selected, provider: selected.provider ?? "codex" }, request, executionId, toolContext, toolRegistry, claudeSdkGateway, codexSdkGateway, extractFinalAgentReport, projectRoot, projectLogger });
-    const delegateTool = selected.role === "coder" ? createDelegateSubagentTool({ executeTask: childExecutor, evidenceStore: sharedSubagentEvidenceStore }) : null;
-    const evidenceTool = selected.role === "coder" ? (toolRegistry.read_subagent_evidence ?? createSubagentEvidenceTool({ evidenceStore: sharedSubagentEvidenceStore, projectRoot })) : null;
-    const registryWithDelegate = delegateTool && selected.role === "coder" ? { ...toolRegistry, delegate_subagent: delegateTool, read_subagent_evidence: evidenceTool } : toolRegistry;
+    const evidenceTool = toolRegistry.read_subagent_evidence ?? createSubagentEvidenceTool({ evidenceStore: sharedSubagentEvidenceStore, projectRoot });
+    const registryWithDelegate = { ...toolRegistry, read_subagent_evidence: evidenceTool };
     const checkpointed = checkpointedRegistry({ store: checkpoints, registry: registryWithDelegate, taskId: request.task_id, targetPath, allowedPrefixes, complexity, selected, correlationId: request.correlation_id, resumeState, labMode: Boolean(labMode), projectLogger });
     const binding = selected.role === "coder" && !labMode ? bindEngineeringTools({ registry: checkpointed, context: toolContext }) : { registry: checkpointed, context: toolContext };
     const boundRegistry = binding.registry;

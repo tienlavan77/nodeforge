@@ -101,7 +101,7 @@ async function shutdownWorker() {
 async function runIndexingWorker() {
   const {
     projectRoot, projectId, ollamaConfig, chokidarOptions,
-    normalizeComments = true, rejectOnViolation = true, fallbackOnViolation = false,
+    normalizeComments = true, rejectOnViolation = false, fallbackOnViolation = false,
     awaitInitialEmbeddings = false, embeddingPollMs = 1000
   } = workerData ?? {};
   const logger = createWorkerThreadLogger(projectId);

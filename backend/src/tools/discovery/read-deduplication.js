@@ -6,8 +6,8 @@ const completed = new Map();
 const inFlight = new Map();
 
 // Builds the stable identity used to share one read across compatible Forge tools and workers.
-export function readDeduplicationKey({ projectRoot = "", projectId = "", conversationId = "", delegationId = "", path, tool = "Read", symbol = "", startLine = "", endLine = "" } = {}) {
-  return [projectRoot, projectId, conversationId, delegationId, path, tool, symbol, startLine, endLine].map((value) => String(value ?? "")).join("\u001f");
+export function readDeduplicationKey({ projectRoot = "", projectId = "", conversationId = "", delegationId = "", executionId = "", path, tool = "Read", symbol = "", startLine = "", endLine = "" } = {}) {
+  return [projectRoot, projectId, conversationId, delegationId, executionId, path, tool, symbol, startLine, endLine].map((value) => String(value ?? "")).join("\u001f");
 }
 
 // Executes a read once and shares its result with concurrent or recent identical requests.

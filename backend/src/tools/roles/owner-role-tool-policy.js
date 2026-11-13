@@ -5,7 +5,7 @@ import { assertRoleFileAccess, roleWritePrefixes } from "../../infrastructure/fi
 import { isProjectGitkeepPath } from "../../infrastructure/filesystem/protected-path-policy.js";
 
 const READ_TOOLS = Object.freeze(["select_code_graph_candidates", "search_tree", "list_files", "search_text", "read_file", "Read", "lookup_schema"]);
-const DELEGATE_TOOLS = Object.freeze(["delegate_subagent", "read_subagent_evidence"]);
+const DELEGATE_TOOLS = Object.freeze(["read_subagent_evidence"]);
 const GIT_READ_TOOLS = Object.freeze(["git_status", "git_diff", "git_log", "git_show", "git_blame"]);
 const ROLE_TOOLS = Object.freeze({
   architecture_manager: Object.freeze([...READ_TOOLS, ...DELEGATE_TOOLS, ...GIT_READ_TOOLS, "git_branch", "write_diff", "edit_diff", "delete_file", "send_execution_directive"]),
@@ -41,7 +41,7 @@ export async function authorizeOwnerTool(name, input, context, projectRoot) {
   }
   const role = context.agent_identity?.role;
   const permittedRoleTools = ownerRoleTools(role);
-  if (!permittedRoleTools.includes(name) && !(isAsyncSubagentTool && permittedRoleTools.includes("delegate_subagent"))) throw forbidden("Tool is not permitted for this role.");
+  if (!permittedRoleTools.includes(name)) throw forbidden("Tool is not permitted for this role.");
   if (name === "git_branch" && role !== "system_engineer" && !["list", "current"].includes(input?.action)) {
     throw forbidden("Only System Engineer may execute mutating git_branch actions in owner conversations.");
   }
