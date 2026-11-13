@@ -7,6 +7,7 @@ import { assertExecutionFileAccess } from "../execution-file-access.js";
 import { isAgentPathAllowed } from "../governance/tool-authorization.js";
 import { scopedGraph } from "./agent-file-index-view.js";
 import { recordSourceMetadata } from "./source-metadata-receipts.js";
+import { normalizeExecutionIdentity } from "./execution-identity.js";
 
 const verified = new WeakMap();
 const verifiedByReceiptId = new Map();
@@ -20,21 +21,28 @@ export function candidateSourceMetadata(entry, context = null) {
   const candidate = metadata && metadata.path === entry.path && metadata.sha256 === entry.sha256 ? metadata : verified.get(entry);
   if (!candidate) return undefined;
   if (!context || !/^[a-f0-9]{40,64}$/.test(context.review_commit_sha ?? context.source_revision ?? "")) return undefined;
-  const expectedExecution = context.execution_id ?? context.executionId ?? context.task_id ?? context.conversation_id ?? null;
-  const expectedConversation = context.conversation_id ?? context.task_id ?? null;
+  const identity = normalizeExecutionIdentity(context);
+  const expectedExecution = identity.execution_id;
+  const expectedConversation = identity.conversation_id;
+  const expectedDelegation = identity.delegation_id;
   const execution = candidate.execution_identity ?? {};
-  if (!expectedExecution || !expectedConversation) return undefined;
-  if (execution.execution_id !== expectedExecution || execution.conversation_id !== expectedConversation) return undefined;
+  if (!expectedExecution || !expectedConversation || !expectedDelegation) return undefined;
+  if (execution.execution_id !== expectedExecution || execution.conversation_id !== expectedConversation
+    || execution.delegation_id !== expectedDelegation) return undefined;
   if (candidate.path !== entry.path || candidate.sha256 !== entry.sha256 || candidate.receipt_id !== receiptId) return undefined;
   const expectedRevision = context.review_commit_sha ?? context.source_revision ?? null;
   if (!expectedRevision || candidate.source_revision !== expectedRevision) return undefined;
-  if (execution.delegation_id !== (context.delegation_id ?? context.execution_id ?? null)) return undefined;
+  if (execution.delegation_id !== expectedDelegation) return undefined;
   if (!scopeMatches(candidate.scope, context)) return undefined;
   return candidate;
 }
 
-// Business purpose: gives both cached and live candidates the same safe route to symbolic reading.
-// Technical description: checks path authority around asynchronous reads, hashes actual content, and extracts fresh symbols before registration.
+// Business purpose: keeps candidate receipt provenance aligned with the same delegation identity used by symbolic reads.
+// Technical description: resolves the normalized delegation value from the shared execution identity helper instead of interpreting field spellings locally.
+function normalizeDelegationId(context = {}) {
+  return normalizeExecutionIdentity(context).delegation_id || null;
+}
+
 function scopeMatches(scope = {}, context = {}) {
   if (!scope || typeof scope !== "object") return false;
   const expected = { allowed_file_paths: context.allowed_file_paths ?? null, allowed_prefixes: context.allowed_prefixes ?? null };
@@ -71,13 +79,15 @@ export async function registerCandidateSources(selected, context, { fileService,
           calls: (graph.calls ?? []).filter((link) => allowPath(link.caller?.path, context) && allowPath(link.target?.path, context))
         }, index_status: "unavailable" };
       const sourceRevision = context.review_commit_sha ?? context.source_revision;
-      const executionId = context.execution_id ?? context.executionId ?? context.task_id;
-      const conversationId = context.conversation_id ?? context.task_id;
-      if (!/^[a-f0-9]{40,64}$/.test(sourceRevision ?? "") || !executionId || !conversationId) throw new Error("Pinned source revision and complete execution context are required.");
+      const identity = normalizeExecutionIdentity(context);
+      const executionId = identity.execution_id;
+      const conversationId = identity.conversation_id;
+      const delegationId = identity.delegation_id;
+      if (!/^[a-f0-9]{40,64}$/.test(sourceRevision ?? "") || !executionId || !conversationId || !delegationId) throw new Error("Pinned source revision and complete execution context are required.");
       if (file.source_revision && file.source_revision !== sourceRevision) throw new Error("Candidate source revision mismatch.");
       const receiptId = `receipt:${randomUUID()}`;
       const provenance = { ...metadata, receipt_id: receiptId, source_revision: sourceRevision,
-        execution_identity: { execution_id: executionId, conversation_id: conversationId, delegation_id: context.delegation_id ?? context.execution_id ?? null },
+        execution_identity: { execution_id: executionId, conversation_id: conversationId, delegation_id: delegationId },
         scope: structuredClone({ allowed_file_paths: context.allowed_file_paths ?? null, allowed_prefixes: context.allowed_prefixes ?? null }) };
       Object.assign(entry, provenance, { fresh: true, receipt_id: receiptId, receipt: { status: "verified", read_symbol: false, receipt_id: receiptId } });
       recordSourceMetadata(context, provenance, () => { entry.receipt.read_symbol = true; });

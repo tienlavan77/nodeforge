@@ -20,7 +20,7 @@ const WORKER_SCRIPT_URL = new URL("./project-indexing-worker.js", import.meta.ur
 export async function startProjectWorkerRuntime({
   projectRoot, projectId, logger = console, ollamaConfig, chokidarOptions,
   onProgress = () => {}, progress = createIndexProgress({ onProgress }),
-  normalizeComments = true, rejectOnViolation = true, fallbackOnViolation = false,
+  normalizeComments = true, rejectOnViolation = false, fallbackOnViolation = false,
   onRuntimeCreated = null, awaitInitialEmbeddings = false, embeddingPollMs = 1000,
   sharedStreamState = null
 } = {}) {

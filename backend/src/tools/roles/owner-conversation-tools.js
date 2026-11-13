@@ -13,7 +13,6 @@ import { createGitWorkflowTools } from "./git-workflow-tools.js";
 import { createOwnerEngineerTools } from "./owner-engineer-tools.js";
 import { createSourceReadTool } from "../discovery/source-read.js";
 import { createSelectCodeGraphCandidatesTool } from "../discovery/select-code-graph-candidates.js";
-import { createDelegateSubagentTool } from "../discovery/delegate-subagent-tool.js";
 import { createSubagentEvidenceTool } from "../discovery/subagent-evidence-tool.js";
 import { sharedSubagentEvidenceStore, syncToolResultToEvidenceStore } from "../discovery/subagent-evidence-sync.js";
 import { createLookupSchemaTool } from "../discovery/lookup-schema-tool.js";
@@ -52,20 +51,10 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   }
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId, logger: { emit: (ev) => projectLogger?.({ timestamp: new Date().toISOString(), ...ev }) } }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
-  // Keeps the delegation contract available for resumed and legacy conversations.
-  // Business purpose: an older conversation must retain the same subagent capability after
-  // API restart; technical fallback reports unavailable execution instead of hiding the tool.
-  const effectiveDelegateExecutor = typeof delegateSubagentExecutor === "function"
-    ? delegateSubagentExecutor
-    : async () => ({ status: "fallback_to_parent", fallback_to_parent: true, reason: "SUBAGENT_EXECUTOR_UNAVAILABLE" });
-  const delegateTool = createDelegateSubagentTool({ executeTask: effectiveDelegateExecutor, evidenceStore, asynchronous: Boolean(context?.async_subagents) });
-  implementations.delegate_subagent = delegateTool;
-  implementations.get_subagent_status = delegateTool.statusTool;
-  implementations.collect_subagent_results = delegateTool.collectTool;
-  const asyncDefinitions = context?.async_subagents && allowed.includes("delegate_subagent")
-    ? [delegateTool.statusTool.definition, delegateTool.collectTool.definition]
-    : [];
-  const baseDefinitions = [...engineeringToolDefinitions(), ...asyncDefinitions];
+  // Subagent delegation is temporarily disabled while the parent-worker model is redesigned.
+  // The parent agent must continue directly with Forge discovery tools.
+  const asyncDefinitions = [];
+  const baseDefinitions = engineeringToolDefinitions();
   const definitions = baseDefinitions.map((definition) => role === "system_engineer" && definition.name === "search_text" ? { ...definition, input_schema: { ...definition.input_schema, properties: { ...definition.input_schema.properties, paths: { type: "array", minItems: 1, items: { type: "string", pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*|\\.forge(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*)$" } } } } } : definition)
     .filter(({ name }) => (allowed.includes(name) || asyncDefinitions.some((item) => item.name === name)) && typeof implementations[name]?.execute === "function");
   const registry = Object.fromEntries(definitions.map((definition) => [definition.name, { execute: async (input, toolContext = context) => {

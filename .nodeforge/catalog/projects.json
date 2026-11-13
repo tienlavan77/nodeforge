@@ -8,15 +8,15 @@
     "projectId": "PROJECT-a9568e6d-f01c-49a2-83d2-72daf40fbad6"
   },
   {
-    "root": "/home/data/sites/books",
-    "projectId": "books"
-  },
-  {
     "root": "/home/data/sites/wp-static",
     "projectId": "static-wordpress"
   },
   {
     "root": "/home/data/sites/uniSteamAi",
     "projectId": "unistreamai"
+  },
+  {
+    "root": "/home/data/sites/books",
+    "projectId": "books"
   }
 ]

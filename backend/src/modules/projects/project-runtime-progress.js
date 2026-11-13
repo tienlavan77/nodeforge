@@ -19,16 +19,22 @@ export async function startRuntimeWithProgress(startRuntime, options) {
       return runtime;
     }
     const config = loadConfig({ cwd: options.projectRoot });
+    // Keep documentation available to document search while excluding it from code normalization and indexing.
+    const codeIgnore = [...config.watcherIgnore, "docs/**"];
     progress.stage("comment_normalization");
     if (options.normalizeComments !== false) {
       await normalizeProjectComments({
-        projectRoot: options.projectRoot, projectId: options.projectId, ignore: config.watcherIgnore,
-        coderNormalizer: options.coderNormalizer, rejectOnViolation: options.rejectOnViolation ?? true,
-        fallbackOnViolation: options.fallbackOnViolation ?? false, force: typeof options.coderNormalizer === "function",
+        projectRoot: options.projectRoot, projectId: options.projectId, ignore: codeIgnore,
+        coderNormalizer: options.coderNormalizer,
+        // Intake must keep the original source intact and continue indexing when a comment normalizer
+        // proposes an unsafe mutation; normalizeProjectComments rolls the proposal back and reports it.
+        rejectOnViolation: options.rejectOnViolation ?? false,
+        fallbackOnViolation: options.fallbackOnViolation ?? false,
+        force: typeof options.coderNormalizer === "function",
         internalBus: runtime?.bus, progress
       });
     }
-    const result = await rebuildIndex({ projectRoot: options.projectRoot, ignore: config.watcherIgnore, progress });
+    const result = await rebuildIndex({ projectRoot: options.projectRoot, ignore: codeIgnore, progress });
     if (!result.succeeded) throw Object.assign(new Error("Required indexing work failed."), { code: "index_failed" });
     progress.stage("embedding");
     progress.stage("startup/readiness");
