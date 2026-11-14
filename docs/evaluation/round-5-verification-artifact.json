@@ -1,7 +1,8 @@
 {
   "artifact_type": "governed-verification",
-  "base_sha": "4a75e26a2285976e2fbd938d08f1884e15abfc04",
-  "commit_sha": "084ae5a45b75e370414005efaae7378518e3db75",
+  "base_sha": "d76e4e19b4364870e6b6d8e8539a7e5c8e929707",
+  "commit_sha": "409935d13f1a9116b1380652533e9a7400bff0a0",
+  "source_revision": "409935d13f1a9116b1380652533e9a7400bff0a0",
   "changed_paths": [
     "backend/src/modules/supervisor/review/reviewer-forge-tools.js",
     "backend/src/modules/supervisor/review/reviewer-verification-tools.js",
@@ -10,13 +11,18 @@
   "executed_commands": [
     {
       "command": "node --test backend/tests/unit/retrieval-eval-registry.test.js",
+      "status": "timed_out",
+      "result": "governed verification window elapsed before completion"
+    },
+    {
+      "command": "node --test backend/tests/unit/reviewer-forge-tools.test.js backend/tests/unit/retrieval-stop-policy-enforcement.test.js backend/tests/tools/candidate-source-receipts.test.js",
       "status": "passed",
-      "run_id": "VERIFY-RUN-e33bab2d-42cd-4d84-af2e-cf3fb38c6ca1"
+      "run_id": "VERIFY-RUN-a73d2d65-3991-400b-b002-2bc5c365130d"
     },
     {
       "command": "node backend/tests/eval/run-retrieval-eval.mjs --output=docs/evaluation/retrieval-evaluation-report.json --progress=docs/evaluation/retrieval-evaluation-progress.jsonl",
       "status": "timed_out",
-      "result": "governed window elapsed before completion"
+      "result": "governed verification window elapsed while opening the production index"
     }
   ],
   "file_checksums": {
@@ -25,5 +31,5 @@
     "backend/tests/eval/run-retrieval-eval.mjs": "sha256:35d6132cab83dc298b7f61a1d7655bef9095825a072322107d1d992f50d69505"
   },
   "corpus_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
-  "review_commit": "073eb61393340d8d74ab4a9951b18d21b97d1376"
+  "review_commit": "409935d13f1a9116b1380652533e9a7400bff0a0"
 }

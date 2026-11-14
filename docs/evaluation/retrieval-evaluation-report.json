@@ -1,4 +1,6 @@
 {
+  "evaluation_status": "timed_out",
+  "timeout_reason": "Governed verification window elapsed while opening the production index database.",
   "dataset_checksum": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
   "knowledge_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
   "model_identity": "Xenova/nomic-embed-text-v1.5",
@@ -6,15 +8,21 @@
   "verifier_provenance": [
     {
       "verifier": "system_engineer",
-      "evidence": "production registry end-to-end run",
-      "review_commit": "073eb61393340d8d74ab4a9951b18d21b97d1376"
+      "evidence": "governed production registry evaluation attempt",
+      "review_commit": "409935d13f1a9116b1380652533e9a7400bff0a0"
     }
   ],
   "regression_results": [
     {
-      "name": "retrieval_runner_completed",
+      "name": "reviewer_and_retrieval_governance_tests",
       "status": "passed",
-      "cases": 0
+      "cases": 3,
+      "run_id": "VERIFY-RUN-a73d2d65-3991-400b-b002-2bc5c365130d"
+    },
+    {
+      "name": "retrieval_runner_completed",
+      "status": "timed_out",
+      "cases": 10
     }
   ],
   "provenance_complete": true,
@@ -27,35 +35,26 @@
   },
   "k": 8,
   "cases": [],
-  "metrics": {
-    "precision_at_k": 0,
-    "recall_at_k": 0,
-    "symbol_hit_rate": 0,
-    "ac_coverage": 0,
-    "false_positive_rate": 0,
-    "stale_candidate_rejection": 0,
-    "unauthorized_candidate_rejection": 0,
-    "live_cache_parity": 0
-  },
+  "metrics": null,
   "corpus_checksums": {
     "vocabulary/semantic-anchors.jsonl": "sha256:3288e2f79f78836c8b65953826fae5338a6f627bc259300c4a48e65a21c24417",
     "vocabulary/retrieval-feedback.jsonl": "sha256:32b520525527c21bbf87654d75257314fa97a620dbeec0811dce0712e6753e2f",
     "vocabulary/semantic-evaluation/golden-queries.jsonl": "sha256:797b4d28ea1b3239ff499962c4d7e9372ee264cbee9e5ab90ebd984540cc6d5f"
   },
-  "review_commit": "073eb61393340d8d74ab4a9951b18d21b97d1376",
+  "review_commit": "409935d13f1a9116b1380652533e9a7400bff0a0",
   "rejection_probes": {
     "unauthorized_candidate_input": {
-      "status": "passed",
-      "error_code": "TOOL_FORBIDDEN"
+      "status": "not_run",
+      "reason": "runner timed out before registry initialization completed"
     }
   },
   "metric_status": {
-    "symbol_hit_rate": "measured",
-    "acceptance_criteria_coverage": "measured",
-    "stale_rejection_rate": "measured_by_case",
-    "unauthorized_rejection_rate": "passed",
-    "live_cache_parity": "measured",
-    "baseline_reranked_delta": "measured"
+    "symbol_hit_rate": "not_measured",
+    "acceptance_criteria_coverage": "not_measured",
+    "stale_rejection_rate": "not_measured",
+    "unauthorized_rejection_rate": "not_run",
+    "live_cache_parity": "not_measured",
+    "baseline_reranked_delta": "not_measured"
   },
   "comparison": {
     "baseline_cases": 0,
