@@ -107,11 +107,22 @@ export function assertDiscoveryBudget(context, kind = null) {
 // gates: when the agent reaches one, this notice steers it toward editing or a
 // different discovery angle rather than the runtime throwing. The only hard
 // stop remains the total budget (see assertDiscoveryBudget).
+// Business purpose: records whether retrieval should stop or continue before a discovery side effect.
+ // Technical description: derives an explicit decision from freshness, coverage, scope and symbol-read state while leaving advisory messaging separate.
+ export function retrievalStopDecision(context = {}) {
+  if (context.scope_unresolved === true || context.retrieval_scope_unresolved === true) return { decision: "stop", reason: "scope_unresolved" };
+  if (context.symbol_read_failed === true || context.retrieval_symbol_read_failed === true) return { decision: "continue", reason: "symbol_read_failed" };
+  if (context.coverage_missing === true || context.retrieval_coverage_missing === true) return { decision: "continue", reason: "coverage_missing" };
+  if (context.evidence_fresh === true && context.coverage_complete === true) return { decision: "stop", reason: "fresh_complete" };
+  return { decision: "continue", reason: "coverage_missing" };
+}
+
 export function discoveryNotice(context) {
   // Sessions exempt from discovery quotas do not receive edit-phase or repeated-read gates.
   if (context?.exploration_enabled === false) return {
     used: 0, limit: null, remaining: null, edit_started: false, by_type: null,
     edit_must_start_by: null, target_read: false, suggested_next_action: null,
+    stop_policy: retrievalStopDecision(context),
     message: "Discovery has no session quota for this tool session."
   };
   const discovery = discoveryCount(context);
@@ -160,6 +171,7 @@ export function discoveryNotice(context) {
     edit_must_start_by: state?.edit_must_start_by ?? null,
     target_read,
     suggested_next_action,
+    stop_policy: retrievalStopDecision(context),
     message
   };
 }

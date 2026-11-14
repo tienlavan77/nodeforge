@@ -1,6 +1,7 @@
 // Snapshot candidate selection keeps Reviewer discovery on the exact committed source used for review.
 // Retrieval scans the authorized pinned corpus and uses the shared lexical ranking rules.
 // Live indexes, embeddings, candidate caches and freshness checks never supply ranking or metadata.
+import { createHash } from "node:crypto";
 import { extractorRegistry } from "../../index/parser/index.js";
 import { createRelevantTreeSelector } from "../../index/relevant-tree.js";
 import { assertRoleFileAccess } from "../../../infrastructure/filesystem/file-service-role-policy.js";
@@ -8,6 +9,21 @@ import { assertRoleFileAccess } from "../../../infrastructure/filesystem/file-se
 // Business purpose: keeps Reviewer findings reproducible for the revision being assessed.
 // Technical behavior: preserves the caller's supported method surface while implementing each
 // variant using pinned lexical retrieval; semantic and freshness variants use this same corpus.
+// Business purpose: reports only the symbols that explain a Reviewer candidate match.
+ // Technical description: tokenizes the complete retrieval request and filters pinned symbol metadata deterministically.
+ function symbolsMatching(symbols, args = {}, content = "") {
+  const query = [args.title, args.objective, args.query, ...(args.acceptanceCriteria ?? args.acceptance_criteria ?? []), ...(args.guardrails ?? [])]
+    .filter((value) => typeof value === "string").join(" ").toLowerCase();
+  const terms = query.split(/[^A-Za-z0-9_]+/).filter(Boolean);
+  const matches = (symbols ?? []).filter((symbol) => {
+    const text = [symbol.name, symbol.summary].filter(Boolean).join(" ").toLowerCase();
+    return terms.some((term) => text.includes(term));
+  });
+  return matches.length || !terms.some((term) => content.toLowerCase().includes(term)) || symbols.length !== 1
+    ? matches
+    : symbols;
+}
+
 export function createSnapshotCandidateSelector({ relevantTreeSelector, source } = {}) {
   if (!relevantTreeSelector || typeof source?.listFiles !== "function" || typeof source?.readForIndex !== "function") {
     throw new TypeError("Snapshot candidate selection requires a tree selector and committed source.");
@@ -47,9 +63,18 @@ export function createSnapshotCandidateSelector({ relevantTreeSelector, source }
       ...result,
       index_version: source.reviewCommit,
       tree: result.tree.filter((entry) => byPath.has(entry.path)).map((entry) => ({
-        path: entry.path, score: entry.score, reason: entry.reason, reasons: entry.reason,
+        path: entry.path,
+        sha256: `sha256:${createHash("sha256").update(byPath.get(entry.path).content).digest("hex")}`,
+        receipt: {
+          status: "verified",
+          receipt_id: `snapshot:${source.reviewCommit}:${entry.path}`,
+          sha256: `sha256:${createHash("sha256").update(byPath.get(entry.path).content).digest("hex")}`,
+          source_revision: source.reviewCommit,
+          scope: { review_commit_sha: source.reviewCommit }
+        },
+        score: entry.score, reason: entry.reason, reasons: entry.reason,
         relations: [], node: { path: entry.path, index_version: source.reviewCommit },
-        confidence: "static", matched_symbols: byPath.get(entry.path).symbols
+        confidence: "static", matched_symbols: symbolsMatching(byPath.get(entry.path).symbols, args, byPath.get(entry.path).content)
       }))
     };
 
@@ -62,8 +87,15 @@ export function createSnapshotCandidateSelector({ relevantTreeSelector, source }
           ? file.symbols.map((symbol) => [symbol.name, symbol.summary].filter(Boolean).join(" ")).join(" ")
           : file.content).toLowerCase();
         const score = terms.reduce((total, term) => total + Number(text.includes(term)), 0);
+        const matchedSymbols = file.symbols.filter((symbol) => {
+          const symbolText = [symbol.name, symbol.summary].filter(Boolean).join(" ").toLowerCase();
+          return terms.some((term) => symbolText.includes(term));
+        }).map((symbol) => ({ ...symbol, score: terms.reduce((total, term) => total + Number(
+          [symbol.name, symbol.summary].filter(Boolean).join(" ").toLowerCase().includes(term)), 0) }))
+          .filter((symbol) => symbol.score > 0)
+          .sort((a, b) => b.score - a.score || String(a.name).localeCompare(String(b.name)));
         return { path: file.path, node: { path: file.path, index_version: source.reviewCommit },
-          score, reason: ["snapshot:" + kind] };
+          score, reason: ["snapshot:" + kind], matched_symbols: matchedSymbols };
       }).filter((match) => match.score > 0).sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
       return { matches: matches.slice(0, limit) };
     }

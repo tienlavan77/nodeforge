@@ -3,6 +3,7 @@
 import { ConfigurationError } from "../../shared/errors.js";
 import { registerCandidateSources, candidateSourceMetadata } from "./candidate-source-receipts.js";
 import { loadProjectKnowledge, fingerprintQuery, rerankCandidates } from "../../modules/index/semantic-knowledge.js";
+import { extractorRegistry } from "../../modules/index/parser/index.js";
 import { syncToolResultToEvidenceStore } from "./subagent-evidence-sync.js";
 import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { assertExecutionScope } from "../governance/retrieval-governance.js";
@@ -66,10 +67,20 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     if (projectRoot && context.project_id && (context.review_commit_sha ?? context.source_revision)) {
       try {
         const knowledge = await loadProjectKnowledge({ projectRoot, projectId: context.project_id,
-          sourceRevision: context.review_commit_sha ?? context.source_revision, logger,
+          // A corpus revision is distinct from the review commit that carries the knowledge file.
+          sourceRevision: context.source_revision ?? null, logger,
           sourceReader: async (path) => {
-            const entry = authorized.find((item) => item.path === path);
-            return entry ? candidateSourceMetadata(entry, context) : null;
+            if (!allowCandidate(path, context)) return null;
+            await assertReadPath?.(path, context);
+            const file = await fileService?.readForIndex?.({ path });
+            if (typeof file?.content !== "string") return null;
+            const symbols = extractorRegistry.extract(path, file.content).symbols;
+            return {
+              path,
+              sha256: file.sha256,
+              symbol_map: Array.isArray(symbols) ? symbols : [],
+              source_revision: context.source_revision ?? null
+            };
           } });
         ranked = rerankCandidates(authorized, knowledge, { queryFingerprint: fingerprintQuery(queryInput), projectId: context.project_id,
           receiptValidator: (entry) => candidateSourceMetadata(entry, context) });

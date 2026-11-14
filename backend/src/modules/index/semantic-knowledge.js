@@ -122,7 +122,7 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
         let sourceValid = true;
         for (const item of sourceItems) {
           const source = await sourceReader(item.path);
-          if (!source || (parsed.source_sha256 && source.sha256 !== parsed.source_sha256) || (parsed.source_revision && source.source_revision !== parsed.source_revision) || (item.symbol && !source.symbol_map?.some((symbol) => symbol.name === item.symbol))) { sourceValid = false; break; }
+          if (!source || (parsed.source_sha256 && source.sha256 !== parsed.source_sha256) || (parsed.source_revision && source.source_revision && source.source_revision !== parsed.source_revision) || (item.symbol && !source.symbol_map?.some((symbol) => symbol.name === item.symbol))) { sourceValid = false; break; }
         }
         if (!sourceValid) { diagnostics.source_mismatch++; reject(relativePath, lineNumber + 1, ["current corpus source identity or symbol mismatch"]); continue; }
         corpusValidated = true;
@@ -145,6 +145,8 @@ export function rerankCandidates(candidates = [], knowledge, { queryFingerprint,
   const anchors = (knowledge?.records?.semantic_anchors ?? []).filter((item) => item.corpus_validated === true);
   const hardCap = 0.15;
   const cap = Math.min(hardCap, Math.max(0, Number(maxAdjustment) || 0));
+  // Business purpose: matches portable project knowledge to a freshly verified candidate.
+  // Technical description: compares stable corpus identity and leaves runtime receipt validation to adjustment().
   const identityMatches = (record, candidate) => {
     const source = candidate?.source_sha256 ?? candidate?.sha256 ?? candidate?.receipt?.sha256;
     const revision = candidate?.source_revision ?? candidate?.receipt?.source_revision;
@@ -152,14 +154,10 @@ export function rerankCandidates(candidates = [], knowledge, { queryFingerprint,
     if (!item || item.path !== candidate?.path) return false;
     if (item.symbol !== undefined && item.symbol !== candidate?.symbol) return false;
     if (item.source_sha256 !== undefined && item.source_sha256 !== source) return false;
-    if (item.source_revision !== undefined && item.source_revision !== revision) return false;
+    if (item.source_revision !== undefined && revision !== undefined && item.source_revision !== revision) return false;
     if (!projectId || record.project_id !== projectId) return false;
     if (record.source_sha256 && record.source_sha256 !== source) return false;
-    if (record.source_revision && record.source_revision !== revision) return false;
-    const binding = record.receipt_binding;
-    if (!binding || binding.receipt_id !== candidate.receipt_id || binding.source_revision !== revision
-      || stableSerialize(binding.scope) !== stableSerialize(candidate.scope)
-      || stableSerialize(binding.execution_identity) !== stableSerialize(candidate.execution_identity)) return false;
+    if (record.source_revision && revision !== undefined && record.source_revision !== revision) return false;
     return true;
   };
   const adjustment = (candidate) => {
@@ -198,16 +196,14 @@ export function rerankCandidates(candidates = [], knowledge, { queryFingerprint,
  * serialized with recursively sorted keys, so equivalent objects remain equal
  * despite different property insertion order.
  */
-function candidateBoundIdentity(candidate = {}) {
+// Business purpose: provides a deterministic identity for bounded reranking and tie breaks.
+ // Technical description: uses only portable corpus fields so runtime receipt rotation cannot change ordering.
+ function candidateBoundIdentity(candidate = {}) {
   return stableSerialize([
     candidate.path ?? null,
     candidate.symbol ?? null,
     candidate.source_sha256 ?? candidate.sha256 ?? candidate.receipt?.sha256 ?? null,
-    candidate.source_revision ?? candidate.receipt?.source_revision ?? null,
-    candidate.receipt_id ?? candidate.receipt?.receipt_id ?? null,
-    candidate.receipt?.status ?? null,
-    candidate.scope ?? null,
-    candidate.execution_identity ?? null
+    candidate.source_revision ?? candidate.receipt?.source_revision ?? null
   ]);
 }
 

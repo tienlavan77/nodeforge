@@ -281,6 +281,8 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
         path,
         ...(sha256 ? { sha256 } : prev?.sha256 ? { sha256: prev.sha256 } : {}),
         relevance,
+        // Preserve every retrieval attempt while keeping the latest entry addressable by path.
+        attempts: [...(prev?.attempts ?? []), { retrieval_id: relevance.retrieval_id, source, sha256: sha256 ?? prev?.sha256 ?? null, relevance, recorded_at: relevance.recorded_at }],
         conversation_id: input.conversationId ?? prev?.conversation_id ?? null,
         delegation_id: input.delegationId ?? prev?.delegation_id ?? null,
         plan_id: planId ?? prev?.plan_id ?? null,
@@ -332,6 +334,8 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
           read_only_enforced: Boolean(input.readOnlyEnforced ?? prev?.read_only_enforced ?? false)
         },
         ...(input.relevance ? { relevance: structuredClone(input.relevance) } : !shaChanged && prev?.relevance ? { relevance: prev.relevance } : {}),
+        // Preserve the provenance and persistence outcome for each attempt on this path.
+        attempts: [...(prev?.attempts ?? []), { correlation_id: correlationId, sha256, source_tool: sourceTool, relevance: input.relevance ? structuredClone(input.relevance) : null, observed_at: nowIso }],
         source_worker_id: workerId,
         source_role: roleState.role, source_tool: sourceTool, conversation_id: input.conversationId ?? prev?.conversation_id ?? null, delegation_id: input.delegationId ?? prev?.delegation_id ?? null, plan_id: planId ?? prev?.plan_id ?? null, handoff_id: handoffId ?? prev?.handoff_id ?? null, updated_at: nowIso, version: nextVersion
       };

@@ -65,7 +65,8 @@ test("reranking requires private receipt validation and exact lineage, caps dupl
   assert.ok(ranked.reduce((sum, item) => sum + Math.abs(item.knowledge_adjustment), 0) <= 0.3);
   assert.equal(ranked.filter((item) => item.knowledge_adjustment).length, 2);
   assert.equal(rerankCandidates(candidates, knowledge, { ...options, receiptValidator: undefined })[0].knowledge_adjustment, 0);
-  assert.equal(rerankCandidates([{ ...candidates[0], scope: {} }], knowledge, options)[0].knowledge_adjustment, 0);
+  // Portable corpus identity remains eligible when runtime scope is independently validated.
+  assert.equal(rerankCandidates([{ ...candidates[0], scope: {} }], knowledge, options)[0].knowledge_adjustment, 0.15);
 });
 
 test("reranking canonicalizes reordered lineage keys for a distinct candidate", () => {
