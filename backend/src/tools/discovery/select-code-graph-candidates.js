@@ -7,7 +7,7 @@ import { extractorRegistry } from "../../modules/index/parser/index.js";
 import { syncToolResultToEvidenceStore } from "./subagent-evidence-sync.js";
 import { assertDelegatedDiscoveryRequired } from "./delegated-discovery-policy.js";
 import { assertExecutionScope } from "../governance/retrieval-governance.js";
-import { discoveryNotice } from "./exploration-state.js";
+import { discoveryNotice, retrievalStopDecision } from "./exploration-state.js";
 import { extractExplicitPaths, isLegacyBackfillCandidate } from "../../modules/index/ticket-scope.js";
 import { assertExecutionFileAccess, executionReadScope } from "../execution-file-access.js";
 import { isAgentPathAllowed } from "../governance/tool-authorization.js";
@@ -25,6 +25,18 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     if (!new Set(context.capabilities ?? []).has("select_code_graph_candidates")) throw scopedError("TOOL_FORBIDDEN", "Agent is not authorized to select Code Graph candidates.");
     const query = input.query === undefined ? [input.title, input.objective].filter((value) => typeof value === "string").join(" ").trim() : typeof input.query === "string" ? input.query.trim() : "";
     if (!query) throw scopedError("GRAPH_QUERY_REQUIRED", "Candidate retrieval requires a non-empty query.");
+    const stopPolicy = retrievalStopDecision(context);
+    if (stopPolicy.decision === "stop") {
+      return {
+        task_id: taskId,
+        query,
+        index_version: null,
+        selected: [],
+        candidate_source: "stopped",
+        stop_policy: stopPolicy,
+        discovery_budget: discoveryNotice(context)
+      };
+    }
     const limit = input.limit === undefined ? 8 : input.limit;
     const maximum = context.eval_harness === true ? 30 : 8;
     if (!Number.isInteger(limit) || limit < 1 || limit > maximum) throw scopedError("GRAPH_CANDIDATE_LIMIT", `Candidate retrieval limit must be between one and ${maximum}.`);
@@ -64,11 +76,12 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     const authorized = entries.filter((entry) => allowCandidate(entry.path));
     // Knowledge is subordinate to source, scope and receipt gates; it never adds candidates.
     let ranked = authorized;
-    if (projectRoot && context.project_id && (context.review_commit_sha ?? context.source_revision)) {
+    if (projectRoot && context.project_id) {
       try {
+        const corpusRevision = context.corpus_revision ?? context.source_revision ?? context.review_commit_sha ?? null;
         const knowledge = await loadProjectKnowledge({ projectRoot, projectId: context.project_id,
           // A corpus revision is distinct from the review commit that carries the knowledge file.
-          sourceRevision: context.source_revision ?? null, logger,
+          sourceRevision: corpusRevision, logger,
           sourceReader: async (path) => {
             if (!allowCandidate(path, context)) return null;
             await assertReadPath?.(path, context);
@@ -79,7 +92,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
               path,
               sha256: file.sha256,
               symbol_map: Array.isArray(symbols) ? symbols : [],
-              source_revision: context.source_revision ?? null
+              source_revision: file.source_revision ?? context.corpus_revision ?? context.source_revision ?? null
             };
           } });
         ranked = rerankCandidates(authorized, knowledge, { queryFingerprint: fingerprintQuery(queryInput), projectId: context.project_id,
