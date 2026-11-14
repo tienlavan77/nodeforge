@@ -18,6 +18,7 @@ import { extractorRegistry } from "../../index/parser/index.js";
 import { createSourceReadTool } from "../../../tools/discovery/source-read.js";
 import { createCommittedReviewSource } from "./reviewer-committed-source.js";
 import { createReviewerSnapshotTools } from "./reviewer-snapshot-tools.js";
+import { createReviewDiffTool, createRunReviewCheckTool } from "./reviewer-verification-tools.js";
 import { createSnapshotCandidateSelector } from "./reviewer-snapshot-candidate-selector.js";
 import { createVerificationReviewSource } from "../ticket/ticket-verification-review-source.js";
 import { dependencyReadPath, isDependencyPath, readDependencyFile } from "../../../infrastructure/filesystem/dependency-read.js";
@@ -133,8 +134,8 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     list_files: createRgFilesTool({ projectRoot, toolName: "list_files", logger: { emit: terminalAuditLogger(projectLogger) } }),
     Read: createSourceReadTool({ fileService: scopedFiles, projectRoot, codeCache: snapshot || !codeCache?.read ? undefined : searchCache }),
     ...(ticketEvidence?.context?.review_commit_sha && ticketEvidence?.context?.base_sha ? {
-      review_diff: createReviewDiffTool({ projectRoot, ticketEvidence, job }),
-      run_review_check: createRunReviewCheckTool()
+      review_diff: createReviewDiffTool({ projectRoot, ticketEvidence, job, toolError, maxResultBytes: MAX_RESULT_BYTES }),
+      run_review_check: createRunReviewCheckTool({ toolError })
     } : {})
   };
   if (snapshot) Object.assign(implementations, createReviewerSnapshotTools({ source: fileService, projectRoot }));
@@ -258,24 +259,11 @@ function boundedTreeInput(input) {
 }
 
 // Produces a bounded per-file diff between base_sha (or previous_review_commit) and review_commit_sha.
-function createReviewDiffTool({ projectRoot, ticketEvidence, job }) {
-  return { execute: async (input = {}) => {
-    if (!input || typeof input !== "object" || typeof input.path !== "string" || !input.path.trim()) throw toolError("REVIEW_TOOL_INPUT", "review_diff requires a file path.");
-    const base = input.base === "previous_review" && job?.payload?.previous_review_commit ? job.payload.previous_review_commit : ticketEvidence.context.base_sha;
-    const commit = ticketEvidence.context.review_commit_sha;
-    const patch = await createCommittedReviewSource({ projectRoot, commit, baseCommit: base, ticketEvidence }).diffPatchFrom(base, { paths: [input.path] });
-    return { path: input.path, base_commit: base, commit_sha: commit, patch: patch.slice(0, MAX_RESULT_BYTES - 1024),
-      review_evidence: { artifact_id: ticketEvidence.artifact.artifact_id, commit_sha: commit, manifest_sha: ticketEvidence.context.manifest_sha } };
-  } };
-}
+
 
 // Keeps the diagnostic tool fail-closed until a real subprocess boundary can enforce the
 // artifact's recorded environment; an archive and post-run checks do not provide isolation.
-function createRunReviewCheckTool() {
-  return { execute: async () => {
-    throw toolError("REVIEW_CHECK_ISOLATION_UNSUPPORTED", "Reviewer checks are unavailable until subprocess isolation and recorded source, dependency and toolchain provenance are enforced. Do not substitute native shell or live dependencies.");
-  } };
-}
+
 
 const reviewDiffDefinition = Object.freeze({ name: "review_diff", description: "Read the committed diff for one file between base_sha (or previous_review_commit) and review_commit_sha.", input_schema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1 }, base: { type: "string", enum: ["base_sha", "previous_review"] } } } });
 const runReviewCheckDefinition = Object.freeze({ name: "run_review_check", description: "Currently unavailable: returns REVIEW_CHECK_ISOLATION_UNSUPPORTED, never a verification pass. Do not fall back to native commands.", input_schema: { type: "object", additionalProperties: false, required: ["type", "command"], properties: { type: { type: "string", enum: ["test", "lint", "typecheck"] }, command: { type: "string", minLength: 1, maxLength: 1000 } } } });

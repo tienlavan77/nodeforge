@@ -1,0 +1,29 @@
+{
+  "artifact_type": "governed-verification",
+  "base_sha": "4a75e26a2285976e2fbd938d08f1884e15abfc04",
+  "commit_sha": "073eb61393340d8d74ab4a9951b18d21b97d1376",
+  "changed_paths": [
+    "backend/src/modules/supervisor/review/reviewer-forge-tools.js",
+    "backend/src/modules/supervisor/review/reviewer-verification-tools.js",
+    "backend/tests/eval/run-retrieval-eval.mjs"
+  ],
+  "executed_commands": [
+    {
+      "command": "node --test backend/tests/unit/retrieval-eval-registry.test.js",
+      "status": "passed",
+      "run_id": "VERIFY-RUN-e33bab2d-42cd-4d84-af2e-cf3fb38c6ca1"
+    },
+    {
+      "command": "node backend/tests/eval/run-retrieval-eval.mjs --output=docs/evaluation/retrieval-evaluation-report.json --progress=docs/evaluation/retrieval-evaluation-progress.jsonl",
+      "status": "timed_out",
+      "result": "governed window elapsed before completion"
+    }
+  ],
+  "file_checksums": {
+    "backend/src/modules/supervisor/review/reviewer-forge-tools.js": "sha256:78301aec82f15123bc4b742f8ceaac6f4bf3f3172ae7a6dd7b9df670c5b4b06e",
+    "backend/src/modules/supervisor/review/reviewer-verification-tools.js": "sha256:37b5af6961dd6f8f46d162e2bb0b6a90dee79f9ba2017a33d685d9d2bf3c4d2b",
+    "backend/tests/eval/run-retrieval-eval.mjs": "sha256:35d6132cab83dc298b7f61a1d7655bef9095825a072322107d1d992f50d69505"
+  },
+  "corpus_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
+  "review_commit": "073eb61393340d8d74ab4a9951b18d21b97d1376"
+}
