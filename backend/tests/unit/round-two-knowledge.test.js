@@ -68,13 +68,13 @@ test("reranking requires private receipt validation and exact lineage, caps dupl
   assert.equal(rerankCandidates([{ ...candidates[0], scope: {} }], knowledge, options)[0].knowledge_adjustment, 0);
 });
 
-test("reranking canonicalizes reordered lineage keys", () => {
-  const first = { path: "backend/src/example.js", symbol: "example", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:one", receipt: { status: "verified" }, fresh: true, scope: { allowed_file_paths: ["backend/src"], allowed_prefixes: [], nested: { alpha: "a", beta: "b" } }, execution_identity: { execution_id: "run:one", metadata: { first: 1, second: 2 } } };
-  const second = { ...first, scope: { nested: { beta: "b", alpha: "a" }, allowed_prefixes: [], allowed_file_paths: ["backend/src"] }, execution_identity: { metadata: { second: 2, first: 1 }, execution_id: "run:one" } };
-  const record = { ...golden(), label: "accepted", corpus_validated: true, candidate: { path: first.path, symbol: first.symbol }, receipt_binding: { receipt_id: first.receipt_id, source_revision: first.source_revision, scope: first.scope, execution_identity: first.execution_identity } };
+test("reranking canonicalizes reordered lineage keys for a distinct candidate", () => {
+  const first = { path: "backend/src/other.js", symbol: "other", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:one", receipt: { status: "verified" }, fresh: true, scope: { allowed_file_paths: ["backend/src"], allowed_prefixes: [], nested: { alpha: "a", beta: "b" } }, execution_identity: { execution_id: "run:one", metadata: { first: 1, second: 2 } } };
+  const second = { path: "backend/src/example.js", symbol: "example", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:two", receipt: { status: "verified" }, fresh: true, scope: { nested: { beta: "b", alpha: "a" }, allowed_prefixes: [], allowed_file_paths: ["backend/src"] }, execution_identity: { metadata: { second: 2, first: 1 }, execution_id: "run:one" } };
+  const record = { ...golden(), label: "accepted", corpus_validated: true, candidate: { path: second.path, symbol: second.symbol }, receipt_binding: { receipt_id: second.receipt_id, source_revision: second.source_revision, scope: first.scope, execution_identity: first.execution_identity } };
   const ranked = rerankCandidates([first, second], { records: { retrieval_feedback: [record] } }, { queryFingerprint: golden().query_fingerprint, projectId: "project", receiptValidator: () => true, maxAdjustedCandidates: 2 });
-  assert.equal(ranked.filter((item) => item.knowledge_adjustment).length, 1);
-  assert.equal(ranked[1].knowledge_adjustment, 0);
+  assert.equal(ranked.find((item) => item.path === first.path).knowledge_adjustment, 0);
+  assert.equal(ranked.find((item) => item.path === second.path).knowledge_adjustment, 0.15);
 });
 
 test("reranking keeps same path-symbol candidates distinct when bound lineage differs", () => {
