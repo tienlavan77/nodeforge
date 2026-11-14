@@ -1,7 +1,7 @@
 {
   "artifact_type": "governed-verification",
   "base_sha": "4a75e26a2285976e2fbd938d08f1884e15abfc04",
-  "commit_sha": "073eb61393340d8d74ab4a9951b18d21b97d1376",
+  "commit_sha": "084ae5a45b75e370414005efaae7378518e3db75",
   "changed_paths": [
     "backend/src/modules/supervisor/review/reviewer-forge-tools.js",
     "backend/src/modules/supervisor/review/reviewer-verification-tools.js",
