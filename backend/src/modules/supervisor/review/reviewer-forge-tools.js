@@ -95,7 +95,29 @@ export function createReviewerForgeTools({ fileService, projectRoot, job, review
     return file;
   } };
   const gitWorkflow = !snapshot && gitService ? createGitWorkflowTools({ gitService, projectRoot }) : {};
-  const candidateSelector = snapshot && relevantTreeSelector ? createSnapshotCandidateSelector({ relevantTreeSelector, source: fileService }) : relevantTreeSelector;
+  const candidateSelector = snapshot && relevantTreeSelector ? createSnapshotCandidateSelector({
+    relevantTreeSelector,
+    source: fileService,
+    receiptIssuer: async ({ path }) => {
+      const { registerCandidateSources } = await import("../../../tools/discovery/candidate-source-receipts.js");
+      const receiptContext = {
+        task_id: job.task_id,
+        execution_id: job.request_id ?? job.task_id,
+        conversation_id: job.correlation_id ?? job.task_id,
+        delegation_id: job.request_id ?? job.task_id,
+        review_commit_sha: fileService.reviewCommit ?? null,
+        allowed_file_paths: [path],
+        agent_identity: { agent_id: reviewer.agent_id, agent_name: reviewer.agent_name, role: "reviewer", provider: reviewer.provider }
+      };
+      const [entry] = await registerCandidateSources([{ path }], receiptContext, {
+        fileService,
+        assertReadPath: async (candidatePath) => assertRoleFileAccess("reviewer", "read", candidatePath),
+        allowPath: (candidatePath) => candidatePath === path
+      });
+      if (entry?.receipt?.status !== "verified") return null;
+      return { ...entry, ...entry.receipt, status: "verified" };
+    }
+  }) : relevantTreeSelector;
   const implementations = {
     lookup_schema: createLookupSchemaTool({ role: "reviewer" }),
     select_code_graph_candidates: createSelectCodeGraphCandidatesTool({

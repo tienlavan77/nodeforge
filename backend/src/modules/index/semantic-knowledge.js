@@ -105,9 +105,14 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
         reject(relativePath, lineNumber + 1, [`malformed JSON: ${error.message}`]);
         continue;
       }
-      if (sourceRevision && parsed.source_revision && parsed.source_revision !== sourceRevision) {
+      if (sourceRevision && parsed.source_revision !== sourceRevision) {
         diagnostics.stale++;
         reject(relativePath, lineNumber + 1, [`source_revision mismatch: record=${parsed.source_revision}, current=${sourceRevision}`]);
+        continue;
+      }
+      if (sourceReader && (!sourceRevision || !parsed.source_revision)) {
+        diagnostics.stale++;
+        reject(relativePath, lineNumber + 1, ["source_revision is required for corpus validation"]);
         continue;
       }
       const validation = validateKnowledgeRecord(parsed, { projectId, kind: kind === "semantic_anchors" ? "semantic_anchor" : kind, projectRoot, sourceReader, sourceRevision });
@@ -122,7 +127,10 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
         let sourceValid = true;
         for (const item of sourceItems) {
           const source = await sourceReader(item.path);
-          if (!source || (parsed.source_sha256 && source.sha256 !== parsed.source_sha256) || (parsed.source_revision && source.source_revision && source.source_revision !== parsed.source_revision) || (item.symbol && !source.symbol_map?.some((symbol) => symbol.name === item.symbol))) { sourceValid = false; break; }
+          if (!source || !source.source_revision || source.source_revision !== sourceRevision
+            || source.source_revision !== parsed.source_revision
+            || (parsed.source_sha256 && source.sha256 !== parsed.source_sha256)
+            || (item.symbol && !source.symbol_map?.some((symbol) => symbol.name === item.symbol))) { sourceValid = false; break; }
         }
         if (!sourceValid) { diagnostics.source_mismatch++; reject(relativePath, lineNumber + 1, ["current corpus source identity or symbol mismatch"]); continue; }
         corpusValidated = true;

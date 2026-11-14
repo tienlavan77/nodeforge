@@ -24,7 +24,7 @@ import { assertRoleFileAccess } from "../../../infrastructure/filesystem/file-se
     : symbols;
 }
 
-export function createSnapshotCandidateSelector({ relevantTreeSelector, source } = {}) {
+export function createSnapshotCandidateSelector({ relevantTreeSelector, source, receiptIssuer = source?.registerReceipt } = {}) {
   if (!relevantTreeSelector || typeof source?.listFiles !== "function" || typeof source?.readForIndex !== "function") {
     throw new TypeError("Snapshot candidate selection requires a tree selector and committed source.");
   }
@@ -41,7 +41,24 @@ export function createSnapshotCandidateSelector({ relevantTreeSelector, source }
         assertRoleFileAccess("reviewer", "read", path);
         const file = await source.readForIndex({ path });
         const symbols = extractorRegistry.extract(path, file.content).symbols ?? [];
-        corpus.push({ path, content: file.content, symbols });
+        const receipt = typeof receiptIssuer === "function"
+          ? await receiptIssuer({ path, content: file.content, sourceRevision: source.reviewCommit ?? null, symbols })
+          : null;
+        const receiptSha = receipt?.sha256 ?? receipt?.receipt?.sha256;
+        const receiptRevision = receipt?.source_revision ?? receipt?.receipt?.source_revision;
+        const receiptId = receipt?.receipt_id ?? receipt?.receipt?.receipt_id;
+        const identity = receipt?.execution_identity;
+        const scope = receipt?.scope;
+        if (receipt?.status !== "verified" || !receiptId
+          || !identity?.execution_id || !identity?.conversation_id || !identity?.delegation_id
+          || !scope
+          || !(scope.allowed_file_paths?.includes(path)
+            || scope.allowed_prefixes?.some((prefix) => path === prefix || path.startsWith(`${String(prefix).replace(/\/$/, "")}/`)))
+          || receiptSha !== `sha256:${createHash("sha256").update(file.content).digest("hex")}`
+          || receiptRevision !== source.reviewCommit) {
+          throw Object.assign(new Error("Pinned snapshot receipt could not be verified."), { code: "SNAPSHOT_RECEIPT_INVALID" });
+        }
+        corpus.push({ path, content: file.content, symbols, receipt });
       } catch (error) {
         // These paths cannot be read through the pinned Reviewer source and cannot be candidates.
         if (["FILE_ROLE_FORBIDDEN", "REVIEW_EVIDENCE_TOO_LARGE", "ENOENT", "NOT_FOUND"].includes(error?.code)) continue;
@@ -65,13 +82,7 @@ export function createSnapshotCandidateSelector({ relevantTreeSelector, source }
       tree: result.tree.filter((entry) => byPath.has(entry.path)).map((entry) => ({
         path: entry.path,
         sha256: `sha256:${createHash("sha256").update(byPath.get(entry.path).content).digest("hex")}`,
-        receipt: {
-          status: "verified",
-          receipt_id: `snapshot:${source.reviewCommit}:${entry.path}`,
-          sha256: `sha256:${createHash("sha256").update(byPath.get(entry.path).content).digest("hex")}`,
-          source_revision: source.reviewCommit,
-          scope: { review_commit_sha: source.reviewCommit }
-        },
+        receipt: byPath.get(entry.path).receipt,
         score: entry.score, reason: entry.reason, reasons: entry.reason,
         relations: [], node: { path: entry.path, index_version: source.reviewCommit },
         confidence: "static", matched_symbols: symbolsMatching(byPath.get(entry.path).symbols, args, byPath.get(entry.path).content)
