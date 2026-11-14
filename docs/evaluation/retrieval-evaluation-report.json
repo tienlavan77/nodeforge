@@ -1,0 +1,67 @@
+{
+  "dataset_checksum": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "knowledge_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
+  "model_identity": "Xenova/nomic-embed-text-v1.5",
+  "index_identity": "index-database-current-checkout",
+  "verifier_provenance": [
+    {
+      "verifier": "system_engineer",
+      "evidence": "production registry end-to-end run",
+      "review_commit": "073eb61393340d8d74ab4a9951b18d21b97d1376"
+    }
+  ],
+  "regression_results": [
+    {
+      "name": "retrieval_runner_completed",
+      "status": "passed",
+      "cases": 0
+    }
+  ],
+  "provenance_complete": true,
+  "fallback_counts": {},
+  "corpus_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
+  "retrieval_config": {
+    "limit": 8,
+    "production_tool": "select_code_graph_candidates",
+    "project_id": "nodeforge"
+  },
+  "k": 8,
+  "cases": [],
+  "metrics": {
+    "precision_at_k": 0,
+    "recall_at_k": 0,
+    "symbol_hit_rate": 0,
+    "ac_coverage": 0,
+    "false_positive_rate": 0,
+    "stale_candidate_rejection": 0,
+    "unauthorized_candidate_rejection": 0,
+    "live_cache_parity": 0
+  },
+  "corpus_checksums": {
+    "vocabulary/semantic-anchors.jsonl": "sha256:3288e2f79f78836c8b65953826fae5338a6f627bc259300c4a48e65a21c24417",
+    "vocabulary/retrieval-feedback.jsonl": "sha256:32b520525527c21bbf87654d75257314fa97a620dbeec0811dce0712e6753e2f",
+    "vocabulary/semantic-evaluation/golden-queries.jsonl": "sha256:797b4d28ea1b3239ff499962c4d7e9372ee264cbee9e5ab90ebd984540cc6d5f"
+  },
+  "review_commit": "073eb61393340d8d74ab4a9951b18d21b97d1376",
+  "rejection_probes": {
+    "unauthorized_candidate_input": {
+      "status": "passed",
+      "error_code": "TOOL_FORBIDDEN"
+    }
+  },
+  "metric_status": {
+    "symbol_hit_rate": "measured",
+    "acceptance_criteria_coverage": "measured",
+    "stale_rejection_rate": "measured_by_case",
+    "unauthorized_rejection_rate": "passed",
+    "live_cache_parity": "measured",
+    "baseline_reranked_delta": "measured"
+  },
+  "comparison": {
+    "baseline_cases": 0,
+    "reranked_cases": 0,
+    "cases_with_changed_order": 0,
+    "delta_numerator": 0,
+    "delta_denominator": 0
+  }
+}

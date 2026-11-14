@@ -1,0 +1,92 @@
+{
+  "operation_id": "OPRO-4b0d415d-3e43-4096-84a6-eb2156c66054",
+  "request_key": "c9c59412-e287-4d3a-afd2-2bada7c52ef1",
+  "request_fingerprint": "f7140378e355dd8c92dfc828bee97ba8d7181711efc9620b2225cc5ca00f4ca4",
+  "kind": "create",
+  "root": "/home/data/sites/sitesdev/blog/wp-content/plugins/aiassistant",
+  "attempt": 1,
+  "revision": 6,
+  "stage": "committed",
+  "status": "running",
+  "counters": {
+    "transitions": 2,
+    "attempts": 1
+  },
+  "timestamps": {
+    "created_at": "2026-11-14T10:10:24.282Z",
+    "updated_at": "2026-11-14T10:10:25.343Z"
+  },
+  "diagnostic": {
+    "code": "create_ownership_checkpoint",
+    "message": "Exclusive Create directory ownership recorded.",
+    "ownership": {
+      "root": "/home/data/sites/sitesdev/blog/wp-content/plugins/aiassistant",
+      "dev": 64514,
+      "ino": 71965804,
+      "uid": 1000,
+      "gid": 1000
+    },
+    "recorded_at": "2026-11-14T10:10:24.312Z"
+  },
+  "progress": {
+    "attempt": 1,
+    "revision": 3,
+    "stage": "membership",
+    "status": "running",
+    "function_kinds": {
+      "javascript": [
+        "function",
+        "method",
+        "hook",
+        "component"
+      ],
+      "typescript": [
+        "function",
+        "method",
+        "hook",
+        "component"
+      ],
+      "php": [
+        "function",
+        "method"
+      ],
+      "css": []
+    },
+    "stages": {
+      "preflight": "completed",
+      "identity": "completed",
+      "membership": "running",
+      "comment_normalization": "pending",
+      "scan/index": "pending",
+      "resolve": "pending",
+      "embedding": "pending",
+      "startup/readiness": "pending"
+    },
+    "progress": {
+      "mode": "indeterminate",
+      "total": null,
+      "percent": null,
+      "eta": null
+    },
+    "counters": {
+      "discovered": 0,
+      "eligible": 0,
+      "indexed": 0,
+      "unchanged": 0,
+      "unsupported": 0,
+      "ignored": 0,
+      "failed": 0,
+      "deleted": 0
+    },
+    "failures": [],
+    "checkpoint": null,
+    "embedding": {
+      "status": "pending",
+      "pending": 0,
+      "processing": 0,
+      "succeeded": 0,
+      "failed": 0
+    }
+  },
+  "project_id": "ai-assistant"
+}

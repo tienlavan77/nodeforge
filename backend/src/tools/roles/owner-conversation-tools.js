@@ -53,7 +53,7 @@ export function createOwnerConversationTools({ role, projectRoot, fileService, c
   const engineerTools = role === "system_engineer" ? createOwnerEngineerTools({ testService, gitService, conversationStateStore, projectRoot, commandService, conversationId, logger: { emit: (ev) => projectLogger?.({ timestamp: new Date().toISOString(), ...ev }) } }) : { definitions: [], implementations: {} };
   Object.assign(implementations, engineerTools.implementations);
   const delegateTool = typeof delegateSubagentExecutor === "function" && !readOnlyExplorer
-    ? createDelegateSubagentTool({ executeTask: delegateSubagentExecutor, evidenceStore })
+    ? createDelegateSubagentTool({ executeTask: delegateSubagentExecutor, evidenceStore, asynchronous: true })
     : null;
   if (delegateTool) {
     implementations.delegate_subagent = delegateTool;

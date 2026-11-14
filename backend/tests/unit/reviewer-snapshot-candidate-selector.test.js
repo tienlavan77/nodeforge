@@ -2,6 +2,7 @@
 // Exercises every supported retrieval surface and the legacy select-only fallback.
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { createSnapshotCandidateSelector } from "../../src/modules/supervisor/review/reviewer-snapshot-candidate-selector.js";
 
 // Business purpose: isolates review evidence from later workspace edits.
@@ -14,7 +15,15 @@ function pinnedSource() {
   return {
     reviewCommit: "a".repeat(40),
     listFiles: async () => [...contents.keys()],
-    readForIndex: async ({ path }) => ({ path, content: contents.get(path) })
+    readForIndex: async ({ path }) => ({ path, content: contents.get(path) }),
+    registerReceipt: async ({ path, content, sourceRevision }) => ({
+      status: "verified",
+      receipt_id: `node-receipt:${path}`,
+      sha256: `sha256:${createHash("sha256").update(content).digest("hex")}`,
+      source_revision: sourceRevision,
+      scope: { review_commit_sha: sourceRevision, allowed_file_paths: [path] },
+      execution_identity: { execution_id: "test-run", conversation_id: "test-conversation", delegation_id: "test-delegation" }
+    })
   };
 }
 

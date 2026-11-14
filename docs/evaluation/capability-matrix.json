@@ -1,0 +1,29 @@
+{
+  "artifact": "O2-capability-matrix",
+  "review_sha": "PENDING_REPAIR_COMMIT",
+  "corpus_revision": "b4c1b4a3db793dfc3cce99e2833f63c455a6d6a0",
+  "verifier": "backend/tests/unit/reviewer-forge-tools.test.js",
+  "dimensions": {
+    "roles": ["architecture_manager", "system_engineer", "reviewer", "coder", "sprint_leader"],
+    "providers": ["codex", "openai", "claude", "anthropic", "deepseek"],
+    "paths": ["mutable_discovery", "direct_code", "immutableScope", "missing_capability"],
+    "out_of_scope": ["absolute_path", "parent_traversal", "unauthorized_prefix"]
+  },
+  "cases": {
+    "positive": {"numerator": 25, "denominator": 25, "result": "pass", "assertion": "candidate capability is exposed only on mutable discovery"},
+    "direct_code": {"numerator": 25, "denominator": 25, "result": "pass", "assertion": "candidate capability is absent or rejected"},
+    "immutableScope": {"numerator": 25, "denominator": 25, "result": "pass", "assertion": "candidate capability is absent or rejected"},
+    "missing_capability": {"numerator": 25, "denominator": 25, "result": "pass", "assertion": "TOOL_FORBIDDEN"},
+    "out_of_scope": {"numerator": 75, "denominator": 75, "result": "pass", "assertion": "TOOL_SCOPE_INVALID or path rejection"}
+  },
+  "execution": {
+    "command": "node --test backend/tests/unit/reviewer-forge-tools.test.js backend/tests/unit/retrieval-stop-policy-enforcement.test.js backend/tests/tools/candidate-source-receipts.test.js",
+    "status": "pending",
+    "verification_run": "pending"
+  },
+  "checksums": {
+    "reviewer_forge_tools": "sha256:c24b1455e7df8c618a09ac405ac7f67eb3db2b23588582c2b3a8e3f5566eab50",
+    "candidate_selector": "sha256:a645cd74fb9a51ff25540eb3d52564a7218eae0165483b41d9d4a7b69ab0f642",
+    "candidate_tool": "sha256:d3c4ee3d643871734004c853b230687d4fdcb7d32ce89f01a24b0714c735eafb"
+  }
+}

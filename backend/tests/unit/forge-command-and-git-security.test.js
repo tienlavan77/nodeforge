@@ -191,7 +191,8 @@ test("Regression: reconciles timeout mutations, tracks symlinks/vendor/.forge/ov
       (err) => err.code === "TOOL_RESOURCE_FORBIDDEN"
     );
     assert.equal(ledgerEntries.length, 0);
-    assert.deepEqual(coderCtx.changed_paths, ["outside.txt"]);
+    assert.deepEqual(coderCtx.changed_paths, []);
+    assert.deepEqual(coderCtx.observed_changed_paths, ["outside.txt"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -31,7 +31,7 @@ async function fixture(t) {
   // Business purpose: keeps role provenance and source permissions explicit during handoff assertions.
   // Technical description: binds each role to the same plan and a distinct execution identity.
   const context = (role = "system_engineer", cached = false) => ({
-    task_id: role, execution_id: role, conversation_id: role, project_root: root,
+    task_id: role, execution_id: role, conversation_id: role, source_revision: "a".repeat(40), project_root: root,
     agent_identity: { agent_id: role, role }, capabilities: ["select_code_graph_candidates"],
     allowed_file_paths: [path], allowed_prefixes: [],
     task_context: cached ? { candidate_files: [{ path, role: "PATCH" }] } : {},

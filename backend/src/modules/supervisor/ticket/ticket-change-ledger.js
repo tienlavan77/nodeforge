@@ -36,11 +36,12 @@ export function createTicketChangeLedger({ fileService, projectId, projectLogger
   const resume = createTicketSourceResume({ observe, locked, load, claim, recover, readOptional, sha, key, failure, save, projectLogger, fileService, claimPath, projectId });
 
   // Holds a ticket revision stable while a root commit is prepared and recorded.
-  async function withCommitTransaction(taskId, action) {
+  async function withCommitTransaction(taskId, action, { eligiblePaths = null } = {}) {
     return locked(`ticket:${taskId}`, async () => {
       let manifest = await load(taskId);
       const lastCommitted = Math.max(0, ...Object.keys(manifest.commits).map(Number));
       for (const [path, entry] of Object.entries(manifest.entries)) {
+        if (eligiblePaths && !eligiblePaths.has(path)) continue;
         if (!entry.operations.some((operation) => operation.revision > lastCommitted)) continue;
         if (entry.pending) manifest = await locked(`path:${path}`, () => recover(taskId, path, manifest));
         const owner = await claim(path);

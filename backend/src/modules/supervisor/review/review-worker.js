@@ -61,6 +61,7 @@ export function createReviewWorker({ agentResolver, claudeSdkGateway, openaiSdkG
       communication?.prompt ?? "",
       blockerContractPrompt(contracts),
       "Act only as an independent code reviewer. Do not edit files. Check the ticket against the current source and verification evidence.",
+      "Git-ignored runtime/cache/log/build outputs are local operational evidence, including accidentally tracked outputs. Never request their commit or push, or reject implementation solely for unrelated dirty files. Use the pinned implementation source and governed verification receipts. Explicit index-only removals are valid generated-file cleanup and must preserve local data.",
       "You must follow the Reviewer role rules below before evaluating the ticket.",
       `Reviewer role rules: ${reviewerRules}`,
       REVIEW_AUTONOMY_PROMPT,

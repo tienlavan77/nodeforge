@@ -153,6 +153,7 @@ export function createRunCommandTool({
 
     if (scopeError) {
       scopeError.changed_paths = reconciled.changed_paths;
+      scopeError.observed_changed_paths = reconciled.observed_changed_paths;
       scopeError.active_file_checksums = reconciled.active_file_checksums;
       scopeError.deleted_paths = reconciled.deleted_paths;
       if (commandFailure) scopeError.cause = commandFailure;

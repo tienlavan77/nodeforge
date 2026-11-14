@@ -4,7 +4,7 @@ import { createGitService } from "../../src/infrastructure/git/git-service.js";
 
 function fakeGit() {
   const calls = [];
-  return { calls, run: async (args) => { calls.push(args); if (args[0] === "show-ref") return { stdout: "", exitCode: 1 }; if (args[0] === "rev-parse") return { stdout: `${"a".repeat(40)}\n`, exitCode: 0 }; if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "main\n", exitCode: 0 }; if (args[0] === "diff") return { stdout: "src/example.js\n", exitCode: 0 }; return { stdout: "ok\n", exitCode: 0 }; } };
+  return { calls, run: async (args) => { calls.push(args); if (args[0] === "ls-files") return { stdout: args.includes("--ignored") ? "" : "src/example.js\0", exitCode: 0 }; if (args[0] === "diff" && args.includes("--diff-filter=D")) return { stdout: "", exitCode: 0 }; if (args[0] === "show-ref") return { stdout: "", exitCode: 1 }; if (args[0] === "rev-parse") return { stdout: `${"a".repeat(40)}\n`, exitCode: 0 }; if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "main\n", exitCode: 0 }; if (args[0] === "diff") return { stdout: "src/example.js\n", exitCode: 0 }; return { stdout: "ok\n", exitCode: 0 }; } };
 }
 
 test("Git Service validates configuration and branch names", () => {
@@ -32,7 +32,7 @@ test("Git Service commits only explicitly staged paths and returns SHA", async (
   const git = createGitService({ projectRoot: "/repo", runGit: fake.run });
   const result = await git.commit("feat: add example", { paths: ["src/example.js"] });
   assert.equal(result.sha, "a".repeat(40));
-  assert.deepEqual(fake.calls.find((args) => args[0] === "add"), ["add", "-f", "--", ":(literal)src/example.js"]);
+  assert.deepEqual(fake.calls.find((args) => args[0] === "add"), ["add", "--", ":(literal)src/example.js"]);
   assert.deepEqual(fake.calls.find((args) => args[0] === "commit"), ["commit", "--only", "-m", "feat: add example", "--", ":(literal)src/example.js"]);
 });
 
@@ -58,7 +58,7 @@ test("Git Service holds the project mutation lock across staging and commit", as
   const fake = fakeGit();
   const git = createGitService({ projectRoot: "/repo", runGit: async (args) => { calls.push(`git:${args[0]}`); return fake.run(args); }, mutationLock: async (action) => { calls.push("lock"); try { return await action(); } finally { calls.push("unlock"); } } });
   await git.commit("ticket", { paths: ["src/example.js"] });
-  assert.deepEqual(calls, ["lock", "git:add", "git:diff", "git:commit", "git:rev-parse", "unlock"]);
+  assert.deepEqual(calls, ["lock", "git:ls-files", "git:diff", "git:ls-files", "git:add", "git:diff", "git:commit", "git:rev-parse", "unlock"]);
   calls.length = 0;
   await git.getHead();
   assert.deepEqual(calls, ["git:rev-parse"]);
@@ -150,6 +150,7 @@ test("Git Service commits paths when some requested paths are already staged del
     projectRoot: "/repo",
     runGit: async (args) => {
       calls.push(args);
+      if (args[0] === "ls-files") return { stdout: args.includes("--ignored") ? "" : "src/example.js\0", exitCode: 0 };
       if (args[0] === "add" && args.includes(":(literal)backend/src/domain/.gitkeep")) {
         return { stdout: "", stderr: "fatal: pathspec ':(literal)backend/src/domain/.gitkeep' did not match any files\n", exitCode: 128 };
       }
@@ -170,8 +171,8 @@ test("Git Service commits paths when some requested paths are already staged del
   assert.deepEqual(
     calls.filter((args) => args[0] === "add"),
     [
-      ["add", "-f", "--", ":(literal)backend/src/domain/.gitkeep", ":(literal)src/example.js"],
-      ["add", "-f", "--", ":(literal)src/example.js"]
+      ["add", "--", ":(literal)backend/src/domain/.gitkeep", ":(literal)src/example.js"],
+      ["add", "--", ":(literal)src/example.js"]
     ]
   );
   assert.deepEqual(

@@ -75,6 +75,7 @@ export function buildRvImplementationReviewPrompt({ planJson, planId, round, max
     `Independent Reviewer (RV) verification for System Engineer implementation (${planId}, round ${round}/${maxRounds}).`,
     "Operate strictly in read-only mode: call read_subagent_evidence({}) first to reuse shared AM/SE file metadata and sha256 checksums, then use your read-only Forge tools (read_file, Read, search_text, list_files, search_tree, git_status, git_diff, git_log, git_show, git_blame, git_branch) to inspect the System Engineer's changes against the plan outcomes, guardrails, test evidence, and repository conventions (at most 250 lines for .md files and 400 code_lines for code files). Use git_show({revision, path}), git_diff({base, head, paths}), and git_status({paths}) to inspect exact committed revisions without being blocked by unrelated working-tree files. Never modify files.",
     workspaceMeta,
+    "Commit scope policy: files excluded by Git ignore rules, including accidentally tracked runtime/cache/log/build outputs, are local operational evidence and must not be requested for commit or push. Review only implementation paths and exact committed changes in this handoff; unrelated dirty files do not block acceptance. You may consult local runtime evidence when permitted without requiring it in Git. Explicit staged deletions that untrack generated files are valid cleanup; preserve local data. Never require git add -f or a globally clean working tree.",
     "Write a clear, constructive review in natural language:",
     "1. Summarize verified implementation evidence and test coverage.",
     "2. List any defects, missing acceptance criteria, or guardrail violations with exact file paths and actionable repair instructions for SE.",
@@ -91,6 +92,7 @@ export function buildAmAcceptanceReviewPrompt({ planJson, planId, round, maxRoun
   return [
     `Architecture acceptance review for System Engineer handoff (${planId}, round ${round}/${maxRounds}).`,
     "Use your read-only Forge tools (read_subagent_evidence, read_file, Read, search_text, git_status, git_diff) if needed to verify the System Engineer's implementation and the Reviewer's independent verification against every outcome and acceptance criterion below.",
+    "Git-ignored runtime/cache/log/build outputs are local operational evidence, including accidentally tracked outputs. Do not require them to be committed or pushed, and do not block acceptance on unrelated dirty files. Verify implementation changes at the exact reviewed commit; cleanup may untrack generated files while preserving local data.",
     "Write your review in clear, natural language for the human Project Owner and System Engineer:",
     "1. Summarize the overall progress of this round.",
     "2. List each outcome (O1, O2, ...), clearly marking what is completed and what still needs adjustment (with specific file/behavior guidance if anything is incomplete).",

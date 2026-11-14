@@ -22,6 +22,9 @@ export async function handoffWorkspaceSnapshot({ gitService, fileService, projec
   for (const entry of index.split("\0").filter(Boolean)) {
     if (!/^[0-7]{6} [0-9a-f]{40,64} [0-3]\t[^\0]+$/i.test(entry)) unsafe();
   }
+  const eligible = await gitService.commitPaths?.();
+  // Reject local generated evidence even when an old execution receipt explicitly lists it.
+  const isIgnoredPath = (p) => p === ".forge" || p.startsWith(".forge/") || p === "node_modules" || p.startsWith("node_modules/") || p.split("/").some((part) => part === ".next" || part === "dist" || part === "build" || part === "coverage" || part === ".claude") || (eligible && !eligible.has(p));
   const paths = [];
   for (let i = 0; i < entries.length; i += 1) {
     const item = entries[i];
@@ -29,7 +32,6 @@ export async function handoffWorkspaceSnapshot({ gitService, fileService, projec
     const state = item.slice(0, 2);
     const path = item.slice(3);
     if (!path || path.startsWith("/") || path.split("/").includes("..") || path.includes("\\")) unsafe();
-    const isIgnoredPath = (p) => p === ".forge" || p.startsWith(".forge/") || p === "node_modules" || p.startsWith("node_modules/") || p.split("/").some((part) => part === ".next" || part === "dist" || part === "build" || part === "coverage" || part === ".claude");
     const ignored = isIgnoredPath(path);
     if (!ignored && !path.endsWith("/")) paths.push({ path, deleted: state.includes("D") && !state.includes("M") && !state.includes("A") });
     if (state.includes("R") || state.includes("C")) {
@@ -40,8 +42,9 @@ export async function handoffWorkspaceSnapshot({ gitService, fileService, projec
     }
   }
   if (Array.isArray(scopePaths)) {
-    const scope = [...new Set(scopePaths)].sort();
+    let scope = [...new Set(scopePaths)].sort();
     if (scope.some((path) => typeof path !== "string" || !path || path.startsWith("/") || path.split("/").includes("..") || path.includes("\\"))) unsafe();
+    scope = scope.filter((path) => !isIgnoredPath(path));
     const changed = new Map(paths.map((item) => [item.path, item]));
     const files = {};
     for (const path of scope) {

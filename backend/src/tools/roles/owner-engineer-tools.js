@@ -114,9 +114,9 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
     const paths = recordedPaths.filter((path) => !INTERNAL_WORKFLOW_PATH.test(path));
     if (!paths.length) throw invalid("No committable files changed through this conversation's Forge tools; workflows documents remain local.", "COMMIT_SCOPE_EMPTY");
     const result = await gitService.commit(input.message.trim(), { paths });
-    await conversationStateStore.update(ownerConversationId(context), { owner_changed_paths: internalPaths, owner_last_commit_sha: result.sha, owner_last_commit_paths: paths });
+    await conversationStateStore.update(ownerConversationId(context), { owner_changed_paths: internalPaths, owner_last_commit_sha: result.sha, owner_last_commit_paths: result.paths ?? paths });
     context.changed_paths = [...new Set([...internalPaths, ...(context.changed_paths ?? []).filter((path) => INTERNAL_WORKFLOW_PATH.test(path))])].sort();
-    return { ...result, paths };
+    return { ...result, paths: result.paths ?? paths };
   }
 
   // Pushes only the latest commit recorded by this conversation to the configured project remote.

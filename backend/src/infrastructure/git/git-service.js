@@ -3,6 +3,8 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigurationError } from "../../shared/errors.js";
 import { createExtendedGitOperations } from "./git-service-extended.js";
+import { gitCommitPaths } from "./git-commit-paths.js";
+import { commitIndexCleanup } from "./git-index-cleanup.js";
 
 const execFile = promisify(execFileCallback);
 const SAFE_BRANCH = /^(?!\.)(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$/;
@@ -22,7 +24,10 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     projectRoot, timeoutMs, execute, runGit, guard, emit, status, currentBranch, branchExists,
     validateRevision, validateBranch, validatePaths, gitError, protectedBranches: PROTECTED_BRANCHES
   });
-  return Object.freeze({ status, statusSummary, inspectStatus: extended.inspectStatus, indexEntries, diffWorkingTree, diff: extended.diff, diffPatchFrom, log: extended.log, show: extended.show, blame: extended.blame, branch: extended.branch, restore: extended.restore, stash: extended.stash, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), pushCommit: guard(pushCommit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
+  return Object.freeze({ commitPaths, status, statusSummary, inspectStatus: extended.inspectStatus, indexEntries, diffWorkingTree, diff: extended.diff, diffPatchFrom, log: extended.log, show: extended.show, blame: extended.blame, branch: extended.branch, restore: extended.restore, stash: extended.stash, currentBranch, branchExists, createBranch: guard(createBranch), commit: guard(commit), pushCommit: guard(pushCommit), merge: guard(merge), discardBranch: guard(discardBranch), getHead, getBranchHead, getCommitParent, abortMerge: guard(abortMerge), hasConflicts, diffBetween, getChangedFiles, getCommitsForTask, deleteMergedBranch: guard(deleteMergedBranch), resetTo: guard(resetTo) });
+
+  // Provides review handoffs with the same Git ignore policy as commits, so local outputs never become deliverables.
+  async function commitPaths() { return gitCommitPaths(projectRoot, execute); }
 
   // Summarizes Git for the workspace indicator without exposing paths or remote URLs.
   async function statusSummary() {
@@ -126,16 +131,21 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   // Defines commit function behavior for git-service.js.
   async function commit(message, { paths = [] } = {}) {
     if (typeof message !== "string" || !message.trim()) throw new ConfigurationError("Git commit message is required.");
-    const safePaths = validatePaths(paths);
-    if (!safePaths.length) throw new ConfigurationError("Git commit requires explicit paths.");
+    const requestedPaths = validatePaths(paths);
+    const eligible = await gitCommitPaths(projectRoot, execute);
+    const safePaths = requestedPaths.filter((path) => !eligible || eligible.has(path));
+    if (!requestedPaths.length) throw new ConfigurationError("Git commit requires explicit paths.");
+    if (!safePaths.length) throw gitError("GIT_EMPTY_COMMIT", "No eligible Git paths remain; ignored outputs and missing untracked files were excluded.");
+    const cleanup = await commitIndexCleanup({ projectRoot, paths: safePaths, deletedPaths: eligible?.staged_deletions, execute, message });
+    if (cleanup) { emit("git.commit", { sha: cleanup.sha, paths: safePaths, message }); return cleanup; }
     const pathspecs = safePaths.map((path) => `:(literal)${path}`);
-    const addArgs = ["add", "-f", "--", ...pathspecs];
+    const addArgs = ["add", "--", ...pathspecs];
     let add = await execute(addArgs, "GIT_ADD_FAILED");
-    if (add.exitCode !== 0 && /pathspec .* did not match any files/i.test(add.stderr ?? "")) {
+    if (add.exitCode !== 0 && /pathspec .* did not match any files|following paths are ignored/i.test(add.stderr ?? "")) {
       const removed = await execute(["diff", "--cached", "--no-renames", "--name-only", "--diff-filter=D", "-z", "--", ...pathspecs], "GIT_ADD_FAILED");
       const removedSet = new Set(removed.exitCode === 0 ? removed.stdout.split("\0").map((path) => path.trim()).filter(Boolean) : []);
       const remainingSpecs = safePaths.filter((path) => !removedSet.has(path)).map((path) => `:(literal)${path}`);
-      if ( removedSet.size > 0 ) add = remainingSpecs.length ? await execute(["add", "-f", "--", ...remainingSpecs], "GIT_ADD_FAILED") : { exitCode: 0, stdout: "", stderr: "" };
+      if ( removedSet.size > 0 ) add = remainingSpecs.length ? await execute(["add", "--", ...remainingSpecs], "GIT_ADD_FAILED") : { exitCode: 0, stdout: "", stderr: "" };
     }
     if (add.exitCode !== 0) throw gitError("GIT_ADD_FAILED", `Git add failed: ${add.stderr ?? "unknown Git error"}`);
     emit("git.add", { paths: safePaths });
@@ -152,7 +162,7 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
     const sha = head.stdout.trim();
     if (!/^[a-f0-9]{40,64}$/i.test(sha)) throw gitError("GIT_COMMIT_FAILED", "Git returned an invalid commit SHA.");
     emit("git.commit", { sha, paths: safePaths, message });
-    return { sha, output: result.stdout };
+    return { sha, output: result.stdout, paths: safePaths };
   }
 
   // Pushes the exact current commit on the current unprotected branch to origin without force.
@@ -248,8 +258,8 @@ export function createGitService({ projectRoot, runGit = defaultRunGit, timeoutM
   }
 
   // Defines execute function behavior for git-service.js.
-  async function execute(args, code) {
-    try { return await runGit(args, { cwd: projectRoot, timeout: timeoutMs }); }
+  async function execute(args, code, options = {}) {
+    try { return await runGit(args, { cwd: projectRoot, timeout: timeoutMs, ...options }); }
     catch (error) { const failure = gitError(code, `Git command failed: git ${args.join(" ")}.`); failure.cause = error; throw failure; }
   }
 

@@ -2,6 +2,7 @@
 // Technical description: Snapshots regular files, symbolic links, and large files across projectRoot (skipping only .git and heavy dependency caches unless requested), computes pre/post file deltas, and updates changeLedger, context.changed_paths, and conversationStateStore while surfacing filesystem and ledger write errors.
 
 import { createHash } from "node:crypto";
+import { gitCommitPaths } from "./git-commit-paths.js";
 import { createReadStream } from "node:fs";
 import { readdir, readFile, readlink, lstat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
@@ -120,12 +121,17 @@ export async function reconcileWorkingTreeMutation({
 } = {}) {
   const after = afterSnapshot ?? await snapshotWorkingTree(projectRoot, { includeContent: Boolean(changeLedger) });
   const before = beforeSnapshot ?? new Map();
+  const eligible = await gitCommitPaths(projectRoot);
+  // Preserve every disk delta for scope diagnostics, independently of Git commit eligibility.
+  const observedPaths = [...new Set([...after.keys(), ...before.keys()])]
+    .filter((path) => after.get(path)?.sha256 !== before.get(path)?.sha256).sort();
   const touched = [];
   const deleted = [];
   const checksumMap = {};
   const detailedChecksums = {};
 
   for (const [path, meta] of after.entries()) {
+    if (eligible && !eligible.has(path)) continue;
     const prev = before.get(path);
     if (!prev || prev.sha256 !== meta.sha256) {
       touched.push(path);
@@ -157,6 +163,7 @@ export async function reconcileWorkingTreeMutation({
   }
 
   for (const [path, prev] of before.entries()) {
+    if (eligible && !eligible.has(path)) continue;
     if (!after.has(path)) {
       deleted.push(path);
       touched.push(path);
@@ -195,9 +202,10 @@ export async function reconcileWorkingTreeMutation({
     }
   }
 
-  const mergedChangedPaths = [...new Set([...(context?.changed_paths ?? []), ...touched])].sort();
+  const mergedChangedPaths = [...new Set([...(context?.changed_paths ?? []).filter((path) => !eligible || eligible.has(path)), ...touched])].sort();
   if (context && typeof context === "object") {
     context.changed_paths = mergedChangedPaths;
+    context.observed_changed_paths = observedPaths;
     if (Array.isArray(context.observed_files)) {
       for (const delPath of deleted) {
         const delIdx = context.observed_files.findIndex((item) => item?.path === delPath);
@@ -217,15 +225,17 @@ export async function reconcileWorkingTreeMutation({
     const nextChecksums = { ...(currentState.active_file_checksums ?? {}) };
     for (const delPath of deleted) delete nextChecksums[delPath];
     for (const [path, info] of Object.entries(detailedChecksums)) nextChecksums[path] = info;
-    const nextOwnerPaths = [...new Set([...(currentState.owner_changed_paths ?? []), ...touched])].sort();
+    const nextOwnerPaths = [...new Set([...(currentState.owner_changed_paths ?? []).filter((path) => !eligible || eligible.has(path)), ...touched])].sort();
     await conversationStateStore.update(resolvedConvId, {
-      ...(touched.length ? { owner_changed_paths: nextOwnerPaths, owner_last_commit_sha: null } : {}),
+      owner_changed_paths: nextOwnerPaths,
+      ...(touched.length ? { owner_last_commit_sha: null } : {}),
       active_file_checksums: nextChecksums
     });
   }
 
   return {
     changed_paths: mergedChangedPaths,
+    observed_changed_paths: observedPaths,
     delta_paths: touched.sort(),
     deleted_paths: deleted.sort(),
     active_file_checksums: checksumMap,

@@ -16,7 +16,7 @@ test("retrieval eval calls select_code_graph_candidates through registry.execute
   const caseItem = { id: "case-1", title: "Find example", objective: "Locate example", acceptance_criteria: ["It works"], style: ["backend"] };
 
   const result = await selectEvalCandidates({ registry, caseItem, limit: 8 });
-  assert.deepEqual(result.selected, [{ path: "backend/src/example.js" }]);
+  assert.deepEqual(result.selected, [{ path: "backend/src/example.js", receipt: { status: "unavailable", read_symbol: false, error: "Candidate source content is unavailable." }, evidence: { status: "not_recorded", durable: false } }]);
   assert.equal(calls[0].title, "Find example");
   assert.equal(calls[0].objective, "Locate example");
   assert.equal(calls[0].limit, 8);

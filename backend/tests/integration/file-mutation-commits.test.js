@@ -229,13 +229,13 @@ test("AC-3 & AC-4: System Engineer delete_file and move_file record owner_change
 
     const committed = await seTools.registry.commit_changes.execute({ message: "se delete and move" }, seContext);
     assert.match(committed.sha, /^[a-f0-9]{40,64}$/);
-    assert.deepEqual(committed.paths, expectedPaths);
+    assert.deepEqual(committed.paths, expectedPaths.filter((path) => !path.startsWith(".forge/")));
     assert.deepEqual(state.get("CONV-SE-COMMIT").owner_changed_paths, []);
     assert.equal(state.get("CONV-SE-COMMIT").owner_last_commit_sha, committed.sha);
 
     const headFiles = (await git(root, "ls-tree", "-r", "--name-only", "HEAD")).split("\n").filter(Boolean).sort();
-    assert.deepEqual(headFiles, [".forge/modern/state.json", ".gitignore", "src/keep.js", "src/modern/item.js"]);
-    assert.equal(await git(root, "show", `${committed.sha}:.forge/modern/state.json`), forgeMoveContent.trimEnd());
+    assert.deepEqual(headFiles, [".forge/legacy/state.json", ".gitignore", "src/keep.js", "src/modern/item.js"]);
+    assert.equal(await readFile(join(root, ".forge/modern/state.json"), "utf8"), forgeMoveContent);
     assert.equal(await git(root, "show", `${committed.sha}:src/keep.js`), keepContent.trimEnd());
     assert.equal(await readFile(join(root, "src/keep.js"), "utf8"), "// dirty unrelated keep edit\n");
 
@@ -250,7 +250,7 @@ test("AC-3 & AC-4: System Engineer delete_file and move_file record owner_change
     });
     assert.match(directRes.sha, /^[a-f0-9]{40,64}$/);
     const finalFiles = (await git(root, "ls-tree", "-r", "--name-only", "HEAD")).split("\n").filter(Boolean).sort();
-    assert.deepEqual(finalFiles, [".forge/modern/state.json", ".gitignore", "src/modern/item.js"]);
+    assert.deepEqual(finalFiles, [".forge/legacy/state.json", ".gitignore", "src/modern/item.js"]);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

@@ -18,5 +18,13 @@
   {
     "root": "/home/data/sites/books",
     "projectId": "books"
+  },
+  {
+    "root": "/home/data/sites/sitesdev/blog/wp-content/plugins/aiassistant",
+    "projectId": "ai-assistant"
+  },
+  {
+    "root": "/home/data/sites/sitesdev/blog/wp-content/plugins/myseoforall",
+    "projectId": "myseo"
   }
 ]

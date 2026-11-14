@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigurationError } from "../../../shared/errors.js";
 import { createTicketRootGit } from "./ticket-root-git.js";
+import { gitCommitPaths } from "../../../infrastructure/git/git-commit-paths.js";
 import { withTicketProjectCommitLock } from "./ticket-project-commit-lock.js";
 import { inspectTicketSource } from "./ticket-source-reconciliation.js";
 import { reconcileRestoredTicketCommit } from "./ticket-restored-commit.js";
@@ -76,7 +77,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
   // Serializes root commits, then holds the ticket ledger revision until its receipt is saved.
   async function commit(message, { paths = [] } = {}) {
     if (typeof message !== "string" || !message.trim()) throw fail("GIT_COMMIT_MESSAGE_INVALID", "Ticket commit message is required.");
-    return withTicketProjectCommitLock({ fileService, projectId }, () => ledger.withCommitTransaction(taskId, (manifest, record) => commitLocked(message, paths, manifest, record)));
+    return withTicketProjectCommitLock({ fileService, projectId }, async () => ledger.withCommitTransaction(taskId, (manifest, record) => commitLocked(message, paths, manifest, record), { eligiblePaths: await gitCommitPaths(projectRoot) }));
   }
 
   // Restores only a proven same-ticket commit association under the normal commit locks.
@@ -120,8 +121,9 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
 
   // Validates root bytes and either recovers or creates the commit for one ledger revision.
   async function commitLocked(message, requestedPaths, manifest, record) {
+    const eligible = await gitCommitPaths(projectRoot);
     const expected = Object.keys(manifest.entries).sort();
-    if (!expected.length || requestedPaths.some((path) => !expected.includes(path))) throw fail("TICKET_COMMIT_SCOPE", "Requested commit paths are outside the ticket ledger.");
+    if (!Object.keys(manifest.entries).length || requestedPaths.some((path) => !Object.hasOwn(manifest.entries, path))) throw fail("TICKET_COMMIT_SCOPE", "Requested commit paths are outside the ticket ledger.");
     const revision = manifest.revision;
     const existing = manifest.commits[revision];
     if (existing) {
@@ -138,7 +140,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
     const restored = await restoreCommit(manifest, record);
     if (restored) return restored;
     const lastCommitted = Math.max(0, ...Object.keys(manifest.commits).map(Number));
-    const changed = expected.filter((path) => manifest.entries[path].operations.some((item) => item.revision > lastCommitted));
+    const changed = expected.filter((path) => (!eligible || eligible.has(path)) && manifest.entries[path].operations.some((item) => item.revision > lastCommitted));
     if (!changed.length) throw fail("GIT_EMPTY_COMMIT", "Ticket has no uncommitted ledger operations.");
     let journal = await loadJournal(revision);
     if (journal) {
@@ -151,7 +153,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
     const parent = (await gitService.getHead()).trim();
     const branch = await rootGit.checkedBranch();
     if (expectedBranch && branch !== `refs/heads/${expectedBranch}`) throw fail("TICKET_ROOT_BRANCH_CHANGED", "Ticket root branch differs from the persisted workspace branch.");
-    for (const path of expected) {
+    for (const path of expected.filter((path) => !eligible || eligible.has(path))) {
       await rootGit.assertSafePath(path);
       const entry = manifest.entries[path];
       const current = await readOptional(path);
@@ -171,7 +173,7 @@ export function createTicketRootCommitService({ taskId, projectId, projectRoot, 
       const tree = await rootGit.buildTree(parent, changed, join(directory, "index"));
       await rootGit.verifyTree(parent, tree, manifest.entries, changed);
       journal = await saveJournal({ ...journal, tree_sha: tree });
-      for (const path of expected) {
+      for (const path of expected.filter((path) => !eligible || eligible.has(path))) {
         await rootGit.assertSafePath(path);
         if (sha(await readOptional(path)) !== manifest.entries[path].latest_sha) throw fail("TICKET_SOURCE_DRIFT", `Root source changed during ticket commit: ${path}.`);
       }
