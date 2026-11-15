@@ -160,7 +160,10 @@ export function rerankCandidates(candidates = [], knowledge, { queryFingerprint,
     const revision = candidate?.source_revision ?? candidate?.receipt?.source_revision;
     const item = record?.candidate ?? record;
     if (!item || item.path !== candidate?.path) return false;
-    if (item.symbol !== undefined && item.symbol !== candidate?.symbol) return false;
+    if (item.symbol !== undefined) {
+      const matchedSymbols = [candidate?.symbol, ...(candidate?.matched_symbols ?? []).map((symbol) => symbol?.name ?? symbol?.symbol)].filter(Boolean);
+      if (matchedSymbols.length && !matchedSymbols.includes(item.symbol)) return false;
+    }
     if (item.source_sha256 !== undefined && item.source_sha256 !== source) return false;
     if (item.source_revision !== undefined && revision !== undefined && item.source_revision !== revision) return false;
     if (!projectId || record.project_id !== projectId) return false;

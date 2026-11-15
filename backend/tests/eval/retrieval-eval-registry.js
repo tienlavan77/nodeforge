@@ -4,7 +4,7 @@
 export function selectEvalCandidates({ registry, caseItem, limit, context = {} } = {}) {
   const taskId = `RETRIEVAL-EVAL-${caseItem.id}`; // Keep each case bound to one deterministic execution identity.
   return registry.select_code_graph_candidates.execute(
-    { query: caseItem.objective, context: caseItem.title ?? caseItem.objective, limit },
+    { query: caseItem.query ?? caseItem.objective, context: caseItem.title ?? caseItem.objective, limit },
     {
       task_id: taskId,
       execution_id: context.execution_id ?? taskId,

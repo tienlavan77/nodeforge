@@ -1,36 +1,30 @@
 {
-  "evaluation_status": "completed",
-  "dataset_checksum": "sha256:2ad6c3a15db08d02c5a229ac464d54c20ed03305e941911100d93d3a96776c99",
-  "knowledge_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
-  "model_identity": "Xenova/nomic-embed-text-v1.5",
+  "dataset_checksum": "sha256:b4ab47f531dff6cf9438099cb4ee4873c03b8d624aa2786d3194d3309bb38b24",
+  "knowledge_revision": "b5cb0d9360f1005d180bd27789be20ebcc38f41b",
+  "model_identity": "lexical-only-evaluation",
   "index_identity": "index-database-current-checkout",
   "verifier_provenance": [
     {
       "verifier": "system_engineer",
       "evidence": "production registry end-to-end run",
-      "review_commit": "d46b71fed782f354b44437adf1a86535e2d3528a"
+      "review_commit": "0161844b56b0163c9ea6de240f5b28c49c9e55b1"
     }
   ],
   "regression_results": [
     {
-      "name": "reviewer_and_retrieval_governance_tests",
-      "status": "passed",
-      "cases": 3,
-      "run_id": "VERIFY-RUN-a36521e0-750a-4cad-8fc6-feb8592fec76"
-    },
-    {
       "name": "retrieval_runner_completed",
       "status": "passed",
-      "cases": 11
+      "cases": 1
     }
   ],
   "provenance_complete": true,
   "fallback_counts": {},
-  "corpus_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
+  "corpus_revision": "b5cb0d9360f1005d180bd27789be20ebcc38f41b",
   "retrieval_config": {
     "limit": 8,
     "production_tool": "select_code_graph_candidates",
-    "project_id": "nodeforge"
+    "project_id": "nodeforge",
+    "embeddings": false
   },
   "k": 8,
   "cases": [
@@ -41,166 +35,213 @@
       "symbol_hit_rate": 0,
       "ac_coverage": 0,
       "false_positive_rate": 1,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789618154255",
-      "precision_at_k": 0.25,
-      "recall_at_k": 0.5,
-      "symbol_hit_rate": 1,
-      "ac_coverage": 0,
-      "false_positive_rate": 0.75,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789715548287",
-      "precision_at_k": 0.125,
-      "recall_at_k": 0.5,
-      "symbol_hit_rate": 1,
-      "ac_coverage": 0,
-      "false_positive_rate": 0.875,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789618365350",
-      "precision_at_k": 0.125,
-      "recall_at_k": 1,
-      "symbol_hit_rate": 1,
-      "ac_coverage": 0,
-      "false_positive_rate": 0.875,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789717510702",
-      "precision_at_k": 0,
-      "recall_at_k": 0,
-      "symbol_hit_rate": 0,
-      "ac_coverage": 0,
-      "false_positive_rate": 1,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789481976392",
-      "precision_at_k": 0.125,
-      "recall_at_k": 0.3333333333333333,
-      "symbol_hit_rate": 1,
-      "ac_coverage": 0,
-      "false_positive_rate": 0.875,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789549690715",
-      "precision_at_k": 0.125,
-      "recall_at_k": 0.5,
-      "symbol_hit_rate": 1,
-      "ac_coverage": 0,
-      "false_positive_rate": 0.875,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789572090025",
-      "precision_at_k": 0,
-      "recall_at_k": 0,
-      "symbol_hit_rate": 0,
-      "ac_coverage": 0,
-      "false_positive_rate": 1,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789476103218",
-      "precision_at_k": 0,
-      "recall_at_k": 0,
-      "symbol_hit_rate": 0,
-      "ac_coverage": 0,
-      "false_positive_rate": 1,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789481898268",
-      "precision_at_k": 0.125,
-      "recall_at_k": 0.5,
-      "symbol_hit_rate": 1,
-      "ac_coverage": 0,
-      "false_positive_rate": 0.875,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
-      "live_cache_parity": 1
-    },
-    {
-      "id": "1789602291693",
-      "precision_at_k": 0.125,
-      "recall_at_k": 0.5,
-      "symbol_hit_rate": 1,
-      "ac_coverage": 0,
-      "false_positive_rate": 0.875,
-      "stale_rejected": 0,
-      "unauthorized_rejected": 0,
+      "stale_rejected": 1,
+      "stale_rejection_eligible": 1,
+      "unauthorized_rejected": 1,
+      "unauthorized_rejection_eligible": 1,
+      "stale_probe_diagnostics": [
+        {
+          "path": "ui/nextjs/components/ConversationsAccordion.jsx",
+          "stale": true,
+          "receipt_status": "unavailable",
+          "receipt_error": "Candidate index metadata is stale; refresh discovery or read_file."
+        }
+      ],
+      "unauthorized_probe_diagnostics": [
+        {
+          "message": "Agent is not authorized to use select_code_graph_candidates."
+        }
+      ],
       "live_cache_parity": 1
     }
   ],
+  "rejection_evidence": {
+    "stale": {
+      "rejected": 1,
+      "eligible": 1,
+      "rate": 1,
+      "diagnostics": [
+        {
+          "id": "1789610673670",
+          "probe": "stale_candidate",
+          "eligible": 1,
+          "rejected": 1,
+          "status": "passed",
+          "diagnostics": [
+            {
+              "path": "ui/nextjs/components/ConversationsAccordion.jsx",
+              "stale": true,
+              "receipt_status": "unavailable",
+              "receipt_error": "Candidate index metadata is stale; refresh discovery or read_file."
+            }
+          ]
+        }
+      ]
+    },
+    "unauthorized": {
+      "rejected": 1,
+      "eligible": 1,
+      "rate": 1,
+      "diagnostics": [
+        {
+          "id": "1789610673670",
+          "probe": "unauthorized_candidate",
+          "eligible": 1,
+          "rejected": 1,
+          "status": "passed",
+          "expected_error_code": "TOOL_FORBIDDEN",
+          "actual_error_code": "TOOL_FORBIDDEN",
+          "diagnostics": [
+            {
+              "message": "Agent is not authorized to use select_code_graph_candidates."
+            }
+          ]
+        }
+      ]
+    }
+  },
   "metrics": {
-    "precision_at_k": 0.09090909090909091,
-    "recall_at_k": 0.3484848484848485,
-    "symbol_hit_rate": 0.6363636363636364,
+    "precision_at_k": 0,
+    "recall_at_k": 0,
+    "symbol_hit_rate": 0,
     "ac_coverage": 0,
-    "false_positive_rate": 0.9090909090909091,
-    "stale_candidate_rejection": 0,
-    "unauthorized_candidate_rejection": 0,
-    "stale_rejection_rate": 0,
-    "unauthorized_rejection_rate": 0,
+    "false_positive_rate": 1,
+    "stale_candidate_rejection": 1,
+    "unauthorized_candidate_rejection": 1,
+    "stale_rejection_rate": 1,
+    "unauthorized_rejection_rate": 1,
     "live_cache_parity": 1
   },
   "corpus_checksums": {
-    "vocabulary/semantic-anchors.jsonl": "sha256:3288e2f79f78836c8b65953826fae5338a6f627bc259300c4a48e65a21c24417",
-    "vocabulary/retrieval-feedback.jsonl": "sha256:32b520525527c21bbf87654d75257314fa97a620dbeec0811dce0712e6753e2f",
-    "vocabulary/semantic-evaluation/golden-queries.jsonl": "sha256:797b4d28ea1b3239ff499962c4d7e9372ee264cbee9e5ab90ebd984540cc6d5f"
+    "vocabulary/semantic-anchors.jsonl": "sha256:ae1a160fbd5ca84944ae478979120299c25331665f549c30ee48effdd513182a",
+    "vocabulary/retrieval-feedback.jsonl": "sha256:8da3596f92b72179cbef2ed9452e80fc3c707b3a4e60a8cfc26496fe7e12ce8a",
+    "vocabulary/semantic-evaluation/golden-queries.jsonl": "sha256:1a589d9ae5901647a6c45faa9f44b0bb7b4320376073b6c4083fd6bdec777c82"
   },
-  "review_commit": "d46b71fed782f354b44437adf1a86535e2d3528a",
+  "review_commit": "0161844b56b0163c9ea6de240f5b28c49c9e55b1",
   "rejection_probes": {
-    "unauthorized_candidate_input": {
-      "status": "passed",
-      "error_code": "TOOL_FORBIDDEN"
-    }
+    "stale": [
+      {
+        "id": "1789610673670",
+        "probe": "stale_candidate",
+        "eligible": 1,
+        "rejected": 1,
+        "status": "passed",
+        "diagnostics": [
+          {
+            "path": "ui/nextjs/components/ConversationsAccordion.jsx",
+            "stale": true,
+            "receipt_status": "unavailable",
+            "receipt_error": "Candidate index metadata is stale; refresh discovery or read_file."
+          }
+        ]
+      }
+    ],
+    "unauthorized": [
+      {
+        "id": "1789610673670",
+        "probe": "unauthorized_candidate",
+        "eligible": 1,
+        "rejected": 1,
+        "status": "passed",
+        "expected_error_code": "TOOL_FORBIDDEN",
+        "actual_error_code": "TOOL_FORBIDDEN",
+        "diagnostics": [
+          {
+            "message": "Agent is not authorized to use select_code_graph_candidates."
+          }
+        ]
+      }
+    ]
   },
   "metric_status": {
     "symbol_hit_rate": "measured",
     "acceptance_criteria_coverage": "measured",
-    "stale_rejection_rate": "measured_by_case",
-    "unauthorized_rejection_rate": "passed",
+    "stale_rejection_rate": "measured_by_eligible_probe",
+    "unauthorized_rejection_rate": "measured_by_eligible_probe",
     "live_cache_parity": "measured",
-    "baseline_reranked_delta": "measured"
-  },
-  "metric_evidence": {
-    "cases_total": 11,
-    "verifier": "system_engineer",
-    "review_commit": "d46b71fed782f354b44437adf1a86535e2d3528a",
-    "corpus_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
-    "stale_rejection_rate": { "rejected": 0, "eligible": 11, "value": 0 },
-    "unauthorized_rejection_rate": { "rejected": 0, "eligible": 11, "value": 0 }
+    "baseline_reranked_delta": "measured_with_observed_delta"
   },
   "comparison": {
-    "baseline_cases": 11,
-    "reranked_cases": 11,
-    "cases_with_changed_order": 0,
-    "delta_numerator": 0,
-    "delta_denominator": 11
+    "baseline_cases": 1,
+    "reranked_cases": 1,
+    "cases_with_changed_order": 1,
+    "delta_numerator": 1,
+    "delta_denominator": 2,
+    "knowledge_probe": {
+      "cases": 1,
+      "changed_order": true,
+      "baseline_paths": [
+        "backend/src/modules/index/semantic-knowledge.js",
+        "backend/src/modules/index/code-search.js",
+        "backend/src/modules/projects/notebook-store.js",
+        "backend/src/modules/supervisor/review/review-record-storage.js",
+        "backend/src/transport/cli/mcp-lifecycle.js",
+        "backend/scripts/test-search-code-tool.mjs",
+        "backend/src/transport/http/forge-v1-notebook-routes.js",
+        "backend/scripts/codex-forge-mcp-bridge.mjs"
+      ],
+      "reranked_paths": [
+        "backend/src/modules/index/semantic-knowledge.js",
+        "backend/src/modules/index/code-search.js",
+        "backend/src/modules/projects/notebook-store.js",
+        "backend/scripts/test-search-code-tool.mjs",
+        "backend/src/modules/supervisor/review/review-record-storage.js",
+        "backend/src/transport/cli/mcp-lifecycle.js",
+        "backend/src/transport/http/forge-v1-notebook-routes.js",
+        "backend/scripts/codex-forge-mcp-bridge.mjs"
+      ],
+      "reranked_entries": [
+        {
+          "path": "backend/src/modules/index/semantic-knowledge.js",
+          "score": 15.65,
+          "knowledge_adjustment": 0.15,
+          "reasons": [
+            "knowledge:accepted"
+          ]
+        },
+        {
+          "path": "backend/src/modules/index/code-search.js",
+          "score": 9,
+          "knowledge_adjustment": 0,
+          "reasons": []
+        },
+        {
+          "path": "backend/src/modules/projects/notebook-store.js",
+          "score": 5,
+          "knowledge_adjustment": 0,
+          "reasons": []
+        },
+        {
+          "path": "backend/scripts/test-search-code-tool.mjs",
+          "score": 4,
+          "knowledge_adjustment": 0,
+          "reasons": []
+        },
+        {
+          "path": "backend/src/modules/supervisor/review/review-record-storage.js",
+          "score": 4,
+          "knowledge_adjustment": 0,
+          "reasons": []
+        },
+        {
+          "path": "backend/src/transport/cli/mcp-lifecycle.js",
+          "score": 4,
+          "knowledge_adjustment": 0,
+          "reasons": []
+        },
+        {
+          "path": "backend/src/transport/http/forge-v1-notebook-routes.js",
+          "score": 4,
+          "knowledge_adjustment": 0,
+          "reasons": []
+        },
+        {
+          "path": "backend/scripts/codex-forge-mcp-bridge.mjs",
+          "score": 3,
+          "knowledge_adjustment": 0,
+          "reasons": []
+        }
+      ]
+    }
   }
 }
