@@ -14,6 +14,9 @@ export function evaluateRetrievalCases(cases = [], {
   retrievalConfig = null,
   datasetChecksum = null,
   knowledgeRevision = null,
+  knowledgeArtifactRevision = null,
+  reviewCommitSha = null,
+  sourceSha256 = null,
   modelIdentity = null,
   indexIdentity = null,
   verifierProvenance = [],
@@ -22,6 +25,12 @@ export function evaluateRetrievalCases(cases = [], {
 } = {}) {
   const totals = {
     precision: 0, recall: 0, symbolHits: 0, acCoverage: 0, falsePositives: 0,
+    precisionNumerator: 0, precisionDenominator: 0,
+    recallNumerator: 0, recallDenominator: 0,
+    symbolHitNumerator: 0, symbolHitDenominator: 0,
+    acNumerator: 0, acDenominator: 0,
+    falsePositiveNumerator: 0, falsePositiveDenominator: 0,
+    parityNumerator: 0, parityDenominator: 0,
     staleRejected: 0, staleEligible: 0, unauthorizedRejected: 0,
     unauthorizedEligible: 0, liveCacheParity: 0
   };
@@ -36,9 +45,11 @@ export function evaluateRetrievalCases(cases = [], {
       ? (hits > 0 ? 1 : 0)
       : [...expectedSymbols].some((value) => candidates.some((candidate) => value === `${candidate.path}#${candidate.symbol ?? ""}`)) ? 1 : 0;
     const falsePositive = candidates.filter((candidate) => !expected.has(String(candidate.path ?? candidate))).length;
-    const acCovered = Array.isArray(item.acceptance_criteria) && item.acceptance_criteria.length
-      ? item.acceptance_criteria.filter((criterion) => candidates.some((candidate) => (candidate.matched_ac ?? []).includes(criterion))).length / item.acceptance_criteria.length
+    const acNumerator = Array.isArray(item.acceptance_criteria)
+      ? item.acceptance_criteria.filter((criterion) => candidates.some((candidate) => (candidate.matched_ac ?? []).includes(criterion))).length
       : 0;
+    const acDenominator = Array.isArray(item.acceptance_criteria) ? item.acceptance_criteria.length : 0;
+    const acCovered = acDenominator ? acNumerator / acDenominator : 0;
     const staleRejected = Number(item.stale_rejected ?? 0);
     const staleEligible = Number(item.stale_rejection_eligible ?? 0);
     const unauthorizedRejected = Number(item.unauthorized_rejected ?? 0);
@@ -58,13 +69,30 @@ export function evaluateRetrievalCases(cases = [], {
     totals.symbolHits += symbolHit;
     totals.acCoverage += acCovered;
     totals.falsePositives += candidates.length ? falsePositive / candidates.length : 0;
+    totals.precisionNumerator += hits;
+    totals.precisionDenominator += candidates.length;
+    totals.recallNumerator += hits;
+    totals.recallDenominator += expected.size;
+    totals.symbolHitNumerator += symbolHit;
+    totals.symbolHitDenominator++;
+    totals.acNumerator += acNumerator;
+    totals.acDenominator += acDenominator;
+    totals.falsePositiveNumerator += falsePositive;
+    totals.falsePositiveDenominator += candidates.length;
     totals.staleRejected += staleRejected;
     totals.staleEligible += staleEligible;
     totals.unauthorizedRejected += unauthorizedRejected;
     totals.unauthorizedEligible += unauthorizedEligible;
-    if (parity !== null) totals.liveCacheParity += parity;
+    if (parity !== null) {
+      totals.liveCacheParity += parity;
+      totals.parityNumerator += parity;
+      totals.parityDenominator++;
+    }
     return {
       id: item.id,
+      baseline_candidates: item.baseline_candidates ?? item.cached_candidates ?? [],
+      reranked_candidates: item.reranked_candidates ?? item.live_candidates ?? candidates,
+      rejected_case_count: Number(item.rejected_case_count ?? 0),
       precision_at_k: candidates.length ? hits / candidates.length : 0,
       recall_at_k: expected.size ? hits / expected.size : 0,
       symbol_hit_rate: symbolHit,
@@ -84,19 +112,46 @@ export function evaluateRetrievalCases(cases = [], {
   const unauthorizedRate = totals.unauthorizedEligible ? totals.unauthorizedRejected / totals.unauthorizedEligible : null;
   const staleDiagnostics = Array.isArray(rejectionProbes.stale) ? rejectionProbes.stale : [];
   const unauthorizedDiagnostics = Array.isArray(rejectionProbes.unauthorized) ? rejectionProbes.unauthorized : [];
+  const rejectedCaseCount = perCase.reduce((count, item) => count + Number(item.rejected_case_count ?? 0), 0);
+  // Business purpose: makes every aggregate metric auditable when the evaluation has no eligible cases or rejected observations.
+  // Technical description: records numerator, denominator, case count and an explicit measured/not_measured status beside the legacy numeric metric.
+  const metricDetail = (numerator, denominator) => ({
+    numerator,
+    denominator,
+    case_count: evaluated,
+    rejected_case_count: rejectedCaseCount,
+    status: denominator > 0 ? "measured" : "not_measured",
+    diagnostics: denominator > 0 ? [] : ["no eligible observations"]
+  });
+  const explicitRevisionFields = [corpusRevision, knowledgeArtifactRevision, reviewCommitSha, sourceSha256];
+  const legacyProvenance = Boolean(datasetChecksum && knowledgeRevision && modelIdentity && indexIdentity && verifierProvenance.length && regressionResults.length);
+  const provenanceComplete = legacyProvenance && explicitRevisionFields.every(Boolean);
+  const metricDetails = {
+    precision_at_k: metricDetail(totals.precisionNumerator, totals.precisionDenominator),
+    recall_at_k: metricDetail(totals.recallNumerator, totals.recallDenominator),
+    symbol_hit_rate: metricDetail(totals.symbolHitNumerator, totals.symbolHitDenominator),
+    ac_coverage: metricDetail(totals.acNumerator, totals.acDenominator),
+    false_positive_rate: metricDetail(totals.falsePositiveNumerator, totals.falsePositiveDenominator),
+    stale_rejection: metricDetail(totals.staleRejected, totals.staleEligible),
+    unauthorized_rejection: metricDetail(totals.unauthorizedRejected, totals.unauthorizedEligible),
+    live_cache_parity: metricDetail(totals.parityNumerator, totals.parityDenominator)
+  };
   return {
     dataset_checksum: datasetChecksum,
     knowledge_revision: knowledgeRevision,
+    corpus_revision: corpusRevision,
+    knowledge_artifact_revision: knowledgeArtifactRevision,
+    review_commit_sha: reviewCommitSha,
+    source_sha256: sourceSha256,
     model_identity: modelIdentity,
     index_identity: indexIdentity,
     verifier_provenance: verifierProvenance,
     regression_results: regressionResults,
-    provenance_complete: Boolean(datasetChecksum && knowledgeRevision && modelIdentity && indexIdentity && verifierProvenance.length && regressionResults.length),
+    provenance_complete: provenanceComplete,
     fallback_counts: cases.reduce((counts, item) => {
       for (const reason of item.fallback_reasons ?? []) counts[reason] = (counts[reason] ?? 0) + 1;
       return counts;
     }, {}),
-    corpus_revision: corpusRevision,
     retrieval_config: retrievalConfig,
     k,
     cases: perCase,
@@ -104,6 +159,7 @@ export function evaluateRetrievalCases(cases = [], {
       stale: { rejected: totals.staleRejected, eligible: totals.staleEligible, rate: staleRate, diagnostics: staleDiagnostics },
       unauthorized: { rejected: totals.unauthorizedRejected, eligible: totals.unauthorizedEligible, rate: unauthorizedRate, diagnostics: unauthorizedDiagnostics }
     },
+    metric_details: metricDetails,
     metrics: {
       precision_at_k: totals.precision / divisor,
       recall_at_k: totals.recall / divisor,

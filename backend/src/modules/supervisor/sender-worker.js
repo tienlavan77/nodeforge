@@ -73,6 +73,10 @@ export function createSenderWorker({ queue, agentRegistry, agentResolver, eventB
         const tool = requestToolRegistry?.[call.name];
         if (!tool?.execute) throw Object.assign(new ConfigurationError(`Unknown Agent tool: ${call.name}.`), { code: "TOOL_NOT_FOUND" });
         const baseContext = job.payload?.execution_context ?? job.execution_context ?? {};
+        const capabilities = new Set(baseContext.capabilities ?? []);
+        if (!capabilities.has(call.name)) {
+          throw Object.assign(new ConfigurationError(`Tool ${call.name} is not authorized by the execution context.`), { code: "TOOL_FORBIDDEN" });
+        }
         // Tools authorize against the request context: transcript blocks and the
         // approved file allowlist live on the payload, not in execution_context.
         const taskBlock = (payload?.user_blocks ?? []).find((block) => block?.block_id === "task_context");

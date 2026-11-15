@@ -254,7 +254,7 @@ function createExecutionContextProvider(runtime, governance) {
     const executionContext = {
       task_id: runtime.taskId,
       execution_id: `${runtime.supervisorId}:${source.attempt ?? 1}`,
-      agent_identity: { agent_id: source.agent_id ?? "builder", role: "coder" },
+      agent_identity: { agent_id: source.agent_id ?? "builder", role: source.agent_role ?? source.role ?? source.agent_identity?.role ?? "coder" },
       capabilities,
       lifecycle: runtime.getState?.() ?? "RUNNING",
       audit_context: { supervisor_id: runtime.supervisorId, correlation_id: source.correlation_id }
@@ -268,6 +268,9 @@ function createExecutionContextProvider(runtime, governance) {
 
 // Defines capabilitiesForRound function behavior for production-runtime.js.
 function capabilitiesForRound(round, type, role) {
+  const normalizedRole = typeof role === "string" ? role.trim().toLowerCase().replace(/-/g, "_") : "";
+  const roleAllowsDiscovery = ["architecture_manager", "system_engineer", "sprint_leader", "reviewer", "coder", "am", "se", "sl", "rv"].includes(normalizedRole);
+  if (!roleAllowsDiscovery) return [];
   const candidate = ["select_code_graph_candidates"];
   if (round === 1) return type === "task" ? candidate : candidate;
   if (round === 2) return [...candidate, "search_code", "read_code", "read_transcript_blocks"];

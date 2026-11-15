@@ -36,6 +36,8 @@ const fileService = {
   }
 };
 const corpusChecksums = Object.fromEntries(await Promise.all(corpusPaths.map(async (path) => [path, hash(await readFile(join(root, path), "utf8"))])));
+const knowledgeArtifactRevision = hash(JSON.stringify(Object.fromEntries(Object.entries(corpusChecksums).filter(([path]) => !path.includes("golden-queries")))));
+const sourceSha256 = hash(JSON.stringify(corpusChecksums));
 await mkdir(join(root, progressPath, ".."), { recursive: true });
 await writeFile(join(root, progressPath), `${JSON.stringify({ phase: "started", corpus_revision: corpusRevision, corpus_checksums: corpusChecksums, cases: cases.length, review_commit: reviewCommit })}\n`);
 
@@ -84,14 +86,21 @@ async function run(caseList = cases, context = {}, activeRegistry = registry) {
   for (const item of caseList) {
     const result = await selectEvalCandidates({
       registry: activeRegistry, caseItem: item, limit,
-      context: { project_id: context.project_id, corpus_revision: corpusRevision, source_revision: corpusRevision, ...context }
+      context: {
+        project_id: context.project_id,
+        corpus_revision: corpusRevision,
+        source_revision: corpusRevision,
+        knowledge_artifact_revision: knowledgeArtifactRevision,
+        review_commit_sha: reviewCommit,
+        ...context
+      }
     });
     rows.push({
       id: item.id,
       expected_files: item.expected_files ?? item.ground_truth ?? [],
       expected_symbols: item.expected_symbols ?? [],
       acceptance_criteria: item.acceptance_criteria ?? [],
-      candidates: result.selected ?? []
+      candidates: result.selected_verified ?? result.selected ?? []
     });
   }
   return rows;
@@ -118,16 +127,19 @@ async function runRejectionProbes() {
           task_context: { candidate_files: [{ path: stalePath, role: "PATCH" }] }
         }
       });
-      const selected = result.selected ?? [];
-      const rejected = selected.filter((candidate) => candidate.stale === true || candidate.receipt?.status !== "verified").length;
+      const selected = result.selected_verified ?? result.selected ?? [];
+      const rejectedEntries = result.rejected ?? [];
+      const rejected = rejectedEntries.filter((candidate) => candidate.rejection_reason === "stale" || candidate.stale === true).length;
+      const eligible = selected.length + rejectedEntries.length;
       stale.push({
         id: item.id,
         probe: "stale_candidate",
-        eligible: selected.length,
+        eligible,
         rejected,
-        status: selected.length > 0 && rejected === selected.length ? "passed" : "not_measured",
-        diagnostics: selected.map((candidate) => ({
+        status: eligible > 0 && selected.every((candidate) => candidate.receipt?.status === "verified") && rejectedEntries.every((candidate) => typeof candidate.rejection_reason === "string") ? "passed" : "not_measured",
+        diagnostics: [...selected, ...rejectedEntries].map((candidate) => ({
           path: candidate.path,
+          reason: candidate.rejection_reason ?? null,
           stale: candidate.stale === true,
           receipt_status: candidate.receipt?.status ?? "missing",
           receipt_error: candidate.receipt?.error ?? null
@@ -173,8 +185,11 @@ const metricCases = reranked.map((row, index) => {
     ...row,
     live_candidates: row.candidates,
     cached_candidates: baseline[index]?.candidates ?? [],
+    baseline_candidates: baseline[index]?.candidates ?? [],
+    reranked_candidates: row.candidates,
     stale_rejected: stale.rejected ?? 0,
     stale_rejection_eligible: stale.eligible ?? 0,
+    rejected_case_count: (stale.rejected ?? 0) + (unauthorized.rejected ?? 0),
     unauthorized_rejected: unauthorized.rejected ?? 0,
     unauthorized_rejection_eligible: unauthorized.eligible ?? 0,
     stale_probe_diagnostics: stale.diagnostics ?? null,
@@ -186,6 +201,9 @@ const metricReport = evaluateRetrievalCases(metricCases, {
   corpusRevision,
   datasetChecksum: hash(JSON.stringify(cases)),
   knowledgeRevision: corpusRevision,
+  knowledgeArtifactRevision,
+  reviewCommitSha: reviewCommit,
+  sourceSha256,
   modelIdentity: useEmbeddings ? embeddingProvider.model : "lexical-only-evaluation",
   indexIdentity: "index-database-current-checkout",
   retrievalConfig: { limit, production_tool: "select_code_graph_candidates", project_id: "nodeforge", embeddings: useEmbeddings },
@@ -221,14 +239,20 @@ const evaluation = {
   corpus_revision: corpusRevision,
   corpus_checksums: corpusChecksums,
   review_commit: reviewCommit,
+  review_commit_sha: reviewCommit,
+  knowledge_artifact_revision: knowledgeArtifactRevision,
+  source_sha256: sourceSha256,
   rejection_probes: rejectionProbes,
   metric_status: {
-    symbol_hit_rate: "measured",
-    acceptance_criteria_coverage: "measured",
-    stale_rejection_rate: "measured_by_eligible_probe",
-    unauthorized_rejection_rate: "measured_by_eligible_probe",
-    live_cache_parity: "measured",
-    baseline_reranked_delta: knowledgeOrderChanged ? "measured_with_observed_delta" : "measured_without_order_delta"
+    precision_at_k: metricReport.metric_details.precision_at_k.status,
+    recall_at_k: metricReport.metric_details.recall_at_k.status,
+    symbol_hit_rate: metricReport.metric_details.symbol_hit_rate.status,
+    acceptance_criteria_coverage: metricReport.metric_details.ac_coverage.status,
+    false_positive_rate: metricReport.metric_details.false_positive_rate.status,
+    stale_rejection_rate: metricReport.metric_details.stale_rejection.status,
+    unauthorized_rejection_rate: metricReport.metric_details.unauthorized_rejection.status,
+    live_cache_parity: metricReport.metric_details.live_cache_parity.status,
+    baseline_reranked_delta: knowledgeOrderChanged ? "measured" : "no_effect"
   },
   comparison: {
     baseline_cases: baseline.length,

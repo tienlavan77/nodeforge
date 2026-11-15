@@ -49,11 +49,12 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
         || context.allowed_prefixes?.some((prefix) => path === prefix.replace(/\/$/, "") || path.startsWith(`${prefix.replace(/\/$/, "")}/`)));
     // Sprint-leader cache: a ticket that already carries manually-traced
     // candidate_files is served directly instead of re-running retrieval.
-    // Stale entries (file no longer indexed) fall through to normal retrieval.
+    // Stale entries are revalidated against live source bytes.
     const cached = reuseTicketCandidates === true ? await cachedTicketCandidates(task, limit, freshnessChecker, allowCandidate) : null;
     if (cached) {
       assertExecutionFileAccess(context);
-      return { task_id: taskId, query: query, index_version: cached.index_version ?? null, selected: await receive(cached.selected, context, allowCandidate, input), candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+      const received = await receive(cached.selected, context, allowCandidate, input);
+      return { ...received, task_id: taskId, query: query, index_version: cached.index_version ?? null, candidate_source: "ticket", ...(cached.freshness ? { freshness: cached.freshness } : {}), ...(cached.stale_paths?.length ? { stale_paths: cached.stale_paths, freshness_note: "Stale candidates were revalidated against the live source." } : {}), discovery_budget: discoveryNotice(context) };
     }
     const allowedPrefixes = context.file_access_version === 2 ? executionReadScope(context).prefixes : context.allowed_prefixes;
     const args = context.eval_harness === true
@@ -66,22 +67,36 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     assertExecutionFileAccess(context);
     const selected = (result.tree ?? []).filter((entry) => allowCandidate(entry?.path)).slice(0, limit);
     const stalePaths = Array.isArray(result.stale_paths) ? result.stale_paths.filter(allowCandidate) : undefined;
-    return { task_id: taskId, query: query, index_version: result.index_version ?? null, selected: await receive(selected.map((entry) => stalePaths?.includes(entry.path) ? { ...entry, stale: true } : entry), context, allowCandidate, input), ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates are flagged, not removed — read the file live and verify before editing." } : {}), discovery_budget: discoveryNotice(context) };
+    const received = await receive(selected.map((entry) => stalePaths?.includes(entry.path) ? { ...entry, stale: true } : entry), context, allowCandidate, input);
+    return { ...received, task_id: taskId, query: query, index_version: result.index_version ?? null, ...(result.freshness ? { freshness: result.freshness } : {}), ...(stalePaths?.length ? { stale_paths: stalePaths, freshness_note: "Stale candidates were flagged and revalidated against the live source." } : {}), discovery_budget: discoveryNotice(context) };
   }
   // Business purpose: keeps receipt registration and durable evidence reporting consistent across both retrieval sources.
-  // Technical description: validates live metadata first, then synchronizes only privately verified entries to the scoped evidence store.
+  // Technical description: validates live metadata first, separates verified and rejected entries, then synchronizes only privately verified entries.
   async function receive(selected, context, allowCandidate, queryInput) {
     const entries = await registerCandidateSources(selected, context, { fileService, codeCache, assertReadPath, allowPath: allowCandidate, logger });
     assertExecutionFileAccess(context);
-    const authorized = entries.filter((entry) => allowCandidate(entry.path));
+    // Business purpose: makes every mixed-batch rejection explainable without exposing an unauthorized source as usable.
+    // Technical description: maps source-validation failures to the stable rejection reasons in the retrieval contract.
+    const rejectionReason = (entry) => {
+      if (!allowCandidate(entry.path)) return "out_of_scope";
+      const error = String(entry.receipt?.error ?? "").toLowerCase();
+      if (error.includes("stale")) return "stale";
+      if (error.includes("scope") || error.includes("authority")) return "unauthorized";
+      if (error.includes("persistence")) return "persistence_failure";
+      return "unreadable";
+    };
+    const rejected = entries.filter((entry) => entry.receipt?.status !== "verified" || !allowCandidate(entry.path))
+      .map((entry) => ({ ...entry, rejected: true, rejection_reason: rejectionReason(entry) }));
+    const authorized = entries.filter((entry) => entry.receipt?.status === "verified" && allowCandidate(entry.path));
     // Knowledge is subordinate to source, scope and receipt gates; it never adds candidates.
     let ranked = authorized;
     if (projectRoot && context.project_id) {
       try {
-        const corpusRevision = context.corpus_revision ?? context.source_revision ?? context.review_commit_sha ?? null;
+        const corpusRevision = context.corpus_revision ?? null;
         const knowledge = await loadProjectKnowledge({ projectRoot, projectId: context.project_id,
-          // A corpus revision is distinct from the review commit that carries the knowledge file.
-          sourceRevision: corpusRevision, logger,
+          // Corpus revision is distinct from the review commit and knowledge artifact revision.
+          sourceRevision: corpusRevision, knowledgeArtifactRevision: context.knowledge_artifact_revision ?? null,
+          reviewCommitSha: context.review_commit_sha ?? null, logger,
           sourceReader: async (path) => {
             if (!allowCandidate(path, context)) return null;
             await assertReadPath?.(path, context);
@@ -92,7 +107,7 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
               path,
               sha256: file.sha256,
               symbol_map: Array.isArray(symbols) ? symbols : [],
-              source_revision: file.source_revision ?? context.corpus_revision ?? context.source_revision ?? null
+              source_revision: file.source_revision ?? context.corpus_revision ?? null
             };
           } });
         ranked = rerankCandidates(authorized, knowledge, { queryFingerprint: fingerprintQuery(queryInput), projectId: context.project_id,
@@ -102,10 +117,25 @@ export function createSelectCodeGraphCandidatesTool({ relevantTreeSelector, fres
     assertExecutionFileAccess(context);
     ranked = ranked.filter((entry) => allowCandidate(entry.path));
     syncToolResultToEvidenceStore({ toolName: "select_code_graph_candidates", result: { selected: ranked }, context, evidenceStore, projectRoot });
-    return ranked;
+    const persistenceRejected = ranked.filter((entry) => entry.evidence?.status === "failed")
+      .map((entry) => ({ ...entry, rejected: true, rejection_reason: "persistence_failure" }));
+    const selectedVerified = ranked.filter((entry) => entry.evidence?.status !== "failed");
+    const allRejected = [...rejected, ...persistenceRejected];
+    const byReason = allRejected.reduce((counts, entry) => {
+      counts[entry.rejection_reason] = (counts[entry.rejection_reason] ?? 0) + 1;
+      return counts;
+    }, {});
+    return {
+      selected: selectedVerified,
+      selected_verified: selectedVerified,
+      rejected: allRejected,
+      diagnostics: { total: entries.length, verified: selectedVerified.length, rejected: allRejected.length, by_reason: byReason }
+    };
   }
 }
 
+// Business purpose: creates a stable fail-closed configuration error for a rejected discovery request.
+// Technical description: maps a caller-visible error code onto the shared ConfigurationError type without exposing authority metadata.
 function scopedError(code, message) { const error = new ConfigurationError(message); error.code = code; return error; }
 
 // Serves sprint-leader-traced candidates stored on the ticket. Returns null
@@ -122,7 +152,7 @@ async function cachedTicketCandidates(task, limit, freshnessChecker, allowCandid
   for (const entry of sortTicketCandidates(files).slice(0, limit)) {
     if (!entry || typeof entry.path !== "string" || !entry.path) continue;
     if (isLegacyBackfillCandidate(entry) || !allowCandidate(entry.path)) continue;
-    selected.push({ path: entry.path, score: 0, reason: [`ticket:${entry.role ?? "REFERENCE"}`, entry.symbol ? `symbol:${entry.symbol}` : "", entry.reason ?? ""].filter(Boolean), ...(entry.symbol ? { symbol: entry.symbol } : {}), relations: [], node: { path: entry.path }, confidence: "ticket-traced" });
+    selected.push({ path: entry.path, score: 0, reason: [`ticket:${entry.role ?? "REFERENCE"}`, entry.symbol ? `symbol:${entry.symbol}` : "", entry.reason ?? ""].filter(Boolean), ...(entry.symbol ? { symbol: entry.symbol } : {}), relations: [], node: { path: entry.path }, confidence: "ticket-traced", cached: true });
   }
   if (!selected.length) return null;
   if (!freshnessChecker || typeof freshnessChecker.checkPaths !== "function") return { selected, index_version: undefined };

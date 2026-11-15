@@ -58,7 +58,8 @@ export async function registerCandidateSources(selected, context, { fileService,
     try {
       assertExecutionFileAccess(context);
       if (!allowPath(entry.path, context)) throw new Error("Candidate path is outside the issued read scope.");
-      if (entry.stale) throw new Error("Candidate index metadata is stale; refresh discovery or read_file.");
+      // Cached index metadata is advisory. Re-read stale ticket entries from the authoritative source and mark the receipt as a live revalidation.
+      if (entry.stale && entry.cached !== true) throw new Error("Candidate index metadata is stale; refresh discovery or read_file.");
       if (typeof fileService?.readForIndex !== "function") throw new Error("Live source validation is unavailable.");
       await assertReadPath?.(entry.path, context);
       const file = await fileService.readForIndex({ path: entry.path });
@@ -87,6 +88,7 @@ export async function registerCandidateSources(selected, context, { fileService,
       if (file.source_revision && file.source_revision !== sourceRevision) throw new Error("Candidate source revision mismatch.");
       const receiptId = `receipt:${randomUUID()}`;
       const provenance = { ...metadata, receipt_id: receiptId, source_revision: sourceRevision,
+        ...(entry.stale ? { source_revalidated: true } : {}),
         execution_identity: { execution_id: executionId, conversation_id: conversationId, delegation_id: delegationId },
         scope: structuredClone({ allowed_file_paths: context.allowed_file_paths ?? null, allowed_prefixes: context.allowed_prefixes ?? null }) };
       Object.assign(entry, provenance, { fresh: true, receipt_id: receiptId, receipt: { status: "verified", read_symbol: false, receipt_id: receiptId } });

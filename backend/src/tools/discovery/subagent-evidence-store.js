@@ -1,7 +1,7 @@
 // Business purpose: provides a durable per-agent evidence store for AM, SE, RV, and Coder with cross-role sharing across AM <-> SE <-> RV handoffs and Sprint/Ticket flows.
 // Technical description: combines an in-memory map with durable JSON persistence under .forge/runtime/nf/evidence-stores/<projectId>/, tracking subagent workers, direct parent reads, and file mutations.
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 const ROLE_ALIASES = Object.freeze({ am: "architecture_manager", architecture: "architecture_manager", architecture_manager: "architecture_manager", se: "system_engineer", "system-engineer": "system_engineer", system_engineer: "system_engineer", rv: "reviewer", reviewer: "reviewer", coder: "coder", sl: "sprint_leader", sprint_leader: "sprint_leader" });
@@ -132,10 +132,50 @@ function roleStateFor(scope = {}) {
 
 // Business purpose: persists the current role store snapshot to disk under .forge/runtime/nf/evidence-stores/<projectId>/.
 // Technical description: serializes workers, evidence, and linked scopes into JSON when a project file path is available.
+// Business purpose: publishes durable evidence snapshots without exposing partially written state to another role or process.
+// Technical description: serializes to a unique sibling temporary file and atomically renames it into place after the complete snapshot is written.
 function persistRoleState(state, scope = {}) {
   if (!state?.filePath) return false;
   try {
-    writeFileSync(state.filePath, JSON.stringify({ project_id: state.project_id, role: state.role, version: state.version, updated_at: new Date().toISOString(), scopes: [...state.scopes], workers: [...state.workers.values()], evidence: [...state.evidence.values()] }, null, 2), "utf8");
+    const currentPayload = {
+      project_id: state.project_id,
+      role: state.role,
+      version: state.version,
+      updated_at: new Date().toISOString(),
+      scopes: [...state.scopes],
+      workers: [...state.workers.values()],
+      evidence: [...state.evidence.values()]
+    };
+    let payload = currentPayload;
+    if (existsSync(state.filePath)) {
+      const persisted = JSON.parse(readFileSync(state.filePath, "utf8"));
+      const evidenceByPath = new Map((persisted.evidence ?? []).map((entry) => [entry.path, entry]));
+      for (const entry of currentPayload.evidence) {
+        const previous = evidenceByPath.get(entry.path);
+        if (!previous) { evidenceByPath.set(entry.path, entry); continue; }
+        const attempts = new Map();
+        for (const attempt of [...(previous.attempts ?? []), ...(entry.attempts ?? [])]) {
+          if (attempt?.attempt_id) attempts.set(attempt.attempt_id, attempt);
+        }
+        evidenceByPath.set(entry.path, { ...previous, ...entry, attempts: [...attempts.values()] });
+      }
+      const workersById = new Map();
+      for (const worker of [...(persisted.workers ?? []), ...currentPayload.workers]) {
+        workersById.set(worker.worker_id ?? worker.delegation_id ?? JSON.stringify(worker), worker);
+      }
+      payload = {
+        ...persisted,
+        ...currentPayload,
+        version: Math.max(Number(persisted.version) || 0, Number(currentPayload.version) || 0),
+        scopes: [...new Set([...(persisted.scopes ?? []), ...currentPayload.scopes])],
+        workers: [...workersById.values()],
+        evidence: [...evidenceByPath.values()]
+      };
+    }
+    const snapshot = JSON.stringify(payload, null, 2);
+    const temporary = state.filePath + ".tmp-" + process.pid + "-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    writeFileSync(temporary, snapshot, "utf8");
+    renameSync(temporary, state.filePath);
     return true;
   } catch (error) {
     recordDurabilityError(state, "write", state.filePath, error, scope);
@@ -255,7 +295,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       });
     },
     recordCandidateReceipt(input = {}) {
-      const { path, sha256 = null, retrieval_id: retrievalId = null, source = "ticket", matched_ac: matchedAc = [], matched_intents: matchedIntents = [], matched_symbols: matchedSymbols = [], score = null, confidence = null, reasons = [] } = input;
+      const { path, sha256 = null, retrieval_id: retrievalId = null, attempt_id: attemptId = null, source = "ticket", matched_ac: matchedAc = [], matched_intents: matchedIntents = [], matched_symbols: matchedSymbols = [], score = null, confidence = null, reasons = [] } = input;
       if (!path || typeof path !== "string") return null;
       const state = stateFor(input.conversationId, input.delegationId);
       const roleState = roleStateFor({ ...input, projectRoot: input.projectRoot ?? defaultProjectRoot, projectId: input.projectId ?? defaultProjectId });
@@ -265,8 +305,10 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       const prev = roleState.evidence.get(path) ?? state.evidence.get(path);
       const shaChanged = Boolean(sha256 && prev?.sha256 && prev.sha256 !== sha256);
       const { planId, handoffId } = inferPlanAndHandoff(input);
+      const attemptIdentity = attemptId ?? input.attemptId ?? `${retrievalId ?? `RETRIEVAL-${nextVersion}`}:attempt:${randomUUID()}`;
       const relevance = {
         retrieval_id: retrievalId ?? `RETRIEVAL-${nextVersion}`,
+        attempt_id: attemptIdentity,
         source,
         matched_ac: [...new Set(Array.isArray(matchedAc) ? matchedAc : [])],
         matched_intents: [...new Set(Array.isArray(matchedIntents) ? matchedIntents : [])],
@@ -282,7 +324,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
         ...(sha256 ? { sha256 } : prev?.sha256 ? { sha256: prev.sha256 } : {}),
         relevance,
         // Preserve every retrieval attempt while keeping the latest entry addressable by path.
-        attempts: [...(prev?.attempts ?? []), { retrieval_id: relevance.retrieval_id, source, sha256: sha256 ?? prev?.sha256 ?? null, relevance, recorded_at: relevance.recorded_at }],
+        attempts: [...(prev?.attempts ?? []), { attempt_id: attemptIdentity, retrieval_id: relevance.retrieval_id, source, sha256: sha256 ?? prev?.sha256 ?? null, relevance, recorded_at: relevance.recorded_at }],
         conversation_id: input.conversationId ?? prev?.conversation_id ?? null,
         delegation_id: input.delegationId ?? prev?.delegation_id ?? null,
         plan_id: planId ?? prev?.plan_id ?? null,
@@ -295,7 +337,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       return { ...entry, durable, ...(roleState.last_durability_error && !durable ? { durability_error: roleState.last_durability_error } : {}) };
     },
     recordDirectEvidence(input = {}) {
-      const { path, sha256, total_lines: totalLines, symbol_map: symbolMap, code_graph: codeGraph, symbols_read: symbolsRead = [], source_tool: sourceTool = "read_file", deleted = false, from_path: fromPath = null, correlation_id: correlationId = null } = input;
+      const { path, sha256, total_lines: totalLines, symbol_map: symbolMap, code_graph: codeGraph, symbols_read: symbolsRead = [], source_tool: sourceTool = "read_file", deleted = false, from_path: fromPath = null, correlation_id: correlationId = null, attempt_id: attemptId = null } = input;
       const state = stateFor(input.conversationId, input.delegationId);
       const roleState = roleStateFor({ ...input, projectRoot: input.projectRoot ?? defaultProjectRoot, projectId: input.projectId ?? defaultProjectId });
       for (const token of scopeTokens(input)) roleState.scopes.add(token);
@@ -311,6 +353,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
       const { planId, handoffId } = inferPlanAndHandoff(input);
       const nowIso = new Date().toISOString();
       const workerId = input.workerId ?? prev?.source_worker_id ?? `parent:${roleState.role}`;
+      const attemptIdentity = attemptId ?? input.attemptId ?? correlationId ?? `${sourceTool}:${randomUUID()}`;
       const prevTools = !shaChanged && Array.isArray(prev?.provenance?.source_tools) ? prev.provenance.source_tools : [];
       const entry = {
         ...(shaChanged ? {} : prev),
@@ -335,7 +378,7 @@ export function createSubagentEvidenceStore({ projectRoot: defaultProjectRoot = 
         },
         ...(input.relevance ? { relevance: structuredClone(input.relevance) } : !shaChanged && prev?.relevance ? { relevance: prev.relevance } : {}),
         // Preserve the provenance and persistence outcome for each attempt on this path.
-        attempts: [...(prev?.attempts ?? []), { correlation_id: correlationId, sha256, source_tool: sourceTool, relevance: input.relevance ? structuredClone(input.relevance) : null, observed_at: nowIso }],
+        attempts: [...(prev?.attempts ?? []), { attempt_id: attemptIdentity, correlation_id: correlationId, sha256, source_tool: sourceTool, relevance: input.relevance ? structuredClone(input.relevance) : null, observed_at: nowIso }],
         source_worker_id: workerId,
         source_role: roleState.role, source_tool: sourceTool, conversation_id: input.conversationId ?? prev?.conversation_id ?? null, delegation_id: input.delegationId ?? prev?.delegation_id ?? null, plan_id: planId ?? prev?.plan_id ?? null, handoff_id: handoffId ?? prev?.handoff_id ?? null, updated_at: nowIso, version: nextVersion
       };

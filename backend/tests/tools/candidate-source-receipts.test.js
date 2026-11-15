@@ -69,12 +69,28 @@ test("stale, unreadable and out-of-scope candidates do not receive source receip
     fileService: f.fileService, evidenceStore: f.store, projectRoot: f.root
   });
   const result = await tool.execute({ query: "stale" }, context);
-  assert.equal(result.selected.length, 1);
-  assert.equal(result.selected[0].receipt.read_symbol, false);
-  assert.equal(result.selected[0].fresh, undefined);
+  assert.equal(result.selected.length, 0);
+  assert.equal(result.selected_verified.length, 0);
+  assert.equal(result.rejected[0].receipt.status, "unavailable");
+  assert.equal(result.rejected[0].rejection_reason, "stale");
   assert.equal(context.active_file_checksums, undefined);
+  const cachedTool = createSelectCodeGraphCandidatesTool({
+    relevantTreeSelector: f.selector,
+    freshnessChecker: { checkPaths: async () => [{ path, status: "stale" }] },
+    fileService: f.fileService,
+    evidenceStore: f.store,
+    projectRoot: f.root
+  });
+  const cachedResult = await cachedTool.execute({ query: "cached" }, f.context("system_engineer", true));
+  assert.equal(cachedResult.selected_verified.length, 1);
+  assert.equal(cachedResult.selected_verified[0].source_revalidated, true);
+  assert.equal(cachedResult.selected_verified[0].fresh, true);
+
   const unavailable = createSelectCodeGraphCandidatesTool({ relevantTreeSelector: f.selector });
-  assert.equal((await unavailable.execute({ query: "unreadable" }, f.context())).selected[0].receipt.status, "unavailable");
+  const unavailableResult = await unavailable.execute({ query: "unreadable" }, f.context());
+  assert.equal(unavailableResult.selected_verified.length, 0);
+  assert.equal(unavailableResult.rejected[0].receipt.status, "unavailable");
+  assert.equal(unavailableResult.rejected[0].rejection_reason, "unreadable");
 });
 
 for (const throws of [false, true]) {
@@ -84,9 +100,11 @@ for (const throws of [false, true]) {
     const evidenceStore = { recordDirectEvidence: () => { if (throws) throw new Error("disk unavailable"); return { durable: false }; } };
     const tool = createSelectCodeGraphCandidatesTool({ relevantTreeSelector: f.selector, fileService: f.fileService, evidenceStore, projectRoot: f.root });
     const result = await tool.execute({ query: "example" }, f.context());
-    assert.equal(result.selected[0].receipt.status, "verified");
-    assert.equal(result.selected[0].evidence.status, "failed");
-    assert.equal(result.selected[0].evidence.durable, false);
+    assert.equal(result.selected_verified.length, 0);
+    assert.equal(result.rejected[0].rejection_reason, "persistence_failure");
+    assert.equal(result.rejected[0].receipt.status, "verified");
+    assert.equal(result.rejected[0].evidence.status, "failed");
+    assert.equal(result.rejected[0].evidence.durable, false);
   });
 }
 

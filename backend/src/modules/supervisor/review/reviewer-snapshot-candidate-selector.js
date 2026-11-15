@@ -11,7 +11,7 @@ import { assertRoleFileAccess } from "../../../infrastructure/filesystem/file-se
 // variant using pinned lexical retrieval; semantic and freshness variants use this same corpus.
 // Business purpose: reports only the symbols that explain a Reviewer candidate match.
  // Technical description: tokenizes the complete retrieval request and filters pinned symbol metadata deterministically.
- function symbolsMatching(symbols, args = {}, content = "") {
+ function symbolsMatching(symbols, args = {}) {
   const query = [args.title, args.objective, args.query, ...(args.acceptanceCriteria ?? args.acceptance_criteria ?? []), ...(args.guardrails ?? [])]
     .filter((value) => typeof value === "string").join(" ").toLowerCase();
   const terms = query.split(/[^A-Za-z0-9_]+/).filter(Boolean);
@@ -19,9 +19,8 @@ import { assertRoleFileAccess } from "../../../infrastructure/filesystem/file-se
     const text = [symbol.name, symbol.summary].filter(Boolean).join(" ").toLowerCase();
     return terms.some((term) => text.includes(term));
   });
-  return matches.length || !terms.some((term) => content.toLowerCase().includes(term)) || symbols.length !== 1
-    ? matches
-    : symbols;
+  // A content hit alone does not prove that a symbol matched the request.
+  return matches;
 }
 
 export function createSnapshotCandidateSelector({ relevantTreeSelector, source, receiptIssuer = source?.registerReceipt } = {}) {
@@ -85,7 +84,7 @@ export function createSnapshotCandidateSelector({ relevantTreeSelector, source, 
         receipt: byPath.get(entry.path).receipt,
         score: entry.score, reason: entry.reason, reasons: entry.reason,
         relations: [], node: { path: entry.path, index_version: source.reviewCommit },
-        confidence: "static", matched_symbols: symbolsMatching(byPath.get(entry.path).symbols, args, byPath.get(entry.path).content)
+        confidence: "static", matched_symbols: symbolsMatching(byPath.get(entry.path).symbols, args)
       }))
     };
 

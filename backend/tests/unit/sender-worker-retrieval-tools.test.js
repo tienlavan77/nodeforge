@@ -45,7 +45,7 @@ test("sender keeps processing tool calls beyond the former eight-turn cap", asyn
   let calls = 0;
   const job = {
     task_id: "TASK-LONG", supervisor_id: "SUP-LONG", request_id: "REQ-LONG", correlation_id: "CORR-LONG", agent_id: "builder",
-    payload: { type: "task", step_id: 1, execution_context: { task_id: "TASK-LONG" } }
+    payload: { type: "task", step_id: 1, execution_context: { task_id: "TASK-LONG", capabilities: ["ping"] } }
   };
   const worker = createSenderWorker({
     queue: { claim: async () => job, ack: async () => {} },
@@ -63,7 +63,7 @@ test("sender keeps processing tool calls beyond the former eight-turn cap", asyn
 });
 
 test("sender resolves Forge tools from the ticket worktree", async () => {
-  const job = { task_id: "TICKET-A", supervisor_id: "SUP-A", request_id: "REQ-A", correlation_id: "CORR-A", agent_id: "builder", payload: { execution_context: { task_id: "TICKET-A" } } };
+  const job = { task_id: "TICKET-A", supervisor_id: "SUP-A", request_id: "REQ-A", correlation_id: "CORR-A", agent_id: "builder", payload: { execution_context: { task_id: "TICKET-A", capabilities: ["read_file"] } } };
   let calls = 0;
   let turns = 0;
   const worker = createSenderWorker({
@@ -75,4 +75,24 @@ test("sender resolves Forge tools from the ticket worktree", async () => {
   });
   assert.equal((await worker.processOnce()).type, "agent.response.received");
   assert.equal(calls, 1);
+});
+
+test("sender denies a caller-supplied tool when execution capability is absent", async () => {
+  let calls = 0;
+  const job = {
+    task_id: "DENY-T",
+    request_id: "DENY-R",
+    correlation_id: "DENY-C",
+    agent_id: "builder",
+    payload: { execution_context: { task_id: "DENY-T", capabilities: [] }, tools: ["read_file"] }
+  };
+  const worker = createSenderWorker({
+    queue: { claim: async () => job, ack: async () => {}, reject: async () => {} },
+    agentRegistry: { resolve: () => ({ adapter: { send: async () => ({ tool_calls: [{ id: "deny", name: "read_file", input: {} }] }) } }) },
+    eventBus: { publish: async () => {} },
+    toolRegistry: {},
+    resolveToolRegistry: async () => ({ read_file: { execute: async () => { calls += 1; } } })
+  });
+  await worker.processOnce();
+  assert.equal(calls, 0);
 });

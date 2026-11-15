@@ -80,10 +80,10 @@ export function validateKnowledgeRecord(record, { projectId, kind = "retrieval_f
  * Loads newline-delimited project knowledge with deterministic ordering,
  * duplicate suppression and explicit diagnostics for malformed or stale data.
  */
-export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevision = null, logger = console, sourceReader = null } = {}) {
+export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevision = null, knowledgeArtifactRevision = null, reviewCommitSha = null, logger = console, sourceReader = null } = {}) {
   if (typeof projectRoot !== "string" || typeof projectId !== "string" || !projectId) throw new TypeError("projectRoot and projectId are required");
   const records = { golden_queries: [], retrieval_feedback: [], semantic_anchors: [] };
-  const diagnostics = { loaded: 0, rejected: 0, duplicates: 0, stale: 0, source_mismatch: 0, rejections: [], files: KNOWLEDGE_FILES };
+  const diagnostics = { loaded: 0, rejected: 0, duplicates: 0, stale: 0, source_mismatch: 0, rejections: [], files: KNOWLEDGE_FILES, corpus_revision: sourceRevision, knowledge_artifact_revision: knowledgeArtifactRevision, review_commit_sha: reviewCommitSha };
   const reject = (path, line, errors) => { diagnostics.rejected++; diagnostics.rejections.push({ path, line, errors }); };
   const seen = new Set();
   for (const [kind, relativePath] of Object.entries(KNOWLEDGE_FILES)) {
@@ -108,6 +108,16 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
       if (sourceRevision && parsed.source_revision !== sourceRevision) {
         diagnostics.stale++;
         reject(relativePath, lineNumber + 1, [`source_revision mismatch: record=${parsed.source_revision}, current=${sourceRevision}`]);
+        continue;
+      }
+      if (knowledgeArtifactRevision && parsed.knowledge_artifact_revision && parsed.knowledge_artifact_revision !== knowledgeArtifactRevision) {
+        diagnostics.stale++;
+        reject(relativePath, lineNumber + 1, [`knowledge_artifact_revision mismatch: record=${parsed.knowledge_artifact_revision}, current=${knowledgeArtifactRevision}`]);
+        continue;
+      }
+      if (reviewCommitSha && parsed.review_commit_sha && parsed.review_commit_sha !== reviewCommitSha) {
+        diagnostics.stale++;
+        reject(relativePath, lineNumber + 1, [`review_commit_sha mismatch: record=${parsed.review_commit_sha}, current=${reviewCommitSha}`]);
         continue;
       }
       if (sourceReader && (!sourceRevision || !parsed.source_revision)) {
@@ -141,7 +151,7 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
     }
   }
   for (const list of Object.values(records)) list.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  return Object.freeze({ project_id: projectId, records: Object.freeze(records), diagnostics: Object.freeze(diagnostics) });
+  return Object.freeze({ project_id: projectId, corpus_revision: sourceRevision, knowledge_artifact_revision: knowledgeArtifactRevision, review_commit_sha: reviewCommitSha, records: Object.freeze(records), diagnostics: Object.freeze(diagnostics) });
 }
 
 /**

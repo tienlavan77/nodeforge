@@ -88,9 +88,11 @@ test("reranking keeps same path-symbol candidates distinct when bound lineage di
 
 test("evaluation artifact retains explicit provenance, fallback counts and regression outcomes", () => {
   const report = evaluateRetrievalCases([{ id: "fixture", fallback_reasons: ["missing_knowledge"] }], {
-    datasetChecksum: "sha256:" + "a".repeat(64), knowledgeRevision: "knowledge-revision", modelIdentity: "fixture-model", indexIdentity: "fixture-index",
+    datasetChecksum: "sha256:" + "a".repeat(64), knowledgeRevision: "knowledge-revision", corpusRevision: "corpus-revision", knowledgeArtifactRevision: "artifact-revision", reviewCommitSha: "review-commit", sourceSha256: "sha256:" + "b".repeat(64), modelIdentity: "fixture-model", indexIdentity: "fixture-index",
     verifierProvenance: [{ verifier: "test", evidence: "fixture" }], regressionResults: [{ name: "scope", passed: true }] });
   assert.equal(report.provenance_complete, true);
+  assert.equal(report.metric_details.precision_at_k.status, "not_measured");
+  assert.equal(report.metric_details.precision_at_k.case_count, 1);
   assert.equal(report.fallback_counts.missing_knowledge, 1);
   assert.equal(report.regression_results[0].passed, true);
   assert.equal(evaluateRetrievalCases([]).provenance_complete, false);
