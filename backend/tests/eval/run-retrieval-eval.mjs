@@ -7,9 +7,13 @@
  * candidates, and emits a report bound to an explicit review commit.
  */
 import { createHash } from "node:crypto";
-import { mkdir, appendFile, copyFile, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, copyFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { createFileService } from "../../src/infrastructure/filesystem/file-service.js";
+import { createGitService } from "../../src/infrastructure/git/git-service.js";
 import { openIndexDatabase } from "../../src/infrastructure/sqlite/index-database.js";
+import { createCodeCacheService } from "../../src/modules/context/code-cache-service.js";
+import { createIndexFreshnessChecker } from "../../src/modules/index/index-freshness.js";
 import { createRetrievalDependencies } from "../../src/modules/index/retrieval-dependencies.js";
 import { createRelevantTreeSelector } from "../../src/modules/index/relevant-tree.js";
 import { createForgeToolRegistry } from "../../src/tools/index.js";
@@ -24,22 +28,13 @@ const limit = Number(args.limit ?? 8);
 const cases = args.case ? RETRIEVAL_EVAL_CASES.filter((item) => item.id === args.case) : RETRIEVAL_EVAL_CASES;
 const outputPath = String(args.output ?? "docs/evaluation/retrieval-evaluation-report.json");
 const progressPath = String(args.progress ?? "docs/evaluation/retrieval-evaluation-progress.jsonl");
-const corpusRevision = String(args.corpus_revision ?? process.env.CORPUS_REVISION ?? "b5cb0d9360f1005d180bd27789be20ebcc38f41b");
-const reviewCommit = String(args.review_commit ?? process.env.REVIEW_COMMIT ?? "0161844b56b0163c9ea6de240f5b28c49c9e55b1");
+const requestedCorpusRevision = args.corpus_revision ?? process.env.CORPUS_REVISION ?? null;
+const requestedReviewCommit = args.review_commit ?? process.env.REVIEW_COMMIT ?? null;
 const corpusPaths = ["vocabulary/semantic-anchors.jsonl", "vocabulary/retrieval-feedback.jsonl", "vocabulary/semantic-evaluation/golden-queries.jsonl"];
 
 const hash = (value) => `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
-const fileService = {
-  readForIndex: async ({ path }) => {
-    const content = await readFile(join(root, path), "utf8");
-    return { path, content, sha256: hash(content), source_revision: corpusRevision };
-  }
-};
-const corpusChecksums = Object.fromEntries(await Promise.all(corpusPaths.map(async (path) => [path, hash(await readFile(join(root, path), "utf8"))])));
-const knowledgeArtifactRevision = hash(JSON.stringify(Object.fromEntries(Object.entries(corpusChecksums).filter(([path]) => !path.includes("golden-queries")))));
-const sourceSha256 = hash(JSON.stringify(corpusChecksums));
-await mkdir(join(root, progressPath, ".."), { recursive: true });
-await writeFile(join(root, progressPath), `${JSON.stringify({ phase: "started", corpus_revision: corpusRevision, corpus_checksums: corpusChecksums, cases: cases.length, review_commit: reviewCommit })}\n`);
+const fileService = createFileService({ projectRoot: root, role: "system_engineer" });
+const gitService = createGitService({ projectRoot: root });
 
 const runtimeDir = String(args.runtime_dir ?? ".forge/runtime/eval-r10");
 const runtimePath = join(root, runtimeDir);
@@ -54,6 +49,16 @@ for (const suffix of ["index.db", "index.db-wal", "index.db-shm"]) {
 const indexDb = await openIndexDatabase(root, { runtimeDir });
 const { search, fileGraph, embeddingStore, embeddingProvider } = createRetrievalDependencies({ database: indexDb });
 const useEmbeddings = args.embeddings === "on";
+const freshnessChecker = createIndexFreshnessChecker({ database: indexDb, fileService }); const codeCache = createCodeCacheService({ projectId: "nodeforge-evaluation", fileService, codeSearch: search });
+const reviewCommit = await gitService.getHead(); if (requestedReviewCommit && requestedReviewCommit !== reviewCommit) throw new Error(`Requested review commit ${requestedReviewCommit} does not match live HEAD ${reviewCommit}.`);
+const corpusSources = Object.fromEntries(await Promise.all(corpusPaths.map(async (path) => [path, await codeCache.read({ path, prewarm: true })])));
+const corpusChecksums = Object.fromEntries(Object.entries(corpusSources).map(([path, source]) => [path, source.sha256]));
+const goldenQueries = corpusSources["vocabulary/semantic-evaluation/golden-queries.jsonl"].content.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+const corpusRevision = String(requestedCorpusRevision ?? hash(JSON.stringify(corpusChecksums)));
+const knowledgeArtifactRevision = hash(JSON.stringify(Object.fromEntries(Object.entries(corpusChecksums).filter(([path]) => !path.includes("golden-queries")))));
+const sourceSha256 = hash(JSON.stringify(corpusChecksums));
+await mkdir(join(root, progressPath, ".."), { recursive: true });
+await fileService.writeFile({ path: progressPath, content: `${JSON.stringify({ phase: "started", corpus_revision: corpusRevision, corpus_checksums: corpusChecksums, golden_query_count: goldenQueries.length, cases: cases.length, review_commit: reviewCommit })}\n` });
 
 /**
  * Business purpose: creates the production registry used by both normal and
@@ -68,13 +73,14 @@ function createRegistry(freshnessChecker = null) {
     freshnessChecker,
     projectRoot: root,
     fileService,
+    codeCache,
     protocolStorage: { get: async () => null },
     projectLogger: () => {}
   });
 }
 
-const registry = createRegistry();
-const staleRegistry = createRegistry({ checkPaths: async (paths) => paths.map((path) => ({ path, status: "stale" })) });
+const registry = createRegistry(freshnessChecker);
+const staleRegistry = createRegistry(freshnessChecker);
 
 /**
  * Business purpose: executes one evaluation mode for every golden retrieval case.
@@ -175,6 +181,9 @@ async function runRejectionProbes() {
 
 const baseline = await run(cases, { project_id: undefined });
 const reranked = await run(cases, { project_id: "nodeforge" });
+const cachePaths = [...new Set(reranked.flatMap((row) => row.candidates.map((candidate) => candidate.path).filter(Boolean)))];
+await codeCache.prewarm(cachePaths);
+const cachedReranked = await run(cases, { project_id: "nodeforge" });
 const rejectionProbes = await runRejectionProbes();
 const staleByCase = new Map(rejectionProbes.stale.map((probe) => [probe.id, probe]));
 const unauthorizedByCase = new Map(rejectionProbes.unauthorized.map((probe) => [probe.id, probe]));
@@ -184,7 +193,7 @@ const metricCases = reranked.map((row, index) => {
   return {
     ...row,
     live_candidates: row.candidates,
-    cached_candidates: baseline[index]?.candidates ?? [],
+    cached_candidates: cachedReranked[index]?.candidates ?? [],
     baseline_candidates: baseline[index]?.candidates ?? [],
     reranked_candidates: row.candidates,
     stale_rejected: stale.rejected ?? 0,
@@ -199,13 +208,13 @@ const metricCases = reranked.map((row, index) => {
 const metricReport = evaluateRetrievalCases(metricCases, {
   k: limit,
   corpusRevision,
-  datasetChecksum: hash(JSON.stringify(cases)),
-  knowledgeRevision: corpusRevision,
+  datasetChecksum: hash(JSON.stringify({ cases, goldenQueries })),
+  knowledgeRevision: knowledgeArtifactRevision,
   knowledgeArtifactRevision,
   reviewCommitSha: reviewCommit,
   sourceSha256,
   modelIdentity: useEmbeddings ? embeddingProvider.model : "lexical-only-evaluation",
-  indexIdentity: "index-database-current-checkout",
+  indexIdentity: `${reviewCommit}:index-db:${indexDb.databasePath}`,
   retrievalConfig: { limit, production_tool: "select_code_graph_candidates", project_id: "nodeforge", embeddings: useEmbeddings },
   verifierProvenance: [{ verifier: "system_engineer", evidence: "production registry end-to-end run", review_commit: reviewCommit }],
   regressionResults: [{ name: "retrieval_runner_completed", status: "passed", cases: cases.length }],
@@ -234,14 +243,20 @@ const knowledgeAfter = knowledgeReranked[0]?.candidates ?? [];
 const knowledgeOrderChanged = JSON.stringify(knowledgeBefore.map((entry) => entry.path)) !== JSON.stringify(knowledgeAfter.map((entry) => entry.path));
 const changed = reranked.filter((row, index) => JSON.stringify(row.candidates.map((entry) => entry.path)) !== JSON.stringify(baseline[index]?.candidates?.map((entry) => entry.path) ?? [])).length;
 
+const cacheStats = codeCache.stats();
 const evaluation = {
   ...metricReport,
   corpus_revision: corpusRevision,
   corpus_checksums: corpusChecksums,
+  golden_query_count: goldenQueries.length,
+  golden_queries: goldenQueries,
   review_commit: reviewCommit,
+  head_verified: reviewCommit === await gitService.getHead(),
   review_commit_sha: reviewCommit,
   knowledge_artifact_revision: knowledgeArtifactRevision,
   source_sha256: sourceSha256,
+  code_cache: cacheStats,
+  freshness_checker: freshnessChecker ? "live-index-freshness" : "unavailable",
   rejection_probes: rejectionProbes,
   metric_status: {
     precision_at_k: metricReport.metric_details.precision_at_k.status,
@@ -269,7 +284,8 @@ const evaluation = {
     }
   }
 };
-await writeFile(join(root, outputPath), `${JSON.stringify(evaluation, null, 2)}\n`);
-await appendFile(join(root, progressPath), `${JSON.stringify({ phase: "completed", cases: cases.length, output_path: outputPath, review_commit: reviewCommit, corpus_revision: corpusRevision, at: new Date().toISOString() })}\n`);
+await fileService.writeFile({ path: outputPath, content: `${JSON.stringify(evaluation, null, 2)}\n` });
+await fileService.appendFile({ path: progressPath, content: `${JSON.stringify({ phase: "completed", cases: cases.length, golden_query_count: goldenQueries.length, output_path: outputPath, review_commit: reviewCommit, corpus_revision: corpusRevision, at: new Date().toISOString() })}\n` });
+codeCache.close();
 await indexDb.close();
 console.log(JSON.stringify({ output_path: outputPath, progress_path: progressPath, cases: cases.length, changed, knowledge_order_changed: knowledgeOrderChanged }));
