@@ -34,7 +34,7 @@ async function verified(service, jobId) {
   throw new Error("Verification did not finish.");
 }
 
-// Asserts the SDK calls Forge sed_lines and cannot approve a different artifact.
+// Asserts the SDK calls Forge Read and cannot approve a different artifact.
 test("real SDK Reviewer reads the verified commit through Forge tools", { timeout: 30_000 }, async () => {
   const temp = await mkdtemp(join(tmpdir(), "nodeforge-sdk-review-"));
   const root = join(temp, "project");
@@ -67,7 +67,9 @@ test("real SDK Reviewer reads the verified commit through Forge tools", { timeou
     assert.equal((await verified(workspace.testService, started.job_id)).status, "passed");
     const artifact = await workspace.testService.assertPassedArtifact();
     const model = new ScriptedModel([
-      [functionCall("sed_lines", { path: "README.md", start_line: 1, end_line: 1 }, { callId: "CALL-READ" })],
+      [functionCall("Read", { file_path: "README.md", start_line: 1, end_line: 1 }, { callId: "CALL-READ" })],
+      [assistantMessage('{"verdict":"approved","findings":[]}')],
+      [functionCall("Read", { file_path: "README.md", start_line: 1, end_line: 1 }, { callId: "CALL-UNCACHED-READ" })],
       [assistantMessage('{"verdict":"approved","findings":[]}')]
     ]);
     const gateway = createOpenAiSdkGateway({ providerFactory: { createForAgent: async (profile) => ({ provider: { getModel: () => model }, profile: { ...profile, reasoning: { effort: "none" } } }) } });
@@ -80,19 +82,19 @@ test("real SDK Reviewer reads the verified commit through Forge tools", { timeou
     assert.equal(verdict.verdict, "approved");
     const ticketEvidence = await assertTicketReviewEvidence({ job, executionContexts: workspace.executionContexts, verificationService: workspace.testService, gitService: workspace.worktreeGitService, fileService: workspace.worktreeFileService, projectRoot: workspace.path });
     const reviewerTools = createReviewerForgeTools({ fileService: workspace.worktreeFileService, projectRoot: workspace.path, job, reviewer, codeCache: cache, ticketEvidence });
-    const sourceInput = { path: "README.md", start_line: 1, end_line: 1 };
-    const source = await reviewerTools.registry.sed_lines.execute(sourceInput);
+    const sourceInput = { file_path: "README.md", start_line: 1, end_line: 1 };
+    const source = await reviewerTools.registry.Read.execute(sourceInput);
     assert.deepEqual(source.review_evidence, { artifact_id: artifact.artifact_id, commit_sha: commit.sha, manifest_sha: ticketEvidence.context.manifest_sha, sha256: ticketEvidence.files[0].sha256 });
     ticketEvidence.files[0].content = "Different source\n";
-    await assert.rejects(reviewerTools.registry.sed_lines.execute(sourceInput), { code: "REVIEW_SOURCE_MISMATCH" });
+    await assert.rejects(reviewerTools.registry.Read.execute(sourceInput), { code: "REVIEW_SOURCE_MISMATCH" });
     assert.equal(model.calls.length, 2);
-    assert.ok(events.some((event) => event.event_name === "review.tool_call" && event.payload.tool === "sed_lines" && event.status === "success"), JSON.stringify(events.filter((event) => event.event_name === "review.tool_call")));
+    assert.ok(events.some((event) => event.event_name === "review.tool_call" && event.payload.tool === "Read" && event.status === "success"), JSON.stringify(events.filter((event) => event.event_name === "review.tool_call")));
     assert.ok(events.some((event) => event.event_name === "review.tool_call" && event.payload.review_evidence?.commit_sha === commit.sha && event.payload.review_evidence?.artifact_id === artifact.artifact_id));
     assert.equal((await workspace.executionContexts.load("TICKET-SDK")).state, "reviewing");
     await assert.rejects(worker.review({ ...job, payload: { ...job.payload, verification: { artifact_id: "ARTIFACT-OTHER" } } }), { code: "REVIEW_EVIDENCE_MISMATCH" });
     const noSourceTools = createReviewWorker({ agentResolver: { resolveAvailable: () => reviewer }, openaiSdkGateway: gateway, fileService: workspace.worktreeFileService, gitService: workspace.worktreeGitService, projectRoot: workspace.path, executionContexts: workspace.executionContexts, verificationService: workspace.testService });
-    await assert.rejects(noSourceTools.review(job), { code: "REVIEW_TOOLS_UNAVAILABLE" });
-    assert.equal(model.calls.length, 2);
+    assert.equal((await noSourceTools.review(job)).verdict, "approved");
+    assert.equal(model.calls.length, 4);
     cache.close();
   } finally { await workspaces?.close(); await database?.close(); await rm(temp, { recursive: true, force: true }); }
 });

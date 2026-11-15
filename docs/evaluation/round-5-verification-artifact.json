@@ -1,35 +1,15 @@
 {
-  "artifact_type": "governed-verification",
-  "base_sha": "d76e4e19b4364870e6b6d8e8539a7e5c8e929707",
-  "commit_sha": "d46b71fed782f354b44437adf1a86535e2d3528a",
-  "source_revision": "d46b71fed782f354b44437adf1a86535e2d3528a",
-  "changed_paths": [
-    "backend/src/modules/supervisor/review/reviewer-forge-tools.js",
-    "backend/src/modules/supervisor/review/reviewer-verification-tools.js",
-    "backend/tests/eval/run-retrieval-eval.mjs",
-    "docs/evaluation/retrieval-evaluation-report.json",
-    "docs/evaluation/retrieval-evaluation-progress.jsonl",
-    "docs/evaluation/round-5-verification-artifact.json"
+  "artifact_type": "governed-verification-locator",
+  "purpose": "Resolve verification evidence generated after the final implementation commit without embedding a self-referential commit hash.",
+  "artifact_path": ".forge/runtime/nf/verification/semantic-retrieval/{review_commit_sha}/round-5-verification-artifact.json",
+  "capability_matrix_path": ".forge/runtime/nf/verification/semantic-retrieval/{review_commit_sha}/capability-matrix.json",
+  "resolve_revision": "Exact clean Git HEAD supplied by Forge git_status.",
+  "validation": [
+    "commit_sha and review_commit_sha must equal the submitted clean HEAD",
+    "base_sha must equal the submitted commit parent",
+    "file_checksums must match pinned committed bytes",
+    "check artifact_sha256 against the separately supplied checksum",
+    "statuses and limitations are taken from executed governed checks"
   ],
-  "executed_commands": [
-    {
-      "command": "node --test backend/tests/unit/reviewer-forge-tools.test.js backend/tests/unit/retrieval-stop-policy-enforcement.test.js backend/tests/tools/candidate-source-receipts.test.js",
-      "status": "passed",
-      "run_id": "VERIFY-RUN-c9efa91b-a326-4745-8245-cf36347357ba"
-    },
-    {
-      "command": "node backend/tests/eval/run-retrieval-eval.mjs --output=docs/evaluation/retrieval-evaluation-report.json --progress=docs/evaluation/retrieval-evaluation-progress.jsonl --review_commit=d46b71fed782f354b44437adf1a86535e2d3528a",
-      "status": "passed",
-      "result": "11-case evaluation completed and emitted explicit rejection-rate metrics, provenance, parity, and reranking comparison"
-    }
-  ],
-  "file_checksums": {
-    "backend/src/modules/supervisor/review/reviewer-forge-tools.js": "sha256:78301aec82f15123bc4b742f8ceaac6f4bf3f3172ae7a6dd7b9df670c5b4b06e",
-    "backend/src/modules/supervisor/review/reviewer-verification-tools.js": "sha256:37b5af6961dd6f8f46d162e2bb0b6a90dee79f9ba2017a33d685d9d2bf3c4d2b",
-    "backend/tests/eval/run-retrieval-eval.mjs": "sha256:5d1ed22691716dc7cdadffddd05fa215abfb2455a168edb69569fce5d9e75f6f",
-    "docs/evaluation/retrieval-evaluation-report.json": "sha256:92575ecfdc4371cf937307d4e228c86e001b1ab3fbdf185c147bce33a9672f96",
-    "docs/evaluation/retrieval-evaluation-progress.jsonl": "sha256:fbf57ab6f4ffbbed29285107a50d80e4ebd0af6be2c74d60ef7fad71fa59c430"
-  },
-  "corpus_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
-  "review_commit": "d46b71fed782f354b44437adf1a86535e2d3528a"
+  "publication": "Generated artifacts remain outside the implementation commit. This tracked file is a locator, not a verification result."
 }

@@ -31,7 +31,7 @@ for (const role of ["architecture_manager", "system_engineer", "reviewer", "spri
       const root = await mkdtemp(join(tmpdir(), "candidate-role-"));
       t.after(() => rm(root, { recursive: true, force: true }));
       let state = {};
-      const context = { task_id: "owner", execution_id: "owner", project_root: root, planning_input_only: true,
+      const context = { source_revision: "a".repeat(40), conversation_id: "owner", delegation_id: "owner", task_id: "owner", execution_id: "owner", project_root: root, planning_input_only: true,
         agent_identity: { agent_id: role, role, provider }, allowed_file_paths: [path], allowed_prefixes: [] };
       const tools = createOwnerConversationTools({ role, projectRoot: root, fileService: source(), context,
         conversationId: "owner", conversationStateStore: { get: async () => state, update: async (_, update) => { state = { ...state, ...update }; } },

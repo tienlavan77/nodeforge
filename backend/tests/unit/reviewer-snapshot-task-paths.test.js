@@ -17,7 +17,14 @@ test("snapshot task paths outside the corpus cannot displace the pinned candidat
   const relevantTreeSelector = Object.fromEntries(methods.map((method) => [method, () => {
     throw new Error("Live selection must never run during snapshot review.");
   }]));
-  const selector = createSnapshotCandidateSelector({ relevantTreeSelector, source });
+  const { registerCandidateSources } = await import("../../src/tools/discovery/candidate-source-receipts.js");
+  const selector = createSnapshotCandidateSelector({ relevantTreeSelector, source, receiptIssuer: async ({ path }) => {
+    const [entry] = await registerCandidateSources([{ path }], {
+      source_revision: source.reviewCommit, execution_id: "fixture", conversation_id: "fixture", delegation_id: "fixture",
+      allowed_file_paths: [path]
+    }, { fileService: source });
+    return { ...entry, ...entry.receipt };
+  } });
   for (const method of methods) {
     for (const text of [
       { title: "schemas/ghost.json" },

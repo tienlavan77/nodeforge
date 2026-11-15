@@ -34,7 +34,7 @@ export function fingerprintQuery(input = {}) {
  * Validates one project knowledge record and returns a normalized immutable
  * record, allowing callers to quarantine invalid data without affecting search.
  */
-export function validateKnowledgeRecord(record, { projectId, kind = "retrieval_feedback", projectRoot = null, sourceReader = null, sourceRevision = null } = {}) {
+export function validateKnowledgeRecord(record, { projectId, kind = "retrieval_feedback", projectRoot = null, sourceReader = null, sourceRevision = null, knowledgeArtifactRevision = null, reviewCommitSha = null } = {}) {
   const errors = [];
   const candidates = record?.accepted_symbols ?? record?.candidate ?? record?.expected_symbols;
   const candidateList = Array.isArray(candidates) ? candidates : candidates ? [candidates] : [];
@@ -59,10 +59,14 @@ export function validateKnowledgeRecord(record, { projectId, kind = "retrieval_f
     if (!nonempty(record.verifier_provenance?.evidence) || !nonempty(record.verifier_provenance?.revision)
       || record.verifier_provenance?.verifier !== (record.verifier ?? record.verified_by)) errors.push("golden verifier_provenance is required");
   }
-  if (!record.source_revision && !record.source_sha256) errors.push("source_revision or source_sha256 is required");
-  if (record.source_sha256 !== undefined && (typeof record.source_sha256 !== "string" || !/^sha256:[a-f0-9]{64}$/.test(record.source_sha256))) errors.push("source_sha256 is invalid");
-  if (record.source_revision !== undefined && (typeof record.source_revision !== "string" || !record.source_revision.trim())) errors.push("source_revision is invalid");
-  if (sourceRevision && record.source_revision && record.source_revision !== sourceRevision) errors.push("source_revision mismatch");
+  for (const field of ["source_revision", "review_commit_sha"]) {
+    if (typeof record[field] !== "string" || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(record[field])) errors.push(`${field} must be a full Git revision`);
+  }
+  if (typeof record.knowledge_artifact_revision !== "string" || !/^(?:sha256:[a-f0-9]{64}|[a-f0-9]{40}(?:[a-f0-9]{24})?)$/.test(record.knowledge_artifact_revision)) errors.push("knowledge_artifact_revision is invalid");
+  if (typeof record.source_sha256 !== "string" || !/^sha256:[a-f0-9]{64}$/.test(record.source_sha256)) errors.push("source_sha256 is invalid");
+  if (sourceRevision && record.source_revision !== sourceRevision) errors.push("source_revision mismatch");
+  if (knowledgeArtifactRevision && record.knowledge_artifact_revision !== knowledgeArtifactRevision) errors.push("knowledge_artifact_revision mismatch");
+  if (reviewCommitSha && record.review_commit_sha !== reviewCommitSha) errors.push("review_commit_sha mismatch");
   const verifier = record.verifier ?? record.verified_by;
   if (!APPROVED_VERIFIERS.has(verifier)) errors.push("verifier provenance is not approved");
   if (kind === "semantic_anchor" && !STATUSES.has(record.status)) errors.push("anchor status is invalid");
@@ -105,17 +109,21 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
         reject(relativePath, lineNumber + 1, [`malformed JSON: ${error.message}`]);
         continue;
       }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        reject(relativePath, lineNumber + 1, ["record must be an object"]);
+        continue;
+      }
       if (sourceRevision && parsed.source_revision !== sourceRevision) {
         diagnostics.stale++;
         reject(relativePath, lineNumber + 1, [`source_revision mismatch: record=${parsed.source_revision}, current=${sourceRevision}`]);
         continue;
       }
-      if (knowledgeArtifactRevision && parsed.knowledge_artifact_revision && parsed.knowledge_artifact_revision !== knowledgeArtifactRevision) {
+      if (knowledgeArtifactRevision && parsed.knowledge_artifact_revision !== knowledgeArtifactRevision) {
         diagnostics.stale++;
         reject(relativePath, lineNumber + 1, [`knowledge_artifact_revision mismatch: record=${parsed.knowledge_artifact_revision}, current=${knowledgeArtifactRevision}`]);
         continue;
       }
-      if (reviewCommitSha && parsed.review_commit_sha && parsed.review_commit_sha !== reviewCommitSha) {
+      if (reviewCommitSha && parsed.review_commit_sha !== reviewCommitSha) {
         diagnostics.stale++;
         reject(relativePath, lineNumber + 1, [`review_commit_sha mismatch: record=${parsed.review_commit_sha}, current=${reviewCommitSha}`]);
         continue;
@@ -125,7 +133,7 @@ export async function loadProjectKnowledge({ projectRoot, projectId, sourceRevis
         reject(relativePath, lineNumber + 1, ["source_revision is required for corpus validation"]);
         continue;
       }
-      const validation = validateKnowledgeRecord(parsed, { projectId, kind: kind === "semantic_anchors" ? "semantic_anchor" : kind, projectRoot, sourceReader, sourceRevision });
+      const validation = validateKnowledgeRecord(parsed, { projectId, kind: kind === "semantic_anchors" ? "semantic_anchor" : kind, projectRoot, sourceReader, sourceRevision, knowledgeArtifactRevision, reviewCommitSha });
       if (!validation.valid) { reject(relativePath, lineNumber + 1, validation.errors); continue; }
       const identity = JSON.stringify([kind, parsed.query_fingerprint, parsed.path ?? parsed.candidate?.path, parsed.symbol ?? parsed.candidate?.symbol, parsed.label, parsed.status]);
       if (seen.has(identity)) { diagnostics.duplicates++; reject(relativePath, lineNumber + 1, ["duplicate feedback identity"]); continue; }

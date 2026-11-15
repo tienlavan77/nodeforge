@@ -20,7 +20,7 @@ import { publishAutomaticReviewOutcome } from "../../src/modules/supervisor/revi
 
 const sha = (content) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
 
-test("O1: Coder can read docs/** outside allowed_file_paths while writes to docs/** remain blocked unless explicitly allowed", () => {
+test("O1: Coder project access follows current policy while protected paths remain blocked", () => {
   const coderContext = {
     agent_identity: { agent_id: "coder-1", role: "coder" },
     allowed_file_paths: ["backend/src/a.js"],
@@ -28,8 +28,10 @@ test("O1: Coder can read docs/** outside allowed_file_paths while writes to docs
   };
   assert.equal(isAgentPathAllowed("docs/architecture.md", coderContext, { operation: "read" }), true);
   assert.equal(isAgentPathAllowed("docs/guides/setup.md", coderContext, { operation: "read" }), true);
-  assert.equal(isAgentPathAllowed("docs/architecture.md", coderContext, { operation: "write" }), false);
-  assert.equal(isAgentPathAllowed("workflows/plan.md", coderContext, { operation: "read" }), false);
+  assert.equal(isAgentPathAllowed("docs/architecture.md", coderContext, { operation: "write" }), true);
+  assert.equal(isAgentPathAllowed("workflows/plan.md", coderContext, { operation: "read" }), true);
+  assert.equal(isAgentPathAllowed(".git/config", coderContext, { operation: "write" }), false);
+  assert.equal(isAgentPathAllowed("../outside.js", coderContext, { operation: "write" }), false);
 
   const docsWriteContext = {
     agent_identity: { agent_id: "coder-1", role: "coder" },
@@ -112,7 +114,8 @@ test("O3: pre-commit run_check materializes working ledger overlay with pre_comm
 
     await contexts.assertApprovedPath("T-O3", "src/helpers/new-helper.js");
     await ledger.write({ taskId: "T-O3", path: "src/helpers/new-helper.js", before: null, after: "// Helper\nexport const h = 2;\n" });
-    await assert.rejects(() => contexts.assertApprovedPath("T-O3", "src/other/forbidden.js"), { code: "TICKET_BASELINE_SCOPE" });
+    await contexts.assertApprovedPath("T-O3", "src/other/project-file.js");
+    await assert.rejects(() => contexts.assertApprovedPath("T-O3", "../outside.js"), { code: "TICKET_BASELINE_SCOPE" });
 
     let materializedOverlay = null;
     const runCheck = createTicketFocusedCheck({
@@ -186,7 +189,7 @@ test("O4 & O5: Reviewer retains snapshot reads but cannot bypass unsupported che
     assert.equal(metadata.index_status, "extracted");
     assert.equal(metadata.symbol_map.some((sym) => sym.name === "computeTotal"), true);
 
-    const symRead = await tools.registry.read_file.execute({ path, symbol: "computeTotal" });
+    const symRead = await tools.registry.Read.execute({ file_path: path, symbol: "computeTotal" });
     assert.match(symRead.content, /export function computeTotal/);
 
     for (let count = 0; count < 3; count++) {

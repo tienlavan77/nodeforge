@@ -12,7 +12,7 @@ import { evaluateRetrievalCases } from "../eval/retrieval-metrics.js";
 function golden() {
   const record = { project_id: "project", objective: "Find example behavior", acceptance_criteria: ["example returns a value"], guardrails: [],
     expected_symbols: [{ path: "backend/src/example.js", symbol: "example" }], acceptable_alternatives: [], known_false_positives: [],
-    source_revision: "a".repeat(40), verifier: "test", verifier_provenance: { verifier: "test", evidence: "fixture:example", revision: "a".repeat(40) } };
+    source_revision: "a".repeat(40), knowledge_artifact_revision: "b".repeat(40), review_commit_sha: "c".repeat(40), source_sha256: "sha256:" + "d".repeat(64), verifier: "test", verifier_provenance: { verifier: "test", evidence: "fixture:example", revision: "a".repeat(40) } };
   return { ...record, query_fingerprint: fingerprintQuery(record) };
 }
 
@@ -57,7 +57,7 @@ test("reranking requires private receipt validation and exact lineage, caps dupl
   const candidates = [0, 1, 2, 3].map((i) => ({ path: `backend/src/e${i}.js`, symbol: "example", score: 1,
     sha256: "sha256:" + "b".repeat(64), source_revision: "a".repeat(40), receipt_id: `receipt:${i}`, receipt: { status: "verified" }, fresh: true,
     scope: { allowed_file_paths: ["backend/src"], allowed_prefixes: [] }, execution_identity: { execution_id: "run" } }));
-  const feedback = candidates.map((candidate) => ({ ...golden(), label: "accepted", corpus_validated: true, candidate: { path: candidate.path, symbol: candidate.symbol },
+  const feedback = candidates.map((candidate) => ({ ...golden(), label: "accepted", corpus_validated: true, source_sha256: candidate.sha256, candidate: { path: candidate.path, symbol: candidate.symbol },
     receipt_binding: { receipt_id: candidate.receipt_id, source_revision: candidate.source_revision, scope: candidate.scope, execution_identity: candidate.execution_identity } }));
   const knowledge = { records: { retrieval_feedback: [...feedback, ...feedback] } };
   const options = { queryFingerprint: golden().query_fingerprint, projectId: "project", receiptValidator: () => true };
@@ -72,7 +72,7 @@ test("reranking requires private receipt validation and exact lineage, caps dupl
 test("reranking canonicalizes reordered lineage keys for a distinct candidate", () => {
   const first = { path: "backend/src/other.js", symbol: "other", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:one", receipt: { status: "verified" }, fresh: true, scope: { allowed_file_paths: ["backend/src"], allowed_prefixes: [], nested: { alpha: "a", beta: "b" } }, execution_identity: { execution_id: "run:one", metadata: { first: 1, second: 2 } } };
   const second = { path: "backend/src/example.js", symbol: "example", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:two", receipt: { status: "verified" }, fresh: true, scope: { nested: { beta: "b", alpha: "a" }, allowed_prefixes: [], allowed_file_paths: ["backend/src"] }, execution_identity: { metadata: { second: 2, first: 1 }, execution_id: "run:one" } };
-  const record = { ...golden(), label: "accepted", corpus_validated: true, candidate: { path: second.path, symbol: second.symbol }, receipt_binding: { receipt_id: second.receipt_id, source_revision: second.source_revision, scope: first.scope, execution_identity: first.execution_identity } };
+  const record = { ...golden(), label: "accepted", corpus_validated: true, source_sha256: second.sha256, candidate: { path: second.path, symbol: second.symbol }, receipt_binding: { receipt_id: second.receipt_id, source_revision: second.source_revision, scope: first.scope, execution_identity: first.execution_identity } };
   const ranked = rerankCandidates([first, second], { records: { retrieval_feedback: [record] } }, { queryFingerprint: golden().query_fingerprint, projectId: "project", receiptValidator: () => true, maxAdjustedCandidates: 2 });
   assert.equal(ranked.find((item) => item.path === first.path).knowledge_adjustment, 0);
   assert.equal(ranked.find((item) => item.path === second.path).knowledge_adjustment, 0.15);
@@ -81,7 +81,7 @@ test("reranking canonicalizes reordered lineage keys for a distinct candidate", 
 test("reranking keeps same path-symbol candidates distinct when bound lineage differs", () => {
   const first = { path: "backend/src/example.js", symbol: "example", score: 1, sha256: "sha256:" + "1".repeat(64), source_revision: "a".repeat(40), receipt_id: "receipt:one", receipt: { status: "verified" }, fresh: true, scope: { allowed_file_paths: ["backend/src"], allowed_prefixes: [] }, execution_identity: { execution_id: "run:one" } };
   const second = { ...first, sha256: "sha256:" + "2".repeat(64), receipt_id: "receipt:two", execution_identity: { execution_id: "run:two" } };
-  const record = (candidate) => ({ ...golden(), label: "accepted", corpus_validated: true, candidate: { path: candidate.path, symbol: candidate.symbol }, receipt_binding: { receipt_id: candidate.receipt_id, source_revision: candidate.source_revision, scope: candidate.scope, execution_identity: candidate.execution_identity } });
+  const record = (candidate) => ({ ...golden(), label: "accepted", corpus_validated: true, source_sha256: candidate.sha256, candidate: { path: candidate.path, symbol: candidate.symbol }, receipt_binding: { receipt_id: candidate.receipt_id, source_revision: candidate.source_revision, scope: candidate.scope, execution_identity: candidate.execution_identity } });
   const ranked = rerankCandidates([first, second], { records: { retrieval_feedback: [record(first), record(second)] } }, { queryFingerprint: golden().query_fingerprint, projectId: "project", receiptValidator: () => true, maxAdjustedCandidates: 2 });
   assert.equal(ranked.filter((item) => item.knowledge_adjustment).length, 2);
 });

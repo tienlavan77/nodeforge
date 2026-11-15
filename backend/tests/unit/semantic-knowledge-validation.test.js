@@ -10,6 +10,7 @@ import { fingerprintQuery, loadProjectKnowledge, rerankCandidates, validateKnowl
 const query = { title: "Receipt retrieval", objective: "Find verified source", acceptance_criteria: ["Read the symbol"], guardrails: ["Stay scoped"] };
 const baseRecord = {
   project_id: "project", ...query, query_fingerprint: fingerprintQuery(query), source_revision: "a".repeat(40),
+  knowledge_artifact_revision: "b".repeat(40), review_commit_sha: "c".repeat(40), source_sha256: "sha256:" + "d".repeat(64),
   verifier: "reviewer", label: "accepted", candidate: { path: "backend/src/example.js", symbol: "example", source_revision: "a".repeat(40) }
 };
 
