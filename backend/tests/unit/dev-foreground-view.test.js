@@ -199,3 +199,29 @@ async function verifyForegroundApiRestartAndWorkerLogProgress(context) {
 }
 
 test("dev:foreground supervises real API child startup, renders worker-log-driven embedding progress, and restarts API via /r api", verifyForegroundApiRestartAndWorkerLogProgress);
+
+// Business purpose: verifies that an API crash is automatically recovered so a temporary SIGBUS does not leave the development agent disconnected indefinitely.
+// Technical description: starts a child that exits with SIGBUS, observes bounded delayed respawn and crash logging, then shuts down the controller to cancel pending recovery timers.
+async function verifyForegroundApiAutoRestart() {
+  const projectRoot = await mkdtemp(join(tmpdir(), "nodeforge-foreground-auto-restart-"));
+  const crashScriptPath = join(projectRoot, "crash-api.mjs");
+  await writeFile(crashScriptPath, "process.kill(process.pid, 'SIGBUS');\n");
+  const controller = createForegroundController({
+    serviceDefinitions: { api: { command: process.execPath, args: [crashScriptPath], cwd: projectRoot } },
+    apiRestartDelaysMs: [10],
+    output: { rows: 24, columns: 100, write: () => {} },
+    projectRoot,
+    getGitInfo: () => "main"
+  });
+  try {
+    controller.start("api");
+    await waitForCondition(() => controller.logLines.some((entry) => entry.line.includes("api: auto-restarted")), 3000, () => JSON.stringify(controller.logLines));
+    assert.ok(controller.logLines.some((entry) => entry.line === "exited (SIGBUS)"));
+    assert.ok(controller.logLines.some((entry) => entry.line.includes("auto-restart scheduled in 10ms")));
+  } finally {
+    await controller.shutdown();
+    await rm(projectRoot, { recursive: true, force: true });
+  }
+}
+
+test("dev:foreground automatically restarts an API child after SIGBUS", verifyForegroundApiAutoRestart);

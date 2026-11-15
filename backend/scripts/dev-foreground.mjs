@@ -71,11 +71,14 @@ export function createForegroundController({
   serviceDefinitions = definitions,
   output = process.stdout,
   projectRoot = process.cwd(),
-  getGitInfo
+  getGitInfo,
+  autoRestartApi = true,
+  apiRestartDelaysMs = [1000, 2000, 5000, 10000, 30000]
 } = {}) {
   const controllerChildren = new Map();
   const controllerState = new Map(Object.keys(serviceDefinitions).map((name) => [name, "starting"]));
   const controllerLogs = [];
+  const apiRestartState = { attempts: 0, timer: null, stableTimer: null };
   let controllerShuttingDown = false;
   const view = createForegroundView({
     children: controllerChildren,
@@ -95,6 +98,30 @@ export function createForegroundController({
     }
     while (controllerLogs.length > 2000) controllerLogs.shift();
   }
+  // Business purpose: automatically restores the API after a crash so the development agent can reconnect without manual intervention.
+  // Technical description: schedules bounded backoff restart attempts after an unexpected API exit and avoids duplicate timers during shutdown.
+  function scheduleApiRestart() {
+    if (!autoRestartApi || controllerShuttingDown || apiRestartState.timer) return;
+    const delay = apiRestartDelaysMs[Math.min(apiRestartState.attempts, apiRestartDelaysMs.length - 1)];
+    apiRestartState.attempts += 1;
+    recordLog("SYSTEM", `api: auto-restart scheduled in ${delay}ms (attempt ${apiRestartState.attempts})`);
+    apiRestartState.timer = setTimeout(() => {
+      apiRestartState.timer = null;
+      if (controllerShuttingDown || controllerChildren.has("api")) return;
+      startService("api");
+      recordLog("SYSTEM", `api: auto-restarted (pid ${controllerChildren.get("api")?.pid ?? "unknown"})`);
+    }, delay);
+    apiRestartState.timer.unref?.();
+  }
+  // Resets the API crash retry budget after the child remains healthy for a stable interval.
+  function markApiStable() {
+    if (apiRestartState.stableTimer) clearTimeout(apiRestartState.stableTimer);
+    apiRestartState.stableTimer = setTimeout(() => {
+      apiRestartState.attempts = 0;
+      apiRestartState.stableTimer = null;
+    }, 30000);
+    apiRestartState.stableTimer.unref?.();
+  }
   // Spawns a supervised child service and wires its stdout/stderr streams into the log buffer.
   function startService(name) {
     if (controllerChildren.has(name)) return controllerChildren.get(name);
@@ -106,6 +133,7 @@ export function createForegroundController({
     });
     controllerChildren.set(name, child);
     controllerState.set(name, "running");
+    if (name === "api") markApiStable();
     for (const stream of [child.stdout, child.stderr]) {
       const receive = createForegroundLogReceiver((line) => recordLog(name, line));
       stream.on("data", receive);
@@ -115,7 +143,10 @@ export function createForegroundController({
       if (controllerChildren.get(name) !== child) return;
       controllerChildren.delete(name);
       controllerState.set(name, "exited");
-      if (!controllerShuttingDown) recordLog(name, `exited (${signal ?? code ?? "unknown"})`);
+      if (!controllerShuttingDown) {
+        recordLog(name, `exited (${signal ?? code ?? "unknown"})`);
+        if (name === "api") scheduleApiRestart();
+      }
     });
     recordLog(name, `started (pid ${child.pid})`);
     return child;
@@ -146,6 +177,10 @@ export function createForegroundController({
   async function shutdownController() {
     if (controllerShuttingDown) return;
     controllerShuttingDown = true;
+    if (apiRestartState.timer) clearTimeout(apiRestartState.timer);
+    if (apiRestartState.stableTimer) clearTimeout(apiRestartState.stableTimer);
+    apiRestartState.timer = null;
+    apiRestartState.stableTimer = null;
     await Promise.all([...controllerChildren.keys()].map((name) => stopService(name)));
   }
   // Executes an interactive command (/r api, /r ui, /r watcher, /q, etc.) against this controller.

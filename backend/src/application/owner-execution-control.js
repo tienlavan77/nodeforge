@@ -4,7 +4,7 @@ import { ConfigurationError } from "../shared/errors.js";
 import { ownerExecutionRolePolicy } from "./owner-execution-role-policy.js";
 
 // Provides scoped execution controls without replaying uncertain Git or file operations.
-export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint, sdkStream, ownerChatService, communications, agentConfiguration }) {
+export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint, sdkStream, ownerChatService, communications, agentConfiguration, projectLogger = console.error }) {
   const checkpointStores = { system_engineer: checkpoint, architecture_manager: architectureCheckpoint };
   // Resolves only the checkpoint store allowed for the conversation's configured role.
   function storeFor(agentId) {
@@ -69,6 +69,31 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
     return summary({ ...record, execution_id: nextId, status: "running" }, store);
   }
 
+  // Business purpose: resumes safe owner executions after an API process restart so a transient SIGBUS does not permanently strand an agent turn.
+  // Technical description: scans persisted owner messages and role checkpoints, then reuses the existing Continue path only for interrupted executions whose provider session and workspace reconciliation are valid.
+  async function recoverInterrupted() {
+    const profiles = typeof agentConfiguration?.getAll === "function" ? agentConfiguration.getAll() : [];
+    const messages = typeof communications?.getAll === "function" ? communications.getAll() : [];
+    const candidates = new Map();
+    for (const message of messages) {
+      if (message?.message_type !== "owner.message" || !message.conversation_id || !message.recipient?.id) continue;
+      candidates.set(`${message.conversation_id}:${message.recipient.id}`, { conversationId: message.conversation_id, agentId: message.recipient.id });
+    }
+    for (const candidate of candidates.values()) {
+      const profile = profiles.find((entry) => entry?.agent_id === candidate.agentId || entry?.id === candidate.agentId);
+      if (!profile || !["system_engineer", "architecture_manager"].includes(profile.role)) continue;
+      try {
+        const resumable = (await list(candidate.conversationId, candidate.agentId)).filter((entry) => entry.can_continue);
+        for (const execution of resumable) {
+          await decide(candidate.conversationId, execution.execution_id, candidate.agentId, "continue");
+          projectLogger?.({ event_name: "owner.execution_auto_resumed", level: "info", status: "success", message: "Resumed a safe owner execution after API restart.", conversation_id: candidate.conversationId, task_id: execution.execution_id, payload: { agent_id: candidate.agentId, role: profile.role } });
+        }
+      } catch (error) {
+        projectLogger?.({ event_name: "owner.execution_auto_resume_failed", level: "error", status: "failed", message: error.message, conversation_id: candidate.conversationId, payload: { agent_id: candidate.agentId, error_code: error.code ?? "OWNER_AUTO_RESUME_FAILED" } });
+      }
+    }
+  }
+
   // Reconciles one uncertain Architecture document only after server-verified runner stop and file state.
   async function reconcilePending(conversationId, executionId, agentId, sequence, actorId) {
     const { store } = await locate(conversationId, executionId, agentId);
@@ -86,5 +111,5 @@ export function createOwnerExecutionControl({ checkpoint, architectureCheckpoint
     return Object.hasOwn(checkpointStores, role) && ownerExecutionRolePolicy(role).requiresOwnerAuth;
   }
 
-  return Object.freeze({ list, pause, decide, reconcilePending, requiresOwnerAuth });
+  return Object.freeze({ list, pause, decide, recoverInterrupted, reconcilePending, requiresOwnerAuth });
 }
