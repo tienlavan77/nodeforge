@@ -24,6 +24,7 @@ const cases = args.case ? RETRIEVAL_EVAL_CASES.filter((item) => item.id === args
 const outputPath = String(args.output ?? "docs/evaluation/retrieval-evaluation-report.json");
 const progressPath = String(args.progress ?? "docs/evaluation/retrieval-evaluation-progress.jsonl");
 const corpusRevision = "4a6741ce88610ff66e19d0cdaae2d7c9f2190928";
+const reviewCommit = String(args.review_commit ?? process.env.REVIEW_COMMIT ?? "d46b71fed782f354b44437adf1a86535e2d3528a");
 const corpusPaths = ["vocabulary/semantic-anchors.jsonl", "vocabulary/retrieval-feedback.jsonl", "vocabulary/semantic-evaluation/golden-queries.jsonl"];
 
 const hash = (value) => `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
@@ -73,7 +74,7 @@ const metricReport = evaluateRetrievalCases(metricCases, {
   knowledgeRevision: corpusRevision, modelIdentity: embeddingProvider.model,
   indexIdentity: "index-database-current-checkout",
   retrievalConfig: { limit, production_tool: "select_code_graph_candidates", project_id: "nodeforge" },
-  verifierProvenance: [{ verifier: "system_engineer", evidence: "production registry end-to-end run", review_commit: "073eb61393340d8d74ab4a9951b18d21b97d1376" }],
+  verifierProvenance: [{ verifier: "system_engineer", evidence: "production registry end-to-end run", review_commit: reviewCommit }],
   regressionResults: [{ name: "retrieval_runner_completed", status: "passed", cases: cases.length }]
 });
 
@@ -88,7 +89,7 @@ const evaluation = {
   ...metricReport,
   corpus_revision: corpusRevision,
   corpus_checksums: corpusChecksums,
-  review_commit: "073eb61393340d8d74ab4a9951b18d21b97d1376",
+  review_commit: reviewCommit,
   rejection_probes: { unauthorized_candidate_input: unauthorizedProbe },
   metric_status: {
     symbol_hit_rate: "measured", acceptance_criteria_coverage: "measured",

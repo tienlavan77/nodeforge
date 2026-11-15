@@ -8,7 +8,7 @@
     {
       "verifier": "system_engineer",
       "evidence": "production registry end-to-end run",
-      "review_commit": "01d3ce807820c9621b114387322a1e39ea371c43"
+      "review_commit": "d46b71fed782f354b44437adf1a86535e2d3528a"
     }
   ],
   "regression_results": [
@@ -164,6 +164,8 @@
     "false_positive_rate": 0.9090909090909091,
     "stale_candidate_rejection": 0,
     "unauthorized_candidate_rejection": 0,
+    "stale_rejection_rate": 0,
+    "unauthorized_rejection_rate": 0,
     "live_cache_parity": 1
   },
   "corpus_checksums": {
@@ -171,7 +173,7 @@
     "vocabulary/retrieval-feedback.jsonl": "sha256:32b520525527c21bbf87654d75257314fa97a620dbeec0811dce0712e6753e2f",
     "vocabulary/semantic-evaluation/golden-queries.jsonl": "sha256:797b4d28ea1b3239ff499962c4d7e9372ee264cbee9e5ab90ebd984540cc6d5f"
   },
-  "review_commit": "01d3ce807820c9621b114387322a1e39ea371c43",
+  "review_commit": "d46b71fed782f354b44437adf1a86535e2d3528a",
   "rejection_probes": {
     "unauthorized_candidate_input": {
       "status": "passed",
@@ -185,6 +187,14 @@
     "unauthorized_rejection_rate": "passed",
     "live_cache_parity": "measured",
     "baseline_reranked_delta": "measured"
+  },
+  "metric_evidence": {
+    "cases_total": 11,
+    "verifier": "system_engineer",
+    "review_commit": "d46b71fed782f354b44437adf1a86535e2d3528a",
+    "corpus_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
+    "stale_rejection_rate": { "rejected": 0, "eligible": 11, "value": 0 },
+    "unauthorized_rejection_rate": { "rejected": 0, "eligible": 11, "value": 0 }
   },
   "comparison": {
     "baseline_cases": 11,
