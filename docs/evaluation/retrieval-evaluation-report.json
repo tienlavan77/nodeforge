@@ -1,15 +1,14 @@
 {
-  "evaluation_status": "timed_out",
-  "timeout_reason": "Governed verification window elapsed while opening the production index database.",
-  "dataset_checksum": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "evaluation_status": "completed",
+  "dataset_checksum": "sha256:2ad6c3a15db08d02c5a229ac464d54c20ed03305e941911100d93d3a96776c99",
   "knowledge_revision": "4a6741ce88610ff66e19d0cdaae2d7c9f2190928",
   "model_identity": "Xenova/nomic-embed-text-v1.5",
   "index_identity": "index-database-current-checkout",
   "verifier_provenance": [
     {
       "verifier": "system_engineer",
-      "evidence": "governed production registry evaluation attempt",
-      "review_commit": "409935d13f1a9116b1380652533e9a7400bff0a0"
+      "evidence": "production registry end-to-end run",
+      "review_commit": "01d3ce807820c9621b114387322a1e39ea371c43"
     }
   ],
   "regression_results": [
@@ -17,12 +16,12 @@
       "name": "reviewer_and_retrieval_governance_tests",
       "status": "passed",
       "cases": 3,
-      "run_id": "VERIFY-RUN-a73d2d65-3991-400b-b002-2bc5c365130d"
+      "run_id": "VERIFY-RUN-a36521e0-750a-4cad-8fc6-feb8592fec76"
     },
     {
       "name": "retrieval_runner_completed",
-      "status": "timed_out",
-      "cases": 10
+      "status": "passed",
+      "cases": 11
     }
   ],
   "provenance_complete": true,
@@ -34,33 +33,164 @@
     "project_id": "nodeforge"
   },
   "k": 8,
-  "cases": [],
-  "metrics": null,
+  "cases": [
+    {
+      "id": "1789610673670",
+      "precision_at_k": 0,
+      "recall_at_k": 0,
+      "symbol_hit_rate": 0,
+      "ac_coverage": 0,
+      "false_positive_rate": 1,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789618154255",
+      "precision_at_k": 0.25,
+      "recall_at_k": 0.5,
+      "symbol_hit_rate": 1,
+      "ac_coverage": 0,
+      "false_positive_rate": 0.75,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789715548287",
+      "precision_at_k": 0.125,
+      "recall_at_k": 0.5,
+      "symbol_hit_rate": 1,
+      "ac_coverage": 0,
+      "false_positive_rate": 0.875,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789618365350",
+      "precision_at_k": 0.125,
+      "recall_at_k": 1,
+      "symbol_hit_rate": 1,
+      "ac_coverage": 0,
+      "false_positive_rate": 0.875,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789717510702",
+      "precision_at_k": 0,
+      "recall_at_k": 0,
+      "symbol_hit_rate": 0,
+      "ac_coverage": 0,
+      "false_positive_rate": 1,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789481976392",
+      "precision_at_k": 0.125,
+      "recall_at_k": 0.3333333333333333,
+      "symbol_hit_rate": 1,
+      "ac_coverage": 0,
+      "false_positive_rate": 0.875,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789549690715",
+      "precision_at_k": 0.125,
+      "recall_at_k": 0.5,
+      "symbol_hit_rate": 1,
+      "ac_coverage": 0,
+      "false_positive_rate": 0.875,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789572090025",
+      "precision_at_k": 0,
+      "recall_at_k": 0,
+      "symbol_hit_rate": 0,
+      "ac_coverage": 0,
+      "false_positive_rate": 1,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789476103218",
+      "precision_at_k": 0,
+      "recall_at_k": 0,
+      "symbol_hit_rate": 0,
+      "ac_coverage": 0,
+      "false_positive_rate": 1,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789481898268",
+      "precision_at_k": 0.125,
+      "recall_at_k": 0.5,
+      "symbol_hit_rate": 1,
+      "ac_coverage": 0,
+      "false_positive_rate": 0.875,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    },
+    {
+      "id": "1789602291693",
+      "precision_at_k": 0.125,
+      "recall_at_k": 0.5,
+      "symbol_hit_rate": 1,
+      "ac_coverage": 0,
+      "false_positive_rate": 0.875,
+      "stale_rejected": 0,
+      "unauthorized_rejected": 0,
+      "live_cache_parity": 1
+    }
+  ],
+  "metrics": {
+    "precision_at_k": 0.09090909090909091,
+    "recall_at_k": 0.3484848484848485,
+    "symbol_hit_rate": 0.6363636363636364,
+    "ac_coverage": 0,
+    "false_positive_rate": 0.9090909090909091,
+    "stale_candidate_rejection": 0,
+    "unauthorized_candidate_rejection": 0,
+    "live_cache_parity": 1
+  },
   "corpus_checksums": {
     "vocabulary/semantic-anchors.jsonl": "sha256:3288e2f79f78836c8b65953826fae5338a6f627bc259300c4a48e65a21c24417",
     "vocabulary/retrieval-feedback.jsonl": "sha256:32b520525527c21bbf87654d75257314fa97a620dbeec0811dce0712e6753e2f",
     "vocabulary/semantic-evaluation/golden-queries.jsonl": "sha256:797b4d28ea1b3239ff499962c4d7e9372ee264cbee9e5ab90ebd984540cc6d5f"
   },
-  "review_commit": "409935d13f1a9116b1380652533e9a7400bff0a0",
+  "review_commit": "01d3ce807820c9621b114387322a1e39ea371c43",
   "rejection_probes": {
     "unauthorized_candidate_input": {
-      "status": "not_run",
-      "reason": "runner timed out before registry initialization completed"
+      "status": "passed",
+      "error_code": "TOOL_FORBIDDEN"
     }
   },
   "metric_status": {
-    "symbol_hit_rate": "not_measured",
-    "acceptance_criteria_coverage": "not_measured",
-    "stale_rejection_rate": "not_measured",
-    "unauthorized_rejection_rate": "not_run",
-    "live_cache_parity": "not_measured",
-    "baseline_reranked_delta": "not_measured"
+    "symbol_hit_rate": "measured",
+    "acceptance_criteria_coverage": "measured",
+    "stale_rejection_rate": "measured_by_case",
+    "unauthorized_rejection_rate": "passed",
+    "live_cache_parity": "measured",
+    "baseline_reranked_delta": "measured"
   },
   "comparison": {
-    "baseline_cases": 0,
-    "reranked_cases": 0,
+    "baseline_cases": 11,
+    "reranked_cases": 11,
     "cases_with_changed_order": 0,
     "delta_numerator": 0,
-    "delta_denominator": 0
+    "delta_denominator": 11
   }
 }
