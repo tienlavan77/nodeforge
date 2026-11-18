@@ -23,3 +23,17 @@ test("run_check accepts one quoted PHP inline integration script", () => {
   assert.throws(() => validateCheckCommand("php -r echo 1", "test"), { code: "INPUT_INVALID" });
   assert.throws(() => validateCheckCommand("php -r 'echo 1;' && rm -rf .", "test"), { code: "INPUT_INVALID" });
 });
+
+// Verify SE can run a scoped Composer test without enabling global launchers, options or shell expressions.
+test("run_check accepts only scoped project PHPUnit commands for the test check type", () => {
+  for (const launcher of ["vendor/bin/phpunit", "php vendor/bin/phpunit", "php ./vendor/bin/phpunit", "./vendor/bin/phpunit"]) {
+    const command = `${launcher} tests/Unit/ExampleTest.php`;
+    assert.doesNotThrow(() => validateCheckCommand(command, "test"));
+    assert.throws(() => validateCheckCommand(command, "lint"), { code: "INPUT_INVALID" });
+  }
+  for (const command of ["phpunit tests/ExampleTest.php", "php vendor/bin/phpunit", "php vendor/bin/phpunit tests",
+    "php vendor/bin/phpunit tests/../ExampleTest.php", "php vendor/bin/phpunit /tmp/ExampleTest.php",
+    "php vendor/bin/phpunit --bootstrap custom.php tests/ExampleTest.php", "php vendor/bin/phpunit tests/ExampleTest.php; echo done"]) {
+    assert.throws(() => validateCheckCommand(command, "test"), { code: "INPUT_INVALID" });
+  }
+});

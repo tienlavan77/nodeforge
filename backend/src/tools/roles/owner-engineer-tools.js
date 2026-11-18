@@ -132,7 +132,7 @@ export function createOwnerEngineerTools({ testService, gitService, conversation
 export const runCheckDefinition = definition("run_check", "Run one explicitly scoped check through the Node Verification Service and return its final result.", {
   type: "object", additionalProperties: false, required: ["type", "command"], properties: {
     type: { type: "string", enum: ["test", "lint", "typecheck", "build"] },
-    command: { type: "string", minLength: 1, maxLength: 1000, description: "Required focused project check. Specify changed test/file paths; no shell chaining, substitutions, or absolute paths." }
+    command: { type: "string", minLength: 1, maxLength: 1000, description: "Required focused project check. For PHPUnit use php vendor/bin/phpunit tests/ExampleTest.php. Specify changed test/file paths; no shell chaining, substitutions, or absolute paths." }
   }
 });
 export const commitChangesDefinition = definition("commit_changes", "Commit only files changed through this conversation's Forge edit tools, excluding internal workflows documents.", {
@@ -177,6 +177,8 @@ function isQuotedPhpInlineCommand(command) {
 export function validateCheckCommand(command, type) {
   const phpInline = isQuotedPhpInlineCommand(command);
   if (typeof command !== "string" || !command.trim() || (!phpInline && /[\0\r\n;&|<>`$]/.test(command)) || /(^|\s)(?:\/|[A-Za-z]:\\)/.test(command) || /(^|\s)\.\.(?:\/|\s|$)/.test(command)) throw invalid("Check command contains shell syntax or a path outside the project.");
+  // Run only the Composer-installed PHPUnit launcher against one explicit project-relative PHP file.
+  if (type === "test" && /^(?:php +)?(?:\.\/)?vendor\/bin\/phpunit +(?:\.\/)?(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.php$/.test(command)) return;
   const allowed = /^(?:node --test(?:\s|$)|(?:npm exec -- )?php (?:-l|[A-Za-z0-9._/-]+\.php)(?:\s|$)|php -r\s|pnpm (?:test|lint|typecheck|build|validate:schemas|exec (?:eslint|tsc|vitest|jest|mocha)(?:\s|$)|--filter [A-Za-z0-9@/._-]+ (?:test|lint|typecheck|build)(?:\s|$)|--dir [A-Za-z0-9._/-]+ (?:build|run (?:test|lint|typecheck|build))(?:\s|$))|npm (?:test|run (?:test|lint|typecheck|build|validate:schemas)(?:\s|$)))/;
   // Permits the canonical retrieval benchmark without admitting arbitrary package scripts or arguments.
   const retrievalBenchmark = type === "test" && command.trim() === "pnpm --dir backend eval:retrieval";
